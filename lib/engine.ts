@@ -66,6 +66,7 @@ const DEFS = {
   forge: { n: "Lò rèn", era: 3, cost: { stone: 200, copper: 100 }, sec: 1800, jobs: 3, max: 2, d: "+25% chặt cây, đào đá, săn bắn và sản lượng ruộng, trại. Tối đa 2." },
   wheel: { n: "Cối nước", era: 3, cost: { wood: 200, stone: 100 }, sec: 1200, jobs: 2, prod: { food: 150 }, need: "river", up: true, d: "Sát sông. Mùa đông không giảm." },
   hall: { n: "Đình làng", era: 2, cost: { wood: 300, stone: 200, copper: 20 }, sec: 900, house: 5, storage: 500, up: true, max: 1, drop: ["food", "wood", "stone", "copper"], d: "Nhà chính. Công trình khác chỉ nâng được tới cấp của Đình. Cấp 3 mở trung tâm điều khiển." },
+  envoy: { n: "Nhà sứ giả", era: 1, cost: { wood: 150, stone: 60, food: 60 }, sec: 300, up: true, max: 1, d: "Có sứ giả để đi thăm các nước. Mỗi cấp thêm một sứ giả và đi nhanh hơn." },
   barracks: { n: "Trại lính", era: 1, cost: { wood: 120, stone: 40 }, sec: 120, up: true, max: 3, d: "Huấn luyện quân. Mỗi cấp chứa thêm 10 lính." },
   temple: { n: "Đền Sông Mẹ", era: 3, cost: { wood: 800, stone: 1200, copper: 400 }, sec: 4 * 3600, max: 1, d: "Kỳ quan của thành phố." },
 } satisfies Record<string, Def>;
@@ -158,8 +159,25 @@ export type City = {
   wins: number;
   auto?: { on: boolean; mix: Record<ResKey, number> }; // auto-assign shares (control centre)
   raid?: { at: number; warn: number; power: number; from: number } | null; // incoming barbarians
+  trips?: EnvoyTrip[]; // envoys travelling on the world map
+  visits?: Record<string, number>; // city id -> visit valid until (ms)
   alarm?: boolean; // bell rung for the incoming raid
 };
+
+export type EnvoyTrip = { id: number; target: string; targetName: string; depart: number; arrive: number; back: number; arrived?: boolean };
+export const VISIT_MS = 3 * 24 * HOUR;
+export const WORLD = 200; // world map is WORLD × WORLD cells
+const ENVOY_CELLS_PER_MIN = 2;
+
+/** Envoy house and envoy names change with the era. */
+export const ENVOY_NAMES = ["", "Người đưa tin", "Sứ giả", "Sứ thần"];
+export const ENVOY_HOUSE = ["", "Lều đưa tin", "Nhà sứ giả", "Sứ quán"];
+export const buildingName = (c: City, k: BKey) => (k === "envoy" ? ENVOY_HOUSE[c.era] : def(k).n);
+export const envoyCount = (c: City) => Object.values(c.b).reduce((a, b) => (b.k === "envoy" && b.lvl >= 1 && !b.flooded ? Math.max(a, b.lvl) : a), 0);
+export const envoysAway = (c: City) => (c.trips ?? []).length;
+/** One-way travel time on the world map, faster with a higher-level envoy house. */
+export const envoyMs = (c: City, cells: number) => (Math.max(1, cells) / (ENVOY_CELLS_PER_MIN * (1 + 0.5 * Math.max(0, envoyCount(c) - 1)))) * MIN;
+export const canVisit = (c: City, id: string, at: number) => (c.visits?.[id] ?? 0) > at;
 
 export type Mix = Record<ResKey, number>;
 export const DEFAULT_MIX: Mix = { food: 40, wood: 30, stone: 20, copper: 10 };
@@ -764,6 +782,37 @@ function raid(c: City, at: number, r: () => number) {
   }
 }
 
+function stepEnvoys(c: City, nt: number) {
+  let changed = false;
+  for (const tr of [...(c.trips ?? [])]) {
+    if (!tr.arrived && tr.arrive <= nt) {
+      tr.arrived = true;
+      c.visits = { ...(c.visits ?? {}), [tr.target]: tr.arrive + VISIT_MS };
+      log(c, tr.arrive, `${ENVOY_NAMES[c.era]} đã tới ${tr.targetName}. Có thể xem làng họ, và được phép xuất quân tới đó trong 3 ngày.`, "good");
+      changed = true;
+    }
+    if (tr.back <= nt) {
+      c.trips = (c.trips ?? []).filter((x) => x !== tr);
+      log(c, tr.back, `${ENVOY_NAMES[c.era]} đã từ ${tr.targetName} trở về.`);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** Send an envoy to another city `cells` away on the world map (the API layer measures the distance). */
+export function sendEnvoy(c: City, target: string, targetName: string, cells: number, now: number): string | null {
+  settle(c, now);
+  if (!envoyCount(c)) return `Cần xây ${ENVOY_HOUSE[c.era]} trước.`;
+  if (envoysAway(c) >= envoyCount(c)) return `Tất cả ${ENVOY_NAMES[c.era].toLowerCase()} đang đi vắng.`;
+  if ((c.trips ?? []).some((t) => t.target === target)) return `Đã có ${ENVOY_NAMES[c.era].toLowerCase()} đang đi tới đó.`;
+  const ms = envoyMs(c, cells);
+  const id = (c.trips ?? []).reduce((a, t) => Math.max(a, t.id), 0) + 1;
+  c.trips = [...(c.trips ?? []), { id, target, targetName, depart: now, arrive: now + ms, back: now + 2 * ms }];
+  log(c, now, `${ENVOY_NAMES[c.era]} lên đường tới ${targetName}, tới nơi sau ${Math.max(1, Math.round(ms / MIN))} phút.`);
+  return null;
+}
+
 function stepArmy(c: City, nt: number) {
   let changed = false;
   if (c.raid && c.raid.at <= nt) { raid(c, c.raid.at, rng(c.seed ^ Math.imul(Math.floor(c.raid.at / MIN), 3266489917))); changed = true; }
@@ -853,6 +902,7 @@ export function settle(c: City, now: number) {
     while (c.seasonIdx < si) { c.seasonIdx++; onSeason(c, c.seasonIdx); dirty = true; }
     if (stepExplorers(c, nt)) dirty = true;
     if (stepArmy(c, nt)) dirty = true;
+    if (stepEnvoys(c, nt)) dirty = true;
     if (autoAssign(c, nt)) dirty = true;
     if (dirty) { D = derive(c); st = stats(c, D, nt); dirty = false; }
 

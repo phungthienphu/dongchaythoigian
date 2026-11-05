@@ -4,6 +4,8 @@ import type { City } from "./engine";
 export type CityDoc = {
   _id: string; // player id from the `pid` cookie
   name: string;
+  owner?: string; // Google user id once the player has signed in
+  world?: { x: number; y: number }; // position on the world map
   state: City;
   score: number;
   era: number;
@@ -14,15 +16,37 @@ export type CityDoc = {
   updatedAt: Date;
 };
 
-const g = globalThis as unknown as { _mongo?: Promise<MongoClient> };
+export type UserDoc = {
+  _id: string; // Google account id ("sub")
+  email: string;
+  name: string;
+  picture?: string;
+  cityId: string | null;
+  friendCode: string;
+  friends: string[]; // user ids
+  createdAt: Date;
+  lastSeen: Date;
+};
 
-export async function cities(): Promise<Collection<CityDoc>> {
+const g = globalThis as unknown as { _mongo?: Promise<MongoClient> };
+const dbName = () => process.env.MONGODB_DB || "dong_song_thoi_dai";
+
+async function db() {
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error("Thiếu MONGODB_URI trong .env.local");
   g._mongo ??= new MongoClient(uri).connect().then(async (client) => {
-    await client.db(process.env.MONGODB_DB || "dong_song_thoi_dai").collection("cities").createIndex({ score: -1 });
+    const d = client.db(dbName());
+    await d.collection("cities").createIndex({ score: -1 });
+    await d.collection("users").createIndex({ friendCode: 1 }, { unique: true });
     return client;
   });
-  const client = await g._mongo;
-  return client.db(process.env.MONGODB_DB || "dong_song_thoi_dai").collection<CityDoc>("cities");
+  return (await g._mongo).db(dbName());
+}
+
+export async function cities(): Promise<Collection<CityDoc>> {
+  return (await db()).collection<CityDoc>("cities");
+}
+
+export async function users(): Promise<Collection<UserDoc>> {
+  return (await db()).collection<UserDoc>("users");
 }

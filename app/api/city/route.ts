@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { cities } from "@/lib/db";
 import { newCity, score } from "@/lib/engine";
 import { PID_COOKIE, playerId, withCity } from "@/lib/city-store";
+import { currentUser } from "@/lib/auth";
+import { users } from "@/lib/db";
 
 export async function GET() {
   const pid = await playerId();
@@ -22,13 +24,16 @@ export async function POST(req: Request) {
   if (existing && (await col.findOne({ _id: existing }, { projection: { _id: 1 } }))) {
     return NextResponse.json({ error: "Bạn đã có thành phố." }, { status: 409 });
   }
+  const user = await currentUser();
+  if (user?.cityId) return NextResponse.json({ error: "Tài khoản này đã có thành phố." }, { status: 409 });
   const pid = crypto.randomUUID();
   const now = Date.now();
   const state = newCity(now);
   await col.insertOne({
     _id: pid, name, state, score: score(state), era: state.era, pop: state.pop, templeAt: null,
-    ver: 0, createdAt: new Date(now), updatedAt: new Date(now),
+    ver: 0, createdAt: new Date(now), updatedAt: new Date(now), ...(user ? { owner: user._id } : {}),
   });
+  if (user) await (await users()).updateOne({ _id: user._id }, { $set: { cityId: pid } });
   (await cookies()).set(PID_COOKIE, pid, {
     httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 * 5,
     secure: process.env.NODE_ENV === "production",

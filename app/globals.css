@@ -275,3 +275,63 @@ button.x:hover { color: var(--fg); }
 @keyframes raidpulse { 50% { box-shadow: 0 0 0 4px rgba(232,132,104,.25); } }
 @media (prefers-reduced-motion: reduce) { .raidbar { animation: none; } }
 .units input[type="range"] { accent-color: var(--accent); }
+
+/* account & friends */
+.titlerow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.acct { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 999px; background: rgba(20,32,29,.88); font-size: 12.5px; }
+.acct img, .acct .av, .friends .pic img, .friends .pic .av { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: #3a4f49; font-weight: 700; font-size: 12px; object-fit: cover; }
+a.google { display: inline-block; padding: 7px 12px; border-radius: 8px; background: #f2f2f2; color: #1f1f1f; font-weight: 600; text-decoration: none; border: 1px solid #dadce0; }
+a.google:hover { background: #fff; }
+a.google.small { padding: 4px 10px; font-size: 12.5px; }
+.mycode { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; background: #1f2d2a; }
+.mycode .code { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 20px; letter-spacing: .18em; color: var(--accent); user-select: all; }
+.addfriend { display: flex; flex-direction: column; gap: 4px; }
+.addfriend .row { display: flex; gap: 6px; }
+.addfriend input { flex: 1; min-width: 0; font: inherit; font-family: ui-monospace, Menlo, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--fg); background: #1a2624; border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; }
+.addfriend p { margin: 0; }
+.friends { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.friends li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #1f2d2a; border-radius: 8px; }
+.friends .pic { position: relative; flex: none; }
+.friends .pic img, .friends .pic .av { width: 36px; height: 36px; }
+.friends .pic i { position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%; background: #6b7a74; border: 2px solid #1f2d2a; }
+.friends .pic i.on { background: var(--ok); }
+.friends .fi { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.friends .fi span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* short screens: smaller bubbles so all of them fit */
+@media (max-height: 760px) and (min-width: 641px) {
+  .bubbles { gap: 5px; }
+  .bubble { width: 48px; height: 48px; }
+  .bubble .ic, .bubble .ic svg { width: 20px; height: 20px; }
+  .bubble .bl { font-size: 8.5px; }
+}
+@media (max-height: 560px) and (min-width: 641px) {
+  .bubble .bl { display: none; }
+  .bubble { width: 40px; height: 40px; }
+}
+
+/* world map overlay */
+.worldmap { position: absolute; inset: 0; z-index: 8; background: #1d3b4a; }
+.wm-canvas { position: absolute; inset: 0; }
+.wm-canvas canvas { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.wm-top {
+  position: absolute; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px;
+  padding: max(10px, env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-right, 0px)) 10px max(14px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(180deg, rgba(12,20,18,.85), rgba(12,20,18,0));
+}
+.wm-top h2 { margin: 0; }
+.wm-top button { margin-left: auto; }
+.wm-card { bottom: 16px; }
+
+/* visiting another village */
+.visitbar {
+  position: absolute; z-index: 6; top: max(10px, env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 12px; max-width: calc(100vw - 24px);
+  padding: 8px 14px; border-radius: 12px; background: rgba(18,40,48,.94); border: 1px solid #7fe0ff;
+}
+.visitbar b { color: #bdefff; }
+.visitbar span { color: #cfe7ee; font-size: 12.5px; }
+.game.visiting .hud-top, .game.visiting .bubbles, .game.visiting .hud-card, .game.visiting .hud-bottom, .game.visiting .drawer, .game.visiting .raidbar { display: none; }
+
+/* Nation actions remain available when reopening the world map during a visit. */
+.game.visiting .worldmap .wm-card { display: block; }

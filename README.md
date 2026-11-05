@@ -22,3 +22,4 @@ bun run dev
 - 1 mùa = 6 giờ thật, 1 năm = 1 ngày. Lũ có thể đến đầu mỗi mùa thu.
 - Offline vẫn sản xuất, tối đa 14 ngày, giới hạn bởi sức chứa kho.
 - Lên Thời đồ đồng thì khoảng 1–2 ngày sau sông đổi dòng, có báo trước một ngày.
+# dongchaythoigian

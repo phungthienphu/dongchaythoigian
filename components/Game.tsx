@@ -3,17 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  DEFAULT_MIX, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
+  DEFAULT_MIX, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
   armyCap, armyUsed, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
 } from "@/lib/engine";
 import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHerd, pickVillager, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import { Crowd } from "./villagers";
+import WorldMap from "./WorldMap";
+import type { Nation } from "@/lib/world";
 
 type Cell = { x: number; y: number };
 type Row = { name: string; score: number; era: number; pop: number; temple: boolean; me: boolean };
-type Panel = "shop" | "army" | "people" | "era" | "log" | "rank" | "control";
+type Panel = "shop" | "army" | "people" | "era" | "log" | "rank" | "control" | "friends";
+type Me = { user: { id: string; name: string; picture?: string; email: string; friendCode: string; hasCity: boolean } | null; friends: { id: string; name: string; picture?: string; online: boolean; city: { name: string; era: number; pop: number; score: number } | null }[] };
 
 function fmtDur(ms: number) {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -82,6 +85,8 @@ const ICON = {
   shop: <svg viewBox="0 0 24 24"><path d="M3 10h18l-2-5H5z" fill="#c94c38" /><path d="M5 10h14v9H5z" fill="#d9b98a" /><path d="M10 13h4v6h-4z" fill="#6b4526" /></svg>,
   era: <svg viewBox="0 0 24 24"><path d="M4 20h16l-3-6h-3l-2-4-2 4H7z" fill="#d6a03f" /><path d="M12 3v7" stroke="#f0c766" strokeWidth="2" /></svg>,
   log: <svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2" fill="#e8d8b0" /><path d="M8 8h8M8 12h8M8 16h5" stroke="#8a6a42" strokeWidth="1.6" /></svg>,
+  world: <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#2f6f8f" /><path d="M6 9c2-1 3 1 5 0s2-3 4-2 2 3 1 4-3 0-3 2 1 3-1 4-4-1-5-3-3-2-1-5z" fill="#7fae4c" /></svg>,
+  friends: <svg viewBox="0 0 24 24"><circle cx="8.5" cy="8" r="3" fill="#f1c9a0" /><circle cx="15.5" cy="8" r="3" fill="#d9a77a" /><path d="M2.5 19c0-4 2.7-6 6-6s6 2 6 6z" fill="#3f6fb0" /><path d="M9.5 19c0-4 2.7-6 6-6s6 2 6 6z" fill="#5c9a8a" /></svg>,
   rank: <svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z" fill="#e2b240" /><path d="M10 14h4v3h3v3H7v-3h3z" fill="#b4842c" /></svg>,
 };
 type IconKey = keyof typeof ICON;
@@ -101,6 +106,76 @@ function Stepper({ value, max, onChange, label }: { value: number; max: number; 
       <span>{value}</span>
       <button onClick={() => onChange(Math.min(max, value + 1))} aria-label="Thêm">+</button>
     </div>
+  );
+}
+
+function FriendsPanel({ me, reload }: { me: Me; reload: () => Promise<void> }) {
+  const [code, setCode] = useState("");
+  const [note, setNote] = useState<{ text: string; err?: boolean } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [armed, setArmed] = useState<string | null>(null);
+  if (!me.user) {
+    return (
+      <>
+        <p className="small">Đăng nhập để có tài khoản cố định, kết bạn và cử sứ giả sang thăm làng bạn bè.</p>
+        <p className="muted small">Thành phố bạn đang chơi sẽ được gắn vào tài khoản ở lần đăng nhập đầu tiên.</p>
+        <a className="google" href="/api/auth/login">Đăng nhập bằng Google</a>
+      </>
+    );
+  }
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await fetch("/api/friends", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
+    const data = await res.json();
+    if (!res.ok) { setNote({ text: data.error, err: true }); return; }
+    setNote({ text: `Đã kết bạn với ${data.name}.` });
+    setCode("");
+    reload();
+  };
+  const remove = async (id: string) => {
+    if (armed !== id) { setArmed(id); return; }
+    await fetch("/api/friends", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) });
+    setArmed(null);
+    reload();
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(me.user!.friendCode); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked: the code is selectable */ }
+  };
+  return (
+    <>
+      <div className="mycode">
+        <span className="muted small">Mã mời của bạn</span>
+        <b className="code">{me.user.friendCode}</b>
+        <button onClick={copy}>{copied ? "Đã chép" : "Chép mã"}</button>
+      </div>
+      <form className="addfriend" onSubmit={add}>
+        <label htmlFor="friendcode" className="muted small">Nhập mã của bạn bè</label>
+        <div className="row">
+          <input id="friendcode" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} maxLength={6} placeholder="VD: K7M2QX" autoComplete="off" />
+          <button className="primary" type="submit" disabled={code.trim().length !== 6}>Kết bạn</button>
+        </div>
+        {note && <p className={"small " + (note.err ? "err" : "ok")}>{note.text}</p>}
+      </form>
+      <h3>Bạn bè ({me.friends.length})</h3>
+      {me.friends.length ? (
+        <ul className="friends">
+          {[...me.friends].sort((a, b) => Number(b.online) - Number(a.online)).map((f) => (
+            <li key={f.id}>
+              <span className="pic">{f.picture ? <img src={f.picture} alt="" referrerPolicy="no-referrer" /> : <span className="av">{f.name[0]}</span>}<i className={f.online ? "on" : ""} /></span>
+              <div className="fi">
+                <b>{f.name}</b>
+                <span className="muted small">{f.city ? `${f.city.name} · ${ERA_NAMES[f.city.era].replace("Thời ", "")} · ${f.city.pop} dân · ${fmt(f.city.score)} điểm` : "Chưa dựng làng"}</span>
+                <span className="muted small">{f.online ? "Đang online" : "Offline"}</span>
+              </div>
+              <button className="link" onClick={() => remove(f.id)}>{armed === f.id ? "Bấm lần nữa để xoá" : "Xoá"}</button>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="muted small">Chưa có bạn nào. Gửi mã mời của bạn cho bạn bè để họ nhập vào đây.</p>}
+      <form method="post" action="/api/auth/logout" onSubmit={async (e) => { e.preventDefault(); await fetch("/api/auth/logout", { method: "POST" }); location.reload(); }}>
+        <button type="submit" className="link">Đăng xuất</button>
+      </form>
+    </>
   );
 }
 
@@ -219,6 +294,7 @@ export default function Game() {
   const [shopEra, setShopEra] = useState(1);
   const [msg, setMsg] = useState<{ text: string; err?: boolean } | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
+  const [me, setMe] = useState<Me>({ user: null, friends: [] });
   const [busy, setBusy] = useState(false);
   const [armDemolish, setArmDemolish] = useState(false);
 
@@ -231,6 +307,12 @@ export default function Game() {
   const camRef = useRef<Cam>({ zoom: 1, px: 0, py: 0 });
   const focusedRef = useRef(false);
   const crowdRef = useRef(new Crowd());
+  // visiting another village: its state, derived data and crowd, shown instead of ours
+  const visitRequest = useRef(0);
+  const visitRef = useRef<{ id: string; name: string; ownerName: string | null; city: City; D: Derived; crowd: Crowd } | null>(null);
+  const [visiting, setVisiting] = useState<{ id: string; name: string; ownerName: string | null; era: number } | null>(null);
+  const [worldOpen, setWorldOpen] = useState(false);
+  const [nations, setNations] = useState<Nation[]>([]);
   // dev-only handle for inspecting villagers from the browser console
   if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") (window as unknown as { __game?: unknown }).__game = { crowd: crowdRef.current, city: () => cityRef.current, view: () => camView(fitRef.current, camRef.current) };
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
@@ -261,24 +343,66 @@ export default function Game() {
     setLoading(false);
   }, [accept]);
 
+  const loadWorld = useCallback(async () => {
+    const res = await fetch("/api/world", { cache: "no-store" });
+    if (res.ok) setNations((await res.json()).nations);
+  }, []);
+
+  const loadVisit = useCallback(async (id: string, first: boolean) => {
+    const request = ++visitRequest.current;
+    try {
+      const res = await fetch(`/api/visit/${id}`, { cache: "no-store" });
+      const data = await res.json();
+      if (request !== visitRequest.current) return;
+      if (!res.ok) {
+        setMsg({ text: data.error ?? "Không xem được làng này.", err: true });
+        visitRef.current = null; setVisiting(null);
+        return;
+      }
+      const prev = visitRef.current;
+      const crowd = prev && prev.id === id ? prev.crowd : new Crowd();
+      const D = derive(data.state);
+      crowd.sync(data.state);
+      visitRef.current = { id, name: data.name, ownerName: data.ownerName, city: data.state, D, crowd };
+      setVisiting({ id, name: data.name, ownerName: data.ownerName, era: data.state.era });
+      if (first) {
+        const f = fitRef.current, st = data.state as City;
+        focusOn(f, camRef.current, (st.camp % W) + 0.5, Math.floor(st.camp / W) + 0.5, Math.min(MAX_ZOOM, 60 / f.TW));
+      }
+    } catch {
+      if (request === visitRequest.current) setMsg({ text: "Mất kết nối khi tải làng. Thử lại sau.", err: true });
+    }
+  }, []);
+
+  const loadMe = useCallback(async () => {
+    const res = await fetch("/api/me", { cache: "no-store" });
+    if (res.ok) setMe(await res.json());
+  }, []);
+
   const loadBoard = useCallback(async () => {
     const res = await fetch("/api/leaderboard", { cache: "no-store" });
     if (res.ok) setRows((await res.json()).rows);
   }, []);
 
   useEffect(() => {
-    loadCity(); loadBoard();
+    loadCity(); loadBoard(); loadMe();
+    const authErr = new URLSearchParams(location.search).get("auth");
+    if (authErr) { setMsg({ text: "Đăng nhập Google không thành công, thử lại.", err: true }); history.replaceState(null, "", "/"); }
     const tick = setInterval(() => {
       const c = cityRef.current;
       if (!c) return;
       settle(c, now());
       dRef.current = derive(c);
       crowdRef.current.sync(c);
+      const vis = visitRef.current;
+      if (vis) { settle(vis.city, now()); vis.D = derive(vis.city); vis.crowd.sync(vis.city); }
       bump();
     }, 1000);
-    const sync = setInterval(() => { loadCity(); loadBoard(); }, 60_000);
-    return () => { clearInterval(tick); clearInterval(sync); };
-  }, [loadCity, loadBoard]);
+    const sync = setInterval(() => { loadCity(); loadBoard(); loadMe(); }, 60_000);
+    // while visiting, pick up the owner's latest orders every few seconds
+    const visitSync = setInterval(() => { const v = visitRef.current; if (v) loadVisit(v.id, false); }, 5_000);
+    return () => { clearInterval(tick); clearInterval(sync); clearInterval(visitSync); };
+  }, [loadCity, loadBoard, loadMe, loadVisit]);
 
   // canvas sizing, camera and render loop
   useEffect(() => {
@@ -309,7 +433,8 @@ export default function Game() {
     cv.addEventListener("wheel", onWheel, { passive: false });
     let raf = 0, last = 0;
     const loop = (t: number) => {
-      const c = cityRef.current, D = dRef.current;
+      const vis = visitRef.current;
+      const c = vis ? vis.city : cityRef.current, D = vis ? vis.D : dRef.current, crowd = vis ? vis.crowd : crowdRef.current;
       const dt = last ? Math.min(0.1, (t - last) / 1000) : 0;
       last = t;
       if (c && D) {
@@ -318,9 +443,10 @@ export default function Game() {
           focusOn(f, camRef.current, (c.camp % W) + 0.5, Math.floor(c.camp / W) + 0.5, Math.min(MAX_ZOOM, 60 / f.TW));
           focusedRef.current = true;
         }
-        if (!rm) crowdRef.current.update(c, dt, now());
+        if (!rm) crowd.update(c, dt, now());
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        drawCity(ctx, c, D, { v: camView(fitRef.current, camRef.current), now: now(), anim: rm ? 0 : t, villagers: crowdRef.current.list, fx: crowdRef.current.fx, chopping: crowdRef.current.chopping, ...viewRef.current });
+        const view = vis ? { hover: null, selected: null, tool: null, picked: new Set<number>() } : viewRef.current;
+        drawCity(ctx, c, D, { v: camView(fitRef.current, camRef.current), now: now(), anim: rm ? 0 : t, villagers: crowd.list, fx: crowd.fx, chopping: crowd.chopping, ...view });
       }
       raf = requestAnimationFrame(loop);
     };
@@ -429,6 +555,7 @@ export default function Game() {
     const drag = dragRef.current;
     dragRef.current = null;
     if (drag?.moved) return;
+    if (visitRef.current) return; // looking only
     const c = cityRef.current;
     if (!c) return;
     const p = local(e);
@@ -436,7 +563,7 @@ export default function Game() {
       const cell = cellAt(e);
       if (!cell) return;
       const ok = await act({ type: "build", k: tool, x: cell.x, y: cell.y });
-      if (ok) setMsg({ text: `Thợ bắt đầu xây ${B[tool].n}.` });
+      if (ok) setMsg({ text: `Thợ bắt đầu xây ${buildingName(c, tool)}.` });
       return;
     }
     const vl = pickVillager(view(), crowdRef.current.list, p.x, p.y);
@@ -487,7 +614,7 @@ export default function Game() {
     setSelected(null);
     setPicked(new Set());
     if (k) setPanel(null);
-    setMsg(k ? { text: `${B[k].n} (${costText(B[k].cost)}, ${fmtDur(buildMs(k, 1))}): ${B[k].d} Chuột phải hoặc Esc để bỏ chọn.` } : null);
+    setMsg(k ? { text: `${buildingName(cityRef.current!, k)} (${costText(B[k].cost)}, ${fmtDur(buildMs(k, 1))}): ${B[k].d} Chuột phải hoặc Esc để bỏ chọn.` } : null);
   };
 
   useEffect(() => {
@@ -509,6 +636,9 @@ export default function Game() {
       <main className="wrap start">
         <h1>Dòng Sông Thời Đại</h1>
         <p className="lede">Dựng một khu định cư bên sông và đưa nó từ thời đồ đá lên thời đồ sắt. Giao việc cho dân làng, săn thú, khám phá vùng đất, luyện quân phá trại man rợ. Thành phố vẫn chạy khi bạn rời đi.</p>
+        {!me.user && (
+          <p className="small">Đã có thành phố? <a className="google" href="/api/auth/login">Đăng nhập bằng Google</a> để chơi tiếp trên máy này.</p>
+        )}
         <form onSubmit={createCity} className="startform">
           <label htmlFor="cityname">Đặt tên thành phố</label>
           <input id="cityname" value={nameInput} onChange={(e) => setNameInput(e.target.value)} maxLength={24} placeholder="Ví dụ: Bến Phù Sa" autoFocus />
@@ -529,14 +659,14 @@ export default function Game() {
   let status: { text: string; err?: boolean } | null = msg;
   if (hover && tool) {
     const bad = canPlace(c, D, tool, hover.x, hover.y);
-    status = bad ? { text: `${B[tool].n}: ${bad}`, err: true } : { text: `${B[tool].n}: bấm để xây. Ô: ${tileDesc(c, D, idx(hover.x, hover.y))}.` };
+    status = bad ? { text: `${buildingName(c, tool)}: ${bad}`, err: true } : { text: `${buildingName(c, tool)}: bấm để xây. Ô: ${tileDesc(c, D, idx(hover.x, hover.y))}.` };
   } else if (hover && picked.size) {
     const tk = taskFor(c, idx(hover.x, hover.y));
     status = tk ? { text: `Bấm để giao ${picked.size} người: ${tk.label.toLowerCase()}.` } : { text: "Không có việc ở ô này.", err: true };
   } else if (hover && !msg) {
     const i = idx(hover.x, hover.y), b = c.b[i], camp = campAt(c, i);
     const herd = c.herds.find((h) => c.seen[h.at] && cheb(h.at, i) <= 2 && h.n >= 1);
-    status = { text: camp ? `Trại man rợ, sức mạnh ${camp.power}${camp.cleared ? " (đã bị phá)" : ""}. Bấm để xem và xuất quân.` : `${b ? B[b.k].n + (b.lvl ? ` cấp ${b.lvl}` : " (đang xây)") + ". " : ""}${herd ? `Đàn ${herd.kind === "deer" ? "hươu" : "lợn rừng"} ${Math.floor(herd.n)} con. ` : ""}${tileDesc(c, D, i)}.` };
+    status = { text: camp ? `Trại man rợ, sức mạnh ${camp.power}${camp.cleared ? " (đã bị phá)" : ""}. Bấm để xem và xuất quân.` : `${b ? buildingName(c, b.k) + (b.lvl ? ` cấp ${b.lvl}` : " (đang xây)") + ". " : ""}${herd ? `Đàn ${herd.kind === "deer" ? "hươu" : "lợn rừng"} ${Math.floor(herd.n)} con. ` : ""}${tileDesc(c, D, i)}.` };
   }
 
   const selI = selected ? idx(selected.x, selected.y) : -1;
@@ -562,11 +692,12 @@ export default function Game() {
     { k: "era", icon: "era", label: "Thời đại", badge: reqMet(c) ? "!" : undefined },
     { k: "log", icon: "log", label: "Biên niên" },
     { k: "rank", icon: "rank", label: "Xếp hạng" },
+    { k: "friends", icon: "friends", label: "Bạn bè", badge: me.friends.filter((f) => f.online).length || undefined },
     ...(hallLv ? [{ k: "control" as Panel, icon: "era" as IconKey, label: "Đình làng", badge: c.raid ? "!" : undefined }] : []),
   ];
 
   return (
-    <main className="game">
+    <main className={"game" + (visiting ? " visiting" : "")}>
       <div className="mapframe" ref={frameRef}>
         <canvas
           ref={canvasRef}
@@ -583,7 +714,15 @@ export default function Game() {
 
       <header className="hud-top">
         <div className="brand">
-          <h1>{name}</h1>
+          <div className="titlerow">
+            <h1>{name}</h1>
+            {me.user ? (
+              <button className="acct" onClick={() => openPanel("friends")} title={me.user.email}>
+                {me.user.picture ? <img src={me.user.picture} alt="" referrerPolicy="no-referrer" /> : <span className="av">{me.user.name[0]}</span>}
+                <span>{me.user.name}</span>
+              </button>
+            ) : <a className="google small" href="/api/auth/login">Đăng nhập Google</a>}
+          </div>
           <div className="when">
             <span className="era">{ERA_NAMES[c.era]}</span>
             <span className={"date" + (season === 2 ? " flood" : "")}>
@@ -682,7 +821,7 @@ export default function Game() {
             </>
           ) : sel ? (
             <>
-              <h2>{B[sel.k].n}{sel.lvl ? ` · cấp ${sel.lvl}` : ""}</h2>
+              <h2>{buildingName(c, sel.k)}{sel.lvl ? ` · cấp ${sel.lvl}` : ""}</h2>
               <p className="muted small">{B[sel.k].d}</p>
               {sel.doneAt && <p className="small">{sel.lvl === 0 ? "Đang xây" : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
               {sel.flooded && <p className="err small">Bị ngập, không hoạt động.</p>}
@@ -753,7 +892,7 @@ export default function Game() {
         )}
         {tool && (
           <div className="pickbar">
-            <b>Đang xây {B[tool].n}</b>
+            <b>Đang xây {buildingName(c, tool)}</b>
             <span>Bấm ô trống để đặt</span>
             <button onClick={() => pickTool(null)}>Xong</button>
           </div>
@@ -761,7 +900,43 @@ export default function Game() {
         <div className={"status" + (status?.err ? " err" : "")}>{status?.text ?? "Bấm vào dân để chọn rồi bấm vào rừng, đồi, đàn thú hoặc sương mù để giao việc. Mở Cửa hàng để xây nhà."}</div>
       </div>
 
+      {visiting && (
+        <div className="visitbar">
+          <b>Đang thăm {visiting.name}</b>
+          <span>{visiting.ownerName ? `của ${visiting.ownerName} · ` : ""}{ERAS[visiting.era]} · cảnh làng đang chạy trực tiếp</span>
+          <button onClick={() => { setWorldOpen(true); }}>Bản đồ thế giới</button>
+          <button className="primary" onClick={() => { ++visitRequest.current; visitRef.current = null; setVisiting(null); focusHome(); }}>Về làng mình</button>
+        </div>
+      )}
+
+      {worldOpen && (
+        <WorldMap
+          nations={nations}
+          city={c}
+          now={now}
+          busy={busy}
+          onClose={() => setWorldOpen(false)}
+          onEnvoy={async (id) => {
+            setBusy(true);
+            try {
+              const res = await fetch("/api/world/envoy", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target: id }) });
+              const data = await res.json();
+              if (data.state) accept(data);
+              setMsg(data.error ? { text: data.error, err: true } : { text: `${ENVOY_NAMES[c.era]} đã lên đường.` });
+            } catch {
+              setMsg({ text: "Mất kết nối khi cử sứ giả. Thử lại sau.", err: true });
+            } finally { setBusy(false); }
+          }}
+          onVisit={(id) => { setWorldOpen(false); setPanel(null); setSelected(null); setPicked(new Set()); setTool(null); loadVisit(id, true); }}
+        />
+      )}
+
       <nav className="bubbles" aria-label="Bảng điều khiển">
+        <button className="bubble" onClick={() => { loadWorld(); setWorldOpen(true); setPanel(null); }}>
+          <Icon k="world" />
+          <span className="bl">Thế giới</span>
+          {(c.trips ?? []).length > 0 && <span className="badge">{(c.trips ?? []).length}</span>}
+        </button>
         {bubbles.map((b) => (
           <button key={b.k} className="bubble" aria-pressed={panel === b.k} onClick={() => openPanel(b.k)}>
             <Icon k={b.icon} />
@@ -795,7 +970,7 @@ export default function Game() {
                     return (
                       <button key={k} className="shopcard" aria-pressed={tool === k} disabled={locked} onClick={() => pickTool(k)}>
                         <Thumb city={c} D={D} k={k} />
-                        <span className="n">{B[k].n}</span>
+                        <span className="n">{buildingName(c, k)}</span>
                         <span className={"c" + (poor && !locked ? " no" : "")}>{costText(B[k].cost)}</span>
                         <span className="tm">⏱ {fmtDur(buildMs(k, 1))}</span>
                         <span className="ds">{B[k].d}</span>
@@ -907,6 +1082,8 @@ export default function Game() {
                 attackAll={async (campId) => { if (await act({ type: "attack", camp: campId, units: { ...c.army } })) setMsg({ text: "Đã xuất quân." }); }}
               />
             )}
+
+            {panel === "friends" && <FriendsPanel me={me} reload={loadMe} />}
 
             {panel === "rank" && (
               <ol className="board-list">

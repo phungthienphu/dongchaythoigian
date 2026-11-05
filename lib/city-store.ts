@@ -1,11 +1,19 @@
 import { cookies } from "next/headers";
-import { cities, type CityDoc } from "./db";
+import { cities, users, type CityDoc } from "./db";
+import { SESSION_COOKIE, readSession } from "./auth";
 import { ENGINE_VER, newCity, score, settle, type City } from "./engine";
 
 export const PID_COOKIE = "pid";
 
+/** The signed-in player's city, or the guest city from the `pid` cookie. */
 export async function playerId() {
-  return (await cookies()).get(PID_COOKIE)?.value ?? null;
+  const jar = await cookies();
+  const uid = readSession(jar.get(SESSION_COOKIE)?.value);
+  if (uid) {
+    const u = await (await users()).findOne({ _id: uid }, { projection: { cityId: 1 } });
+    if (u?.cityId) return u.cityId;
+  }
+  return jar.get(PID_COOKIE)?.value ?? null;
 }
 
 /**

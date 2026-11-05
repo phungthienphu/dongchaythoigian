@@ -301,11 +301,15 @@ function lantern(r: RC, x: number, y: number, u: number, v: number, z: number, i
   c.fillStyle = "#d8322c"; c.beginPath(); c.ellipse(lx + sw, ly + 8 * s, 2.6 * s, 3.4 * s, 0, 0, Math.PI * 2); c.fill();
   c.fillStyle = "#f0c766"; c.fillRect(lx + sw - 1.4 * s, ly + 4.2 * s, 2.8 * s, 1 * s); c.fillRect(lx + sw - 1.4 * s, ly + 11.2 * s, 2.8 * s, 1 * s);
 }
-function flag(r: RC, x: number, y: number, u: number, v: number, z: number, h: number, col: string, i: number) {
+function flag(r: RC, x: number, y: number, u: number, v: number, z: number, h: number, col: string, i: number, pennant = false) {
   const q = tp(r, x, y), s = r.v.s, c = r.c, [bx, by] = q(u, v, z);
   line(r, [bx, by], [bx, by - h * s], "#4b301a", 1.3);
   const wv = Math.sin(r.anim / 280 + i) * 1.6 * s;
-  c.fillStyle = col; c.beginPath(); c.moveTo(bx, by - h * s); c.quadraticCurveTo(bx + 6 * s, by - h * s - 2 * s + wv, bx + 12 * s, by - h * s + 2 * s + wv); c.lineTo(bx, by - h * s + 7 * s); c.fill();
+  c.fillStyle = col; c.beginPath(); c.moveTo(bx, by - h * s); c.quadraticCurveTo(bx + 6 * s, by - h * s - 2 * s + wv, bx + 12 * s, by - h * s + 2 * s + wv); if (pennant) {
+    c.lineTo(bx + 8 * s, by - h * s + 4 * s + wv);
+    c.lineTo(bx + 12 * s, by - h * s + 8 * s + wv);
+  }
+  c.lineTo(bx, by - h * s + 7 * s); c.fill();
 }
 /** Low wooden fence along the two front edges, with a gap for a gate. */
 function fence(r: RC, x: number, y: number) {
@@ -659,6 +663,39 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       for (let k2 = 0; k2 < 6; k2++) {
         const a = a0 + (k2 * Math.PI) / 3, ex = Math.cos(a) * rad * 0.55, ey = Math.sin(a) * rad;
         c.beginPath(); c.moveTo(wx, wy); c.lineTo(wx + ex * Math.cos(-0.5) - ey * Math.sin(-0.5), wy + ex * Math.sin(-0.5) + ey * Math.cos(-0.5)); c.stroke();
+      }
+      break;
+    }
+    case "envoy": {
+      const era = r.city.era;
+      shadow(r, x, y, 0.4);
+      if (era <= 1) {
+        // messenger's hut: thatch, tall pole with a blue pennant, signal drum
+        box(r, x, y, -0.26, -0.24, 0.22, 0.2, 0, 10 * hs, "#c79a63", "#b88a55", "#9a7044");
+        pyramid(r, x, y, -0.32, -0.3, 0.28, 0.26, 10 * hs, 14 * hs, "#e2bd5e", "#c49a3f");
+        flag(r, x, y, 0.36, 0.3, 0, 34, "#3f7fc4", i, true);
+        const [dx, dy] = q(-0.3, 0.38, 0);
+        c.fillStyle = "#8a5a2b"; c.fillRect(dx - 4 * s, dy - 7 * s, 8 * s, 7 * s);
+        c.fillStyle = "#e8d8b0"; c.beginPath(); c.ellipse(dx, dy - 7 * s, 4 * s, 1.6 * s, 0, 0, Math.PI * 2); c.fill();
+      } else if (era === 2) {
+        // envoy's house: timber, red tiles, blue banner, hitching post
+        box(r, x, y, -0.32, -0.28, 0.3, 0.26, 0, 14 * hs, "#c9a06a", "#b88f5c", "#977148");
+        gable(r, x, y, -0.38, -0.34, 0.36, 0.32, 14 * hs, 11, "#b0543a", "#994632", "#8c3f2c");
+        tileRows(r, x, y, -0.38, 0.36, -0.34, 0.32, 14 * hs, 11, "rgba(90,30,20,.5)");
+        const a2 = q(-0.05, 0.26, 0), b2 = q(0.08, 0.26, 0), c2 = q(0.08, 0.26, 9), d2 = q(-0.05, 0.26, 9);
+        poly(c, [a2, b2, c2, d2], "#4a2a18");
+        poly(c, [q(0.3, -0.12, 12), q(0.3, 0.06, 12), q(0.3, 0.06, 3), q(0.3, -0.12, 3)], "#3f7fc4");
+        line(r, q(0.4, 0.4, 0), q(0.4, 0.4, 8), "#6b4526", 1.4); line(r, q(0.32, 0.4, 7), q(0.46, 0.4, 7), "#6b4526", 1.2);
+        lantern(r, x, y, -0.32, 0.3, 13 * hs, i);
+      } else {
+        // embassy: stone, blue tiled roof with upturned eaves, twin flags
+        box(r, x, y, -0.42, -0.38, 0.42, 0.36, 0, 4, "#cfc6b4", "#b9b09c", "#9a917e");
+        box(r, x, y, -0.34, -0.3, 0.34, 0.28, 4, 20 * hs, "#d6d0c2", "#c4bdae", "#a39c8e");
+        gable(r, x, y, -0.42, -0.38, 0.42, 0.36, 20 * hs, 13, "#3f6fa8", "#355f91", "#2d527d");
+        tileRows(r, x, y, -0.42, 0.42, -0.38, 0.36, 20 * hs, 13, "rgba(15,30,55,.5)");
+        upturn(r, x, y, -0.42, 0.42, -0.38, 0.36, 20 * hs, 13, "#2d527d");
+        windowOn(r, x, y, -0.15, 0.28, 10 * hs, "left", false); windowOn(r, x, y, 0.15, 0.28, 10 * hs, "left", false);
+        flag(r, x, y, -0.44, 0.42, 0, 42, "#3f7fc4", i); flag(r, x, y, 0.44, 0.42, 0, 42, "#e2b240", i + 2);
       }
       break;
     }

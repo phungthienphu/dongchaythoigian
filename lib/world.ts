@@ -1,0 +1,51 @@
+import { cities, users, type CityDoc } from "./db";
+import { WORLD } from "./engine";
+
+const MIN_GAP = 6; // cells between nations
+
+export const worldDist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.round(Math.hypot(a.x - b.x, a.y - b.y));
+
+/** Give a city a spot on the world map: near a friend if it has one, else anywhere with room. */
+export async function ensureWorldPos(pid: string): Promise<{ x: number; y: number } | null> {
+  const col = await cities();
+  const me = await col.findOne({ _id: pid }, { projection: { world: 1, owner: 1 } });
+  if (!me) return null;
+  if (me.world) return me.world;
+  const taken = (await col.find({ world: { $exists: true } }, { projection: { world: 1 } }).toArray()).map((d) => d.world!);
+  const free = (p: { x: number; y: number }) => p.x >= 2 && p.y >= 2 && p.x < WORLD - 2 && p.y < WORLD - 2 && taken.every((t) => worldDist(t, p) >= MIN_GAP);
+
+  let anchors: { x: number; y: number }[] = [];
+  if (me.owner) {
+    const u = await (await users()).findOne({ _id: me.owner }, { projection: { friends: 1 } });
+    if (u?.friends.length) {
+      const fs = await (await users()).find({ _id: { $in: u.friends } }, { projection: { cityId: 1 } }).toArray();
+      const ids = fs.map((f) => f.cityId).filter((x): x is string => !!x);
+      anchors = (await col.find({ _id: { $in: ids }, world: { $exists: true } }, { projection: { world: 1 } }).toArray()).map((d) => d.world!);
+    }
+  }
+  let pos: { x: number; y: number } | null = null;
+  for (let k = 0; k < 400 && !pos; k++) {
+    const a = anchors.length ? anchors[k % anchors.length] : null;
+    const p = a
+      ? { x: Math.round(a.x + Math.cos(k) * (MIN_GAP + (k % 7))), y: Math.round(a.y + Math.sin(k) * (MIN_GAP + (k % 7))) }
+      : { x: 10 + Math.floor(Math.random() * (WORLD - 20)), y: 10 + Math.floor(Math.random() * (WORLD - 20)) };
+    if (free(p)) pos = p;
+  }
+  pos ??= { x: Math.floor(Math.random() * WORLD), y: Math.floor(Math.random() * WORLD) };
+  // only set it if no concurrent request did first
+  await col.updateOne({ _id: pid, world: { $exists: false } }, { $set: { world: pos } });
+  return (await col.findOne({ _id: pid }, { projection: { world: 1 } }))?.world ?? pos;
+}
+
+export type Nation = { id: string; name: string; era: number; pop: number; score: number; x: number; y: number; me: boolean; friend: boolean; ownerName?: string; ownerPic?: string };
+
+export async function listNations(pid: string, friendIds: string[]): Promise<Nation[]> {
+  const docs = await (await cities()).find({ world: { $exists: true } }, { projection: { name: 1, era: 1, pop: 1, score: 1, world: 1, owner: 1 } }).toArray() as Pick<CityDoc, "_id" | "name" | "era" | "pop" | "score" | "world" | "owner">[];
+  const owners = await (await users()).find({ _id: { $in: docs.map((d) => d.owner).filter((x): x is string => !!x) } }, { projection: { name: 1, picture: 1 } }).toArray();
+  const om = new Map(owners.map((o) => [o._id, o]));
+  return docs.map((d) => ({
+    id: d._id, name: d.name, era: d.era, pop: d.pop, score: d.score, x: d.world!.x, y: d.world!.y,
+    me: d._id === pid, friend: !!d.owner && friendIds.includes(d.owner),
+    ownerName: d.owner ? om.get(d.owner)?.name : undefined, ownerPic: d.owner ? om.get(d.owner)?.picture : undefined,
+  }));
+}
