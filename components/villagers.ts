@@ -239,10 +239,20 @@ export class Crowd {
     const tnow = performance.now();
     this.fx = this.fx.filter((f) => tnow - f.t0 < f.dur * 1000);
     this.chopping.clear();
+    const alarm = !!(city.raid && city.alarm);
     for (const v of this.list) {
       v.visible = true;
       v.moving = false;
       v.swing = Math.max(0, v.swing - dt * 3);
+      if (alarm && v.id !== null) {
+        // bell rung: everyone runs to the nearest house and stays inside
+        if (v.state === "rest") { v.visible = false; v.t = Math.max(v.t, 1); continue; }
+        if (v.state !== "toHome" || !v.run) {
+          v.home = this.nearestHome(city, tileOf(v.fx, v.fy));
+          this.go(v, city, tileOf(v.fx, v.fy), v.home, "toHome", true);
+          v.carrying = false;
+        }
+      }
       switch (v.state) {
         case "explore": {
           const p = city.people.find((q) => q.id === v.id);

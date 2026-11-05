@@ -65,6 +65,7 @@ const DEFS = {
   stonehouse: { n: "Nhà đá", era: 3, cost: { stone: 250, copper: 30 }, sec: 1200, house: 12, up: true, drop: ["food", "wood", "stone", "copper"], d: "12 người mỗi cấp. Lũ không làm ngập." },
   forge: { n: "Lò rèn", era: 3, cost: { stone: 200, copper: 100 }, sec: 1800, jobs: 3, max: 2, d: "+25% chặt cây, đào đá, săn bắn và sản lượng ruộng, trại. Tối đa 2." },
   wheel: { n: "Cối nước", era: 3, cost: { wood: 200, stone: 100 }, sec: 1200, jobs: 2, prod: { food: 150 }, need: "river", up: true, d: "Sát sông. Mùa đông không giảm." },
+  hall: { n: "Đình làng", era: 2, cost: { wood: 300, stone: 200, copper: 20 }, sec: 900, house: 5, storage: 500, up: true, max: 1, drop: ["food", "wood", "stone", "copper"], d: "Nhà chính. Công trình khác chỉ nâng được tới cấp của Đình. Cấp 3 mở trung tâm điều khiển." },
   barracks: { n: "Trại lính", era: 1, cost: { wood: 120, stone: 40 }, sec: 120, up: true, max: 3, d: "Huấn luyện quân. Mỗi cấp chứa thêm 10 lính." },
   temple: { n: "Đền Sông Mẹ", era: 3, cost: { wood: 800, stone: 1200, copper: 400 }, sec: 4 * 3600, max: 1, d: "Kỳ quan của thành phố." },
 } satisfies Record<string, Def>;
@@ -87,7 +88,7 @@ export const UNITS: Record<UKey, Unit> = {
 export const UKEYS = Object.keys(UNITS) as UKey[];
 export type Troops = Partial<Record<UKey, number>>;
 export type Camp = { id: number; at: number; power: number; loot: Partial<Res>; cleared: boolean; respawnAt: number | null };
-export type Expedition = { id: number; units: Troops; camp: number; depart: number; arrive: number; back: number; resolved: boolean; won?: boolean; loot?: Partial<Res> };
+export type Expedition = { id: number; units: Troops; camp: number; depart: number; arrive: number; back: number; resolved: boolean; won?: boolean; loot?: Partial<Res>; recalled?: boolean };
 const SOLDIER_FOOD = 2; // per soldier per hour
 export const MARCH_TILES_PER_MIN = 4;
 export const troopPower = (t: Troops) => UKEYS.reduce((a, u) => a + (t[u] ?? 0) * (UNITS[u].atk + UNITS[u].hp / 4), 0);
@@ -99,9 +100,9 @@ export const isFloodproof = (k: BKey) => FLOODPROOF.has(k);
 export const LVL_MULT = [0, 1, 1.6, 2.4];
 export const MAX_LVL = 3;
 
-export const ERA_REQ: Record<number, { pop: number; cost: Partial<Res> }> = {
+export const ERA_REQ: Record<number, { pop: number; cost: Partial<Res>; hall?: number }> = {
   2: { pop: 15, cost: { food: 300, wood: 300, stone: 150 } },
-  3: { pop: 40, cost: { food: 1000, stone: 700, copper: 200 } },
+  3: { pop: 40, cost: { food: 1000, stone: 700, copper: 200 }, hall: 3 },
 };
 const ERA_UP: Record<number, string> = {
   2: "Bước vào Thời đồ đồng: mở ruộng lúa, kênh tưới, đê đất, nhà gỗ, lò đúc đồng và chợ.",
@@ -155,7 +156,21 @@ export type City = {
   exps: Expedition[];
   nextExp: number;
   wins: number;
+  auto?: { on: boolean; mix: Record<ResKey, number> }; // auto-assign shares (control centre)
+  raid?: { at: number; warn: number; power: number; from: number } | null; // incoming barbarians
+  alarm?: boolean; // bell rung for the incoming raid
 };
+
+export type Mix = Record<ResKey, number>;
+export const DEFAULT_MIX: Mix = { food: 40, wood: 30, stone: 20, copper: 10 };
+export const RAID_WARNING_MS = 30 * MIN;
+
+/** Level of the village hall (0 = not built yet). */
+export const hallLevel = (c: City) => Object.values(c.b).reduce((a, b) => (b.k === "hall" && !b.flooded ? Math.max(a, b.lvl) : a), 0);
+/** Highest level other buildings may reach: the hall's level (at least 1). */
+export const levelCap = (c: City, k: BKey) => (k === "hall" ? MAX_LVL : Math.max(1, hallLevel(c)));
+/** The control centre opens when the hall reaches its top level. */
+export const hasControl = (c: City) => hallLevel(c) >= MAX_LVL;
 
 export const idx = (x: number, y: number) => y * W + x;
 export const inb = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H;
@@ -477,6 +492,51 @@ function nearestTile(c: City, from: number, ok: (i: number) => boolean, rad: num
   return best;
 }
 
+/** Control centre: give idle people jobs so the workforce matches the chosen mix. */
+function autoAssign(c: City, now: number) {
+  if (!c.auto?.on || !hasControl(c)) return false;
+  const idle = c.people.filter((p) => p.task.t === "idle");
+  if (!idle.length) return false;
+  const resOf = (p: Person): ResKey | null => {
+    const tk = p.task;
+    if (tk.t === "chop") return "wood";
+    if (tk.t === "mine") return c.t[tk.at] === O ? "copper" : "stone";
+    if (tk.t === "hunt") return "food";
+    if (tk.t === "work") return (Object.keys(def(c.b[tk.at]?.k ?? "hut").prod ?? {})[0] as ResKey) ?? null;
+    return null;
+  };
+  const total = c.people.length, mixSum = RES.reduce((a, r) => a + (c.auto!.mix[r] ?? 0), 0) || 1;
+  let changed = false;
+  for (const p of idle) {
+    const have: Res = { food: 0, wood: 0, stone: 0, copper: 0 };
+    for (const q of c.people) { const r = resOf(q); if (r) have[r]++; }
+    const order = [...RES].sort((a, b) => (have[a] - (total * c.auto!.mix[a]) / mixSum) - (have[b] - (total * c.auto!.mix[b]) / mixSum));
+    for (const r of order) {
+      if ((c.auto!.mix[r] ?? 0) <= 0) continue;
+      const tk = autoTarget(c, r);
+      if (!tk) continue;
+      setTask(c, p, tk, now);
+      changed = true;
+      break;
+    }
+  }
+  return changed;
+}
+
+/** Nearest sensible job producing `r`: an open building slot first, then gathering by hand. */
+function autoTarget(c: City, r: ResKey): TaskInput | null {
+  const slots = buildings(c)
+    .filter(([i, b]) => built(b) && !b.flooded && def(b.k).jobs && Object.keys(def(b.k).prod ?? {})[0] === r && workersAt(c, i) < def(b.k).jobs!)
+    .sort((a, b) => cheb(a[0], c.camp) - cheb(b[0], c.camp));
+  if (slots.length) return { t: "work", at: slots[0][0] };
+  const ok = (i: number) => !!c.seen[i] && !c.b[i];
+  if (r === "wood") { const i = nearestTile(c, c.camp, (j) => ok(j) && c.t[j] === F, 20); return i >= 0 ? { t: "chop", at: i } : null; }
+  if (r === "stone") { const i = nearestTile(c, c.camp, (j) => ok(j) && c.t[j] === HL, 20); return i >= 0 ? { t: "mine", at: i } : null; }
+  if (r === "copper") { const i = nearestTile(c, c.camp, (j) => ok(j) && c.t[j] === O, 25); return i >= 0 ? { t: "mine", at: i } : null; }
+  const herd = c.herds.filter((h) => h.n >= 1 && c.seen[h.at] && cheb(h.at, c.camp) <= 20).sort((a, b) => cheb(a.at, c.camp) - cheb(b.at, c.camp))[0];
+  return herd ? { t: "hunt", herd: herd.id } : null;
+}
+
 /** Fill open job slots in finished buildings with idle people. */
 function autoStaff(c: City) {
   const idle = c.people.filter((p) => p.task.t === "idle");
@@ -676,24 +736,37 @@ function casualties(t: Troops, share: number, r: () => number): Troops {
 }
 const troopText = (t: Troops) => UKEYS.filter((u) => t[u]).map((u) => `${t[u]} ${UNITS[u].n.toLowerCase()}`).join(", ");
 
-function raid(c: City, at: number, r: () => number) {
+/** Barbarians set out from a nearby camp; they reach the village RAID_WARNING_MS later. */
+function scheduleRaid(c: City, at: number, r: () => number) {
   const near = c.camps.filter((k) => !k.cleared && cheb(k.at, c.camp) <= 35).sort((a, b) => cheb(a.at, c.camp) - cheb(b.at, c.camp))[0];
-  if (!near || r() > 0.6) return;
-  const attack = (near.power * 0.5 + c.era * 10) * (0.8 + r() * 0.4);
-  const defense = (troopPower(c.army) + 15) * (0.8 + r() * 0.4);
+  if (!near || r() > 0.6 || c.raid) return;
+  c.raid = { warn: at, at: at + RAID_WARNING_MS, power: Math.round(near.power * 0.5 + c.era * 10), from: near.at };
+  c.alarm = false;
+  log(c, at, `Trinh sát báo: man rợ (⚔ ${c.raid.power}) đang kéo đến làng, tới sau ${Math.round(RAID_WARNING_MS / MIN)} phút.${hasControl(c) ? " Có thể đánh kẻng ở Đình làng." : ""}`, "warn");
+}
+
+function raid(c: City, at: number, r: () => number) {
+  const inc = c.raid!;
+  const bell = !!c.alarm;
+  c.raid = null; c.alarm = false;
+  const attack = inc.power * (0.8 + r() * 0.4);
+  // with the bell rung, villagers shelter and fighters gather at the hall
+  const defense = (troopPower(c.army) * (bell ? 1.25 : 1) + 15) * (0.8 + r() * 0.4);
   if (defense >= attack) {
     const lost = casualties(c.army, Math.min(0.5, (attack / defense) * 0.25), r);
     log(c, at, `Man rợ kéo đến cướp làng nhưng bị đánh lui.${troopCount(lost) ? ` Hy sinh: ${troopText(lost)}.` : ""}`, "good");
   } else {
     const stolen: Partial<Res> = {};
-    for (const k of RES) { stolen[k] = Math.floor(c.res[k] * 0.25); c.res[k] -= stolen[k]!; }
-    const lost = casualties(c.army, 0.6, r);
-    log(c, at, `Man rợ cướp làng! Mất ${costText(stolen)}.${troopCount(lost) ? ` Hy sinh: ${troopText(lost)}.` : ""} Hãy luyện thêm quân để thủ.`, "warn");
+    const share = bell ? 0.12 : 0.25;
+    for (const k of RES) { stolen[k] = Math.floor(c.res[k] * share); c.res[k] -= stolen[k]!; }
+    const lost = casualties(c.army, bell ? 0.4 : 0.6, r);
+    log(c, at, `Man rợ cướp làng! Mất ${costText(stolen)}.${troopCount(lost) ? ` Hy sinh: ${troopText(lost)}.` : ""}${bell ? " Kẻng đã giúp dân kịp trú ẩn." : " Hãy luyện thêm quân để thủ."}`, "warn");
   }
 }
 
 function stepArmy(c: City, nt: number) {
   let changed = false;
+  if (c.raid && c.raid.at <= nt) { raid(c, c.raid.at, rng(c.seed ^ Math.imul(Math.floor(c.raid.at / MIN), 3266489917))); changed = true; }
   while (c.queue.length && c.queue[0].doneAt <= nt) {
     const q = c.queue.shift()!;
     c.army[q.u] = (c.army[q.u] ?? 0) + 1;
@@ -709,7 +782,7 @@ function stepArmy(c: City, nt: number) {
   }
   for (const e of [...c.exps]) {
     const camp = campById(c, e.camp);
-    if (!e.resolved && e.arrive <= nt) {
+    if (!e.resolved && e.arrive <= nt && !e.recalled) {
       e.resolved = true;
       const r = rng(c.seed ^ Math.imul(e.id + 7, 2246822519));
       const A = troopPower(e.units), Dp = camp && !camp.cleared ? camp.power : 0;
@@ -741,7 +814,7 @@ function stepArmy(c: City, nt: number) {
 function onSeason(c: City, si: number) {
   const at = c.t0 + si * SEASON_MS;
   const r = rng(c.seed ^ Math.imul(si + 1, 2654435761));
-  if (si >= 4 && si % 4 === 0) raid(c, at, rng(c.seed ^ Math.imul(si + 3, 3266489917)));
+  if (si >= 4 && si % 4 === 0) scheduleRaid(c, at, rng(c.seed ^ Math.imul(si + 3, 3266489917)));
   const s = c.shift;
   if (s && !s.done && si === s.warn) {
     s.xs = newCourse(c, r);
@@ -780,6 +853,7 @@ export function settle(c: City, now: number) {
     while (c.seasonIdx < si) { c.seasonIdx++; onSeason(c, c.seasonIdx); dirty = true; }
     if (stepExplorers(c, nt)) dirty = true;
     if (stepArmy(c, nt)) dirty = true;
+    if (autoAssign(c, nt)) dirty = true;
     if (dirty) { D = derive(c); st = stats(c, D, nt); dirty = false; }
 
     const h = (nt - t) / HOUR;
@@ -838,7 +912,7 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number): st
 
 export function reqMet(c: City) {
   const r = ERA_REQ[c.era + 1];
-  return !!r && c.people.length >= r.pop && canAfford(c, r.cost);
+  return !!r && c.people.length >= r.pop && canAfford(c, r.cost) && hallLevel(c) >= (r.hall ?? 0);
 }
 
 export function score(c: City) {
@@ -857,7 +931,10 @@ export type Action =
   | { type: "assign"; ids: number[]; task: TaskInput; pos?: Record<string, number> }
   | { type: "assignN"; n: number; task: TaskInput; pos?: Record<string, number> } // pos: where each person stands on screen
   | { type: "train"; u: UKey; n: number }
-  | { type: "attack"; camp: number; units: Troops };
+  | { type: "attack"; camp: number; units: Troops }
+  | { type: "alarm" }
+  | { type: "recall"; exp: number }
+  | { type: "auto"; on: boolean; mix: Mix };
 
 /** Validate and apply a player action at time `now`. Returns an error message or null. Mutates `c`. */
 export function applyAction(c: City, a: Action, now: number): string | null {
@@ -890,6 +967,33 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     const each = (u.sec * 1000) / (1 + 0.5 * (lv - 1));
     let start = Math.max(now, c.queue.length ? c.queue[c.queue.length - 1].doneAt : now);
     for (let k = 0; k < n; k++) { start += each; c.queue.push({ u: a.u, doneAt: start }); }
+    return null;
+  }
+  if (a.type === "alarm") {
+    if (!hasControl(c)) return "Cần Đình làng cấp 3.";
+    if (!c.raid) return "Không có man rợ nào đang kéo đến.";
+    if (c.alarm) return "Kẻng đã được đánh.";
+    c.alarm = true;
+    log(c, now, "Kẻng báo động vang lên: dân vào nhà trú ẩn, quân tập trung ở Đình làng.", "warn");
+    return null;
+  }
+  if (a.type === "recall") {
+    if (!hasControl(c)) return "Cần Đình làng cấp 3.";
+    const e = c.exps.find((x) => x.id === a.exp);
+    if (!e) return "Không thấy đoàn quân này.";
+    if (e.resolved) return "Đoàn quân đang trên đường về rồi.";
+    // turn back from where they are now: same distance home as already walked
+    const oneWay = e.arrive - e.depart, walked = Math.max(0, now - e.depart);
+    e.recalled = true; e.resolved = true;
+    e.arrive = now - oneWay + walked; e.back = now + walked;
+    log(c, now, "Đã gọi đoàn quân quay về.");
+    return null;
+  }
+  if (a.type === "auto") {
+    if (!hasControl(c)) return "Cần Đình làng cấp 3.";
+    const mix = {} as Mix;
+    for (const r of RES) mix[r] = Math.max(0, Math.min(100, Math.round(Number(a.mix?.[r]) || 0)));
+    c.auto = { on: !!a.on, mix };
     return null;
   }
   if (a.type === "attack") {
@@ -967,6 +1071,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if (b.doneAt) return "Đang xây dở.";
     if (b.flooded) return "Phải sửa trước khi nâng cấp.";
     if (b.lvl >= MAX_LVL) return "Đã cấp tối đa.";
+    if (b.lvl >= levelCap(c, b.k)) return hallLevel(c) ? `Cần nâng Đình làng lên cấp ${b.lvl + 1} trước.` : "Cần xây Đình làng (mở ở Thời đồ đồng) để nâng cấp công trình.";
     if (busyBuilders(c) >= builders(c)) return "Tất cả thợ đang bận.";
     const cost = levelCost(b.k, b.lvl + 1);
     const err = missing(c, cost);

@@ -662,6 +662,41 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       }
       break;
     }
+    case "hall": {
+      // village communal house: stone platform, red pillars, sweeping tiled roof
+      shadow(r, x, y, 0.5);
+      box(r, x, y, -0.48, -0.44, 0.48, 0.44, 0, 4, "#cfc6b4", "#b9b09c", "#9a917e");
+      box(r, x, y, -0.4, -0.34, 0.4, 0.3, 4, 16, "#a8743e", "#955f30", "#7a4c26");
+      for (const u of [-0.36, -0.18, 0, 0.18, 0.36]) box(r, x, y, u - 0.025, 0.33, u + 0.025, 0.38, 4, 17, "#b8322a", "#a32a23", "#87221c");
+      for (const v of [-0.22, 0, 0.2]) box(r, x, y, 0.42, v - 0.025, 0.47, v + 0.025, 4, 17, "#b8322a", "#a32a23", "#87221c");
+      if (lvl >= 3) {
+        // lower roof tier, then a raised upper tier
+        gable(r, x, y, -0.5, -0.46, 0.5, 0.44, 17, 8, "#9c4a32", "#86402b", "#7a3a27");
+        tileRows(r, x, y, -0.5, 0.5, -0.46, 0.44, 17, 8, "rgba(70,25,15,.5)");
+        box(r, x, y, -0.3, -0.2, 0.3, 0.16, 21, 27, "#a8743e", "#955f30", "#7a4c26");
+        gable(r, x, y, -0.4, -0.3, 0.4, 0.26, 27, 13, "#b0543a", "#994632", "#8c3f2c");
+        tileRows(r, x, y, -0.4, 0.4, -0.3, 0.26, 27, 13, "rgba(90,30,20,.5)");
+        upturn(r, x, y, -0.4, 0.4, -0.3, 0.26, 27, 13, "#7a3a27");
+        const [mx, my] = q(0, -0.02, 40);
+        c.fillStyle = "#f0c766"; c.beginPath(); c.arc(mx, my - 3 * s, 3 * s, 0, Math.PI * 2); c.fill();
+      } else {
+        gable(r, x, y, -0.48, -0.42, 0.48, 0.4, 17, 16 * hs, "#b0543a", "#994632", "#8c3f2c");
+        tileRows(r, x, y, -0.48, 0.48, -0.42, 0.4, 17, 16 * hs, "rgba(90,30,20,.5)");
+        upturn(r, x, y, -0.48, 0.48, -0.42, 0.4, 17, 16 * hs, "#7a3a27");
+      }
+      const a = q(-0.1, 0.3, 4), b2 = q(0.1, 0.3, 4), cc = q(0.1, 0.3, 13), d = q(-0.1, 0.3, 13);
+      poly(c, [a, b2, cc, d], "#4a2a18");
+      if (lvl >= 2) {
+        // ceremonial drum on a stand by the steps
+        const [dx, dy] = q(0.3, 0.46, 0);
+        line(r, [dx - 3 * s, dy], [dx - 3 * s, dy - 7 * s], "#5c3b20", 1.2); line(r, [dx + 3 * s, dy], [dx + 3 * s, dy - 7 * s], "#5c3b20", 1.2);
+        c.fillStyle = "#9b2c22"; c.beginPath(); c.ellipse(dx, dy - 10 * s, 4.5 * s, 4 * s, 0, 0, Math.PI * 2); c.fill();
+        c.fillStyle = "#e8d8b0"; c.beginPath(); c.ellipse(dx + 1.5 * s, dy - 10 * s, 2 * s, 3.4 * s, 0, 0, Math.PI * 2); c.fill();
+        lantern(r, x, y, -0.3, 0.38, 16, i); lantern(r, x, y, 0.3, 0.38, 16, i + 2);
+      }
+      if (lvl >= 3) { flag(r, x, y, -0.48, 0.46, 0, 44, "#e2b240", i); flag(r, x, y, 0.48, -0.44, 0, 44, "#c9503e", i + 3); }
+      break;
+    }
     case "barracks": {
       shadow(r, x, y, 0.44);
       box(r, x, y, -0.34, -0.26, 0.3, 0.2, 0, 13 * hs, "#9a7046", "#87613c", "#6d4e30");
@@ -877,7 +912,7 @@ const UNIT_LOOK: Record<UKey, { shirt: string; weapon: "club" | "sling" | "spear
   sword: { shirt: "#5a6672", weapon: "sword" }, elephant: { shirt: "#8f8f8f", weapon: "spear" },
 };
 
-export function drawSoldier(r: RC, u: UKey, fx: number, fy: number, face: 1 | -1, walking: boolean, seed: number, fighting = false) {
+export function drawSoldier(r: RC, u: UKey, fx: number, fy: number, face: 1 | -1, walking: boolean, seed: number, fighting = false, barbarian = false) {
   const c = r.c, s = Math.max(r.v.s * 1.45, 0.7);
   const [sx, sy] = P(r.v, fx, fy);
   const ph = r.anim / 140 + seed * 10;
@@ -894,7 +929,7 @@ export function drawSoldier(r: RC, u: UKey, fx: number, fy: number, face: 1 | -1
     c.fillStyle = "#e2b240"; c.beginPath(); c.arc(sx - 1 * e, sy - 18 * e, 2 * e, 0, Math.PI * 2); c.fill();
     return;
   }
-  const look = UNIT_LOOK[u];
+  const look = barbarian ? { shirt: "#4a1f1a", weapon: "club" as const } : UNIT_LOOK[u];
   const bob = walking ? Math.abs(Math.sin(ph)) * 1.2 * s : 0;
   c.fillStyle = "rgba(20,30,10,.3)"; c.beginPath(); c.ellipse(sx, sy, 4 * s, 1.8 * s, 0, 0, Math.PI * 2); c.fill();
   c.strokeStyle = "#3b2a1e"; c.lineWidth = Math.max(1.2, 1.6 * s); c.lineCap = "round";
@@ -1197,6 +1232,20 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       for (const u of UKEYS) for (let k = 0; k < Math.min(city.army[u] ?? 0, 8) && n < 24; k++, n++) {
         const fx = bx + 0.75 + (n % 4) * 0.32, fy = by - 0.6 + Math.floor(n / 4) * 0.32;
         items.push({ d: fx + fy, f: () => drawSoldier(r, u, fx, fy, -1, false, n * 0.37) });
+      }
+    }
+    // incoming barbarian raid
+    if (city.raid) {
+      const rd = city.raid, p = Math.max(0, Math.min(1, (o.now - rd.warn) / Math.max(1, rd.at - rd.warn)));
+      const hx = (rd.from % W) + 0.5, hy = Math.floor(rd.from / W) + 0.5, tx = (city.camp % W) + 0.5, ty = Math.floor(city.camp / W) + 0.5;
+      const cx = hx + (tx - hx) * p, cy = hy + (ty - hy) * p, len = Math.hypot(tx - hx, ty - hy) || 1;
+      const face: 1 | -1 = (tx - hx) - (ty - hy) >= 0 ? 1 : -1;
+      for (let n = 0; n < 7; n++) {
+        const row = Math.floor(n / 3), col = (n % 3) - 1;
+        const fx = cx - ((tx - hx) / len) * row * 0.35 + (-(ty - hy) / len) * col * 0.35, fy = cy - ((ty - hy) / len) * row * 0.35 + ((tx - hx) / len) * col * 0.35;
+        const ti = idx(Math.max(0, Math.min(W - 1, Math.floor(fx))), Math.max(0, Math.min(H - 1, Math.floor(fy))));
+        if (!vis[ti] || !seen[ti]) continue;
+        items.push({ d: fx + fy, f: () => { const fn = () => drawSoldier(r, "club", fx, fy, face, true, n * 0.53, false, true); if (inWater(r, fx, fy)) wade(r, fx, fy, fn); else fn(); } });
       }
     }
     // marching expeditions

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
+  DEFAULT_MIX, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
   armyCap, armyUsed, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -12,7 +13,7 @@ import { Crowd } from "./villagers";
 
 type Cell = { x: number; y: number };
 type Row = { name: string; score: number; era: number; pop: number; temple: boolean; me: boolean };
-type Panel = "shop" | "army" | "people" | "era" | "log" | "rank";
+type Panel = "shop" | "army" | "people" | "era" | "log" | "rank" | "control";
 
 function fmtDur(ms: number) {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -100,6 +101,104 @@ function Stepper({ value, max, onChange, label }: { value: number; max: number; 
       <span>{value}</span>
       <button onClick={() => onChange(Math.min(max, value + 1))} aria-label="Thêm">+</button>
     </div>
+  );
+}
+
+function ControlPanel(props: {
+  c: City; t: number; busy: boolean; control: boolean; hallLv: number; groups: Map<string, Person[]>; homePower: number;
+  rate: Record<ResKey, number>; act: (a: Action) => Promise<boolean>; pickGroup: (ids: number[]) => void; attackAll: (camp: number) => void;
+}) {
+  const { c, t, busy, control, hallLv, groups, homePower, rate, act } = props;
+  const [tab, setTab] = useState<"people" | "auto" | "alarm" | "army">("people");
+  const [mix, setMix] = useState<Mix>(c.auto?.mix ?? DEFAULT_MIX);
+  if (!control) {
+    return (
+      <>
+        <p className="small">Đình làng cấp <b>{hallLv}/{TOP_LVL}</b>. Các công trình khác chỉ nâng được tới cấp {hallLv}.</p>
+        <p className="muted small">Nâng Đình làng lên cấp {TOP_LVL} để mở trung tâm điều khiển: bảng quản lý toàn làng, tự động giao việc, kẻng báo động và lệnh quân toàn bản đồ. Lên Thời đồ sắt cũng cần Đình cấp {TOP_LVL}.</p>
+      </>
+    );
+  }
+  const camps = c.camps.filter((k) => c.seen[k.at] && !k.cleared).sort((a, b) => cheb(a.at, c.camp) - cheb(b.at, c.camp));
+  const sum = RES.reduce((a, r) => a + mix[r], 0) || 1;
+  return (
+    <>
+      <div className="tabs" role="tablist">
+        {([["people", "Dân làng"], ["auto", "Tự động"], ["alarm", "Báo động"], ["army", "Lệnh quân"]] as const).map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={"tab" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>{l}</button>
+        ))}
+      </div>
+      {tab === "people" && (
+        <>
+          <ul className="units">
+            {RES.map((r) => <li key={r}><span>{RN[r]}</span><b className={rate[r] < 0 ? "danger" : "ok"}>{rate[r] >= 0 ? "+" : ""}{fmt(rate[r])}/giờ</b></li>)}
+          </ul>
+          <h3>Theo việc</h3>
+          <ul className="units train">
+            {[...groups.entries()].sort((a, b) => b[1].length - a[1].length).map(([label, ps]) => (
+              <li key={label}>
+                <div><b>{label}</b> <span className="muted small">· {ps.length} người</span><div className="muted small">{ps.map((p) => p.name).join(", ")}</div></div>
+                <div className="tb"><button onClick={() => props.pickGroup(ps.map((p) => p.id))}>Chọn nhóm</button></div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {tab === "auto" && (
+        <>
+          <p className="muted small">Người rảnh và dân mới sinh sẽ tự được giao việc gần trại nhất, sao cho số người làm mỗi loại tài nguyên theo đúng tỉ lệ. Chạy cả khi bạn offline.</p>
+          <ul className="units">
+            {RES.map((r) => (
+              <li key={r}>
+                <label htmlFor={`mix-${r}`} style={{ minWidth: 80 }}>{RN[r]}</label>
+                <input id={`mix-${r}`} type="range" min={0} max={100} step={5} value={mix[r]} onChange={(e) => setMix({ ...mix, [r]: Number(e.target.value) })} style={{ flex: 1 }} />
+                <span style={{ minWidth: 40, textAlign: "right" }}>{Math.round((mix[r] / sum) * 100)}%</span>
+              </li>
+            ))}
+          </ul>
+          <div className="actions">
+            <button className="primary" disabled={busy} onClick={() => act({ type: "auto", on: true, mix })}>{c.auto?.on ? "Lưu tỉ lệ" : "Bật tự động giao việc"}</button>
+            {c.auto?.on && <button disabled={busy} onClick={() => act({ type: "auto", on: false, mix })}>Tắt tự động</button>}
+          </div>
+        </>
+      )}
+      {tab === "alarm" && (
+        c.raid ? (
+          <>
+            <p className="small"><b className="danger">Man rợ ⚔ {c.raid.power}</b> tới sau {fmtDur(c.raid.at - t)}. Quân ở nhà ⚔ {fmt(homePower)}.</p>
+            <p className="muted small">Đánh kẻng: dân bỏ việc chạy vào nhà, quân tập trung ở Đình (+25% sức thủ). Nếu thua chỉ mất 12% tài nguyên thay vì 25%.</p>
+            <button className="primary wide" disabled={busy || !!c.alarm} onClick={() => act({ type: "alarm" })}>{c.alarm ? "Đã đánh kẻng" : "Đánh kẻng báo động"}</button>
+          </>
+        ) : <p className="muted small">Yên bình. Khi trinh sát thấy man rợ kéo đến, bạn sẽ có {Math.round(30)} phút để đánh kẻng.</p>
+      )}
+      {tab === "army" && (
+        <>
+          <p className="small">Quân ở nhà: <b>{troopCount(c.army)}</b> lính · ⚔ {fmt(homePower)}</p>
+          <h3>Trại man rợ đã thấy</h3>
+          {camps.length ? (
+            <ul className="units train">
+              {camps.map((k) => (
+                <li key={k.id}>
+                  <div><b className="danger">⚔ {k.power}</b> <span className="muted small">· cách {cheb(k.at, c.camp)} ô · đi {fmtDur(marchMs(c.camp, k.at))}</span><div className="muted small">{costText(k.loot)}</div></div>
+                  <div className="tb"><button disabled={busy || !troopCount(c.army)} onClick={() => props.attackAll(k.id)}>Đánh</button></div>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="muted small">Chưa thấy trại nào. Cho người đi thám hiểm.</p>}
+          <h3>Đoàn quân đang đi</h3>
+          {c.exps.length ? (
+            <ul className="units train">
+              {c.exps.map((e) => (
+                <li key={e.id}>
+                  <div><b>{troopCount(e.units)} lính</b> <span className="muted small">· {e.recalled ? `đang quay về, còn ${fmtDur(e.back - t)}` : t < e.arrive ? `tới trại ⚔ ${campById(c, e.camp)?.power ?? "?"} sau ${fmtDur(e.arrive - t)}` : `${e.won ? "thắng" : "thua"}, về sau ${fmtDur(e.back - t)}`}</span></div>
+                  <div className="tb">{!e.resolved && <button disabled={busy} onClick={() => act({ type: "recall", exp: e.id })}>Gọi về</button>}</div>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="muted small">Không có đoàn nào ngoài kia.</p>}
+        </>
+      )}
+    </>
   );
 }
 
@@ -380,6 +479,7 @@ export default function Game() {
     setMsg(null);
     if (campAt(c, i)) setSend({ ...c.army });
     if (c.b[i]?.k === "barracks") setPanel("army");
+    if (c.b[i]?.k === "hall") setPanel("control");
   };
 
   const pickTool = (k: BKey | null) => {
@@ -451,6 +551,9 @@ export default function Game() {
   const onTarget = selTask ? c.people.filter((p) => sameTarget(p, selTask.task)) : [];
   const next = ERA_REQ[c.era + 1];
   const sendPower = troopPower(send);
+  const hallLv = hallLevel(c), control = hasControl(c);
+  const groups = new Map<string, Person[]>();
+  for (const p of c.people) { const k = taskLabel(c, p); groups.set(k, [...(groups.get(k) ?? []), p]); }
 
   const bubbles: { k: Panel; icon: IconKey; label: string; badge?: number | string }[] = [
     { k: "shop", icon: "shop", label: "Cửa hàng" },
@@ -459,6 +562,7 @@ export default function Game() {
     { k: "era", icon: "era", label: "Thời đại", badge: reqMet(c) ? "!" : undefined },
     { k: "log", icon: "log", label: "Biên niên" },
     { k: "rank", icon: "rank", label: "Xếp hạng" },
+    ...(hallLv ? [{ k: "control" as Panel, icon: "era" as IconKey, label: "Đình làng", badge: c.raid ? "!" : undefined }] : []),
   ];
 
   return (
@@ -608,8 +712,12 @@ export default function Game() {
           {sel && selected && (
             <div className="actions">
               {sel.k === "barracks" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
+              {sel.k === "hall" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("control")}>{control ? "Trung tâm điều khiển" : "Xem Đình làng"}</button>}
               {sel.flooded && <button className="primary" disabled={busy} onClick={() => act({ type: "repair", ...selected })}>Sửa ({costText(repairCost(sel.k))})</button>}
-              {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && !sel.doneAt && !sel.flooded && (
+              {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && sel.lvl >= levelCap(c, sel.k) && (
+                <p className="muted small">{hallLv ? `Nâng Đình làng lên cấp ${sel.lvl + 1} để nâng tiếp.` : "Xây Đình làng (Thời đồ đồng) để nâng cấp công trình."}</p>
+              )}
+              {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && sel.lvl < levelCap(c, sel.k) && !sel.doneAt && !sel.flooded && (
                 <button disabled={busy} onClick={() => act({ type: "upgrade", ...selected })}>
                   Lên cấp {sel.lvl + 1} ({costText(levelCost(sel.k, sel.lvl + 1))}, {fmtDur(buildMs(sel.k, sel.lvl + 1))})
                 </button>
@@ -621,6 +729,16 @@ export default function Game() {
               }}>{armDemolish ? "Bấm lần nữa để phá" : "Phá dỡ"}</button>
             </div>
           )}
+        </div>
+      )}
+
+      {c.raid && (
+        <div className="raidbar" role="alert">
+          <b>⚠ Man rợ ⚔ {c.raid.power} đang kéo đến</b>
+          <span>tới sau {fmtDur(c.raid.at - t)} · quân ở nhà ⚔ {fmt(homePower)}</span>
+          {control ? (
+            <button className="primary" disabled={busy || !!c.alarm} onClick={() => act({ type: "alarm" })}>{c.alarm ? "Đã đánh kẻng" : "Đánh kẻng"}</button>
+          ) : <span className="muted small">Đình làng cấp 3 mới đánh kẻng được</span>}
         </div>
       )}
 
@@ -755,6 +873,7 @@ export default function Game() {
               <>
                 <h3>Lên {ERA_NAMES[c.era + 1]}</h3>
                 <ul className="goal">
+                  {next.hall ? <li><span>Đình làng</span><span className="gbar"><i style={{ width: Math.min(100, (hallLv / next.hall) * 100) + "%" }} /></span><span>cấp {hallLv}/{next.hall}</span></li> : null}
                   <li><span>Dân số</span><span className="gbar"><i style={{ width: Math.min(100, (c.people.length / next.pop) * 100) + "%" }} /></span><span>{Math.min(c.people.length, next.pop)}/{next.pop}</span></li>
                   {RES.filter((r) => next.cost[r]).map((r) => (
                     <li key={r}><span>{RN[r]}</span><span className="gbar"><i style={{ width: Math.min(100, (c.res[r] / next.cost[r]!) * 100) + "%" }} /></span><span>{fmt(Math.min(c.res[r], next.cost[r]!))}/{next.cost[r]}</span></li>
@@ -777,6 +896,16 @@ export default function Game() {
                   <li key={i} className={l.cls ?? ""}><span className="t">{stamp(c, l.at)}</span>{l.msg}</li>
                 ))}
               </ol>
+            )}
+
+            {panel === "control" && (
+              <ControlPanel
+                c={c} t={t} busy={busy} control={control} hallLv={hallLv} groups={groups} homePower={homePower}
+                rate={{ food: st.rate.food, wood: st.rate.wood - st.woodUse, stone: st.rate.stone, copper: st.copperRate }}
+                act={act}
+                pickGroup={(ids) => { setPicked(new Set(ids)); setPanel(null); setMsg({ text: `Đã chọn ${ids.length} người. Bấm lên bản đồ để giao việc mới.` }); }}
+                attackAll={async (campId) => { if (await act({ type: "attack", camp: campId, units: { ...c.army } })) setMsg({ text: "Đã xuất quân." }); }}
+              />
             )}
 
             {panel === "rank" && (

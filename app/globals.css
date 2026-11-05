@@ -262,3 +262,16 @@ button.x:hover { color: var(--fg); }
   .bubbles { bottom: max(56px, calc(env(safe-area-inset-bottom, 0px) + 50px)); }
   .hud-bottom { bottom: max(116px, calc(env(safe-area-inset-bottom, 0px) + 110px)); }
 }
+
+/* incoming raid banner */
+.raidbar {
+  position: absolute; z-index: 4; top: 118px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 12px;
+  padding: 8px 14px; border-radius: 10px; background: rgba(70,18,14,.92); border: 1px solid #e88468; max-width: calc(100vw - 24px);
+  animation: raidpulse 1.6s ease-in-out infinite;
+}
+.raidbar b { color: #ffd9c9; }
+.raidbar span { color: #f2c9bb; font-size: 12.5px; }
+@keyframes raidpulse { 50% { box-shadow: 0 0 0 4px rgba(232,132,104,.25); } }
+@media (prefers-reduced-motion: reduce) { .raidbar { animation: none; } }
+.units input[type="range"] { accent-color: var(--accent); }
