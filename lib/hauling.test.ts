@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyAction, CAP, F, G, HAUL_CAPACITY, HOUR, idx, newCity, settle, type City } from './engine';
+import { applyAction, CAP, F, G, HL, O, HAUL_CAPACITY, HOUR, idx, newCity, settle, type City } from './engine';
 function fixture():City {
  const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.camp=idx(20,20);c.b={};c.herds=[];c.camps=[];c.exps=[];c.res={food:100000,wood:0,stone:0,copper:0};c.people=c.people.slice(0,3);c.pop=3;c.popAcc=0;for(const p of c.people){p.task={t:'idle'};p.pos=c.camp;}return c;
 }
@@ -42,4 +42,21 @@ test('housing never accepts cargo and a warehouse takes priority over the starte
  nearCamp.b[warehouse]={k:'storehouse',lvl:1,doneAt:null};
  settle(nearCamp,1_201_000);
  assert.equal(nearCamp.people[0].haul?.drop,warehouse);
+});
+
+test('hauling routes around stone and ore and mines from an adjacent ground tile',()=>{
+ const c=fixture();
+ for(let y=17;y<=23;y++)c.t[idx(25,y)]=y%2?HL:O;
+ assign(c);
+ const route=c.people[0].haul!.route;
+ assert.ok(route.every(tile=>![HL,O].includes(c.t[tile])));
+ assert.ok(route.some(tile=>Math.floor(tile/96)<17||Math.floor(tile/96)>23));
+ const miner=fixture(),rock=idx(30,20);miner.t[rock]=HL;
+ assert.equal(applyAction(miner,{type:'assign',ids:[miner.people[0].id],task:{t:'mine',at:rock}},0),null);
+ assert.ok(miner.people[0].haul!.route.every(tile=>miner.t[tile]!==HL));
+ settle(miner,10_000);
+ assert.equal(miner.people[0].haul?.phase,'work');
+ assert.notEqual(miner.people[0].haul?.tile,rock);
+ settle(miner,1_840_000);
+ assert.equal(miner.res.stone,10);
 });

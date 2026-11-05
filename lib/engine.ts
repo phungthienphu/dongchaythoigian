@@ -719,6 +719,7 @@ function routeLength(route: number[]) {
 function haulPassable(c: City, tile: number, to: number, water: boolean) {
   const b = c.b[tile];
   if (b?.k === "wall" && built(b)) return false;
+  if (c.t[tile] === HL || c.t[tile] === O) return false;
   if (tile === to) return true;
   if (!water && c.t[tile] === R) return false;
   return !b || b.burned || b.k === "canal" || b.k === "farm" || b.k === "levee" || b.k === "gate";
@@ -726,11 +727,14 @@ function haulPassable(c: City, tile: number, to: number, water: boolean) {
 function haulPath(c: City, from: number, to: number, ctx: HaulContext): number[] | null {
   const key = `${from}:${to}`;
   if (ctx.paths.has(key)) return ctx.paths.get(key)!;
-  if (from === to) { const path = [from]; ctx.paths.set(key, path); return path; }
+  const rockyTarget = c.t[to] === HL || c.t[to] === O;
+  const arrived = (tile: number) => rockyTarget ? tile !== to && cheb(tile, to) === 1 && haulPassable(c, tile, -1, true) : tile === to;
+  if (arrived(from)) { const path = [from]; ctx.paths.set(key, path); return path; }
   const find = (water: boolean) => {
     const prev = new Int32Array(W * H).fill(-1), queue = [from]; prev[from] = from;
+    let goal = -1;
     for (let head = 0; head < queue.length; head++) {
-      const tile = queue[head]; if (tile === to) break;
+      const tile = queue[head]; if (arrived(tile)) { goal = tile; break; }
       const x = tile % W, y = Math.floor(tile / W);
       for (const [dx, dy] of N8) {
         if (!inb(x + dx, y + dy)) continue;
@@ -740,8 +744,8 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext): number[]
         prev[next] = tile; queue.push(next);
       }
     }
-    if (prev[to] === -1) return null;
-    const route = [to]; for (let tile = to; tile !== from;) { tile = prev[tile]; route.push(tile); }
+    if (goal < 0) return null;
+    const route = [goal]; for (let tile = goal; tile !== from;) { tile = prev[tile]; route.push(tile); }
     return route.reverse();
   };
   const land = find(false), ford = find(true);
@@ -863,6 +867,7 @@ function refreshHauling(c: City, at: number, ctx: HaulContext) {
     const h = p.haul;
     if (!h) continue;
     if (h.phase === "work") {
+      if ([HL, O].includes(c.t[h.tile])) { p.pos = h.tile; delete p.haul; beginHaul(c, p, at, ctx); continue; }
       const job = haulingJob(c, p, at, ctx);
       if (job && h.workRate && job.rate !== h.workRate) {
         h.nextAt = at + Math.max(0, h.nextAt - at) * h.workRate / job.rate;
@@ -899,7 +904,7 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: number, sme
     if (h.phase === "travel") {
       h.tile = h.route[h.route.length - 1]; p.pos = h.tile;
       const job = haulingJob(c, p, at, ctx);
-      if (!job || job.tile !== h.tile || taskKey(p) !== h.taskKey) { delete p.haul; beginHaul(c, p, at, ctx); continue; }
+      if (!job || (job.tile !== h.tile && !([HL, O].includes(c.t[job.tile]) && cheb(job.tile, h.tile) === 1)) || taskKey(p) !== h.taskKey) { delete p.haul; beginHaul(c, p, at, ctx); continue; }
       h.phase = "work"; h.at = at; h.source = job.source; h.resource = job.resource; h.workRate = job.rate;
       h.nextAt = at + Math.ceil(h.capacity / job.rate * HOUR / HAUL_TILE_MS) * HAUL_TILE_MS;
     } else if (h.phase === "work") {

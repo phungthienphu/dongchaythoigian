@@ -1,4 +1,4 @@
-import { applyAction, type Action, type City } from './engine';
+import { applyAction, settle, type Action, type City } from './engine';
 
 export type CityActionResponse = { state?: City; error?: string; serverNow?: number };
 export type OptimisticCityOptions = {
@@ -38,10 +38,18 @@ export class OptimisticCityQueue {
   get version(): number { return this.generation; }
   get snapshot(): City { return clone(this.visible); }
 
+  /** Advance the same visible state used by subsequent optimistic actions. */
+  advance(at = this.clock()) {
+    if (!this.visible.battleId) settle(this.visible, Math.max(at, this.visible.last));
+    this.publish();
+  }
+
   setAuthoritative(state: City, expectedVersion = this.generation): boolean {
-    if (this.isPending || expectedVersion !== this.generation) return false;
+    if (this.isPending || expectedVersion !== this.generation || state.last < this.base.last) return false;
     this.base = clone(state);
+    const displayAt = Math.max(this.visible.last, this.clock());
     this.visible = clone(state);
+    if (!this.visible.battleId) settle(this.visible, displayAt);
     this.needsSync = false;
     this.generation++;
     this.publish();
@@ -88,6 +96,7 @@ export class OptimisticCityQueue {
       }
     }
     this.pending = kept;
+    if (!state.battleId) settle(state, Math.max(this.visible.last, this.clock()));
     this.visible = state;
     this.generation++;
     this.publish();

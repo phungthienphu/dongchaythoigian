@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyAction, newCity, type Action, type City } from './engine';
+import { applyAction, newCity, settle, idx, F, G, type Action, type City } from './engine';
 import { OptimisticCityQueue, type CityActionResponse } from './optimistic-city';
 function deferred<T>() { let resolve!: (value:T)=>void; let reject!: (error:Error)=>void; const promise=new Promise<T>((yes,no)=>{resolve=yes;reject=no;}); return {promise,resolve,reject}; }
 const flush=()=>new Promise<void>(resolve=>setImmediate(resolve));
@@ -21,4 +21,19 @@ test('ambiguous network failure clears queue and reloads without replaying mutat
 });
 test('reload failure prevents new mutations until a fresh authoritative load',async()=>{
  const initial=city();let calls=0;const q=new OptimisticCityQueue({state:initial,now:()=>0,onState:()=>{},send:async()=>{calls++;throw new Error('lost');},onUncertain:async()=>{throw new Error('offline');}});assert.equal(await q.enqueue(toggle(true)),false);await flush();assert.equal(await q.enqueue(toggle(false)),false);assert.equal(calls,1);assert.equal(q.setAuthoritative(initial,q.version),true);
+});
+
+test('live deposits survive the next action and a delayed server snapshot',async()=>{
+ const initial=city();initial.t.fill(G);initial.seen.fill(1);initial.herds=[];initial.camps=[];
+ const source=idx(initial.camp%96+2,Math.floor(initial.camp/96));initial.t[source]=F;
+ initial.res.wood=0;
+ assert.equal(applyAction(initial,{type:'assign',ids:[initial.people[0].id],task:{t:'chop',at:source}},0),null);
+ const gate=deferred<CityActionResponse>();let clock=0,shown=initial;
+ const q=new OptimisticCityQueue({state:initial,now:()=>clock,onState:s=>{shown=s;},send:()=>gate.promise,onUncertain:async()=>initial});
+ clock=1_230_000;q.advance();const wood=shown.res.wood;assert.ok(wood>=10);
+ const pending=q.enqueue(toggle(false));assert.equal(shown.res.wood,wood);
+ gate.resolve({state:applied(initial,toggle(false))});await pending;
+ assert.equal(shown.res.wood,wood);
+ const old=structuredClone(initial);settle(old,1000);
+ assert.equal(q.setAuthoritative(old),true);assert.equal(shown.res.wood,wood);
 });

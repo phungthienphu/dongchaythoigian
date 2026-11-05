@@ -430,9 +430,7 @@ export default function Game() {
     const tick = setInterval(() => {
       const c = cityRef.current;
       if (!c) return;
-      if (!c.battleId) settle(c, now());
-      dRef.current = derive(c);
-      crowdRef.current.sync(c);
+      actionQueue.current?.advance(now());
       const vis = visitRef.current;
       if (vis) { if (!vis.city.battleId) settle(vis.city, now()); vis.D = derive(vis.city); vis.crowd.sync(vis.city); }
       bump();
@@ -775,18 +773,18 @@ export default function Game() {
           </div>
         </div>
         <div className="chips">
-          <div className="chip" title="Dân số / chỗ ở">
+          <div className="chip" tabIndex={0} title="Dân số hiện tại / sức chứa nhà ở. Đầy chỗ thì dân ngừng tăng; xây hoặc nâng cấp nhà. Dân cần đủ lương thực để tiếp tục tăng. Dòng dưới là số dân rảnh hoặc cảnh báo cần nhà.">
             <Icon k="pop" />
             <div className="cv">
               <span className="v">{c.people.length}<small>/{st.housing}</small></span>
               <span className={"d" + (c.people.length >= st.housing ? " down" : "")}>{c.people.length >= st.housing ? "cần nhà" : `${idle.length} rảnh`}</span>
             </div>
           </div>
-          <div className="chip" title="Thợ xây đang bận / tổng số thợ">
+          <div className="chip" tabIndex={0} title="Số thợ xây đang bận / tổng số thợ xây. Ví dụ 0/2 nghĩa là có thể xây hoặc nâng cấp đồng thời thêm 2 công trình.">
             <Icon k="build" />
             <div className="cv"><span className="v">{busyN}/{maxB}</span><span className="d">thợ xây</span></div>
           </div>
-          <div className="chip" title="Quân ở nhà / sức chứa trại lính">
+          <div className="chip" tabIndex={0} title="Số quân đang ở làng / sức chứa trại lính. Mỗi loại quân có thể chiếm số chỗ khác nhau. Dòng ⚔ là tổng sức tấn công của quân ở nhà.">
             <Icon k="army" />
             <div className="cv"><span className="v">{troopCount(c.army)}<small>/{cap}</small></span><span className="d">⚔ {fmt(homePower)}</span></div>
           </div>
@@ -794,7 +792,7 @@ export default function Game() {
             const rate = r === "copper" ? st.copperRate : r === "wood" ? st.rate.wood - st.woodUse : st.rate[r];
             const pct = Math.min(100, (c.res[r] / st.storage) * 100);
             return (
-              <div className="chip" key={r} title={`${RN[r]}: ${fmt(c.res[r])} / ${fmt(st.storage)}`}>
+              <div className="chip" key={r} tabIndex={0} title={`${RN[r]} trong kho: ${fmt(c.res[r])} / ${fmt(st.storage)} sức chứa. Thanh ngang biểu thị mức đầy kho. Dòng /giờ* là thu nhập ròng ước tính, không phải cộng tài nguyên tự động; dân phải mang hàng về nộp.${r === "food" ? " Lương thực bị tiêu hao liên tục để nuôi dân và quân." : r === "wood" ? " Gỗ bị tiêu hao liên tục khi lò đúc hoạt động, hoặc trừ ngay khi xây, nâng cấp và luyện quân." : " Xây dựng, nâng cấp và luyện quân có thể tiêu tốn tài nguyên."}` }>
                 <Icon k={r} />
                 <div className="cv">
                   <span className={"v" + (pct >= 100 ? " full" : "")}>{fmt(c.res[r])}<small>/{fmt(st.storage)}</small></span>
