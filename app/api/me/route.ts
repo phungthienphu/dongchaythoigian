@@ -20,7 +20,7 @@ export async function GET() {
       const c = f.cityId ? byId.get(f.cityId) : undefined;
       return {
         id: f._id, name: f.name, picture: f.picture, online: now - new Date(f.lastSeen).getTime() < ONLINE_MS,
-        city: c ? { name: c.name, era: c.era, pop: c.pop, score: c.score } : null,
+        city: c ? { id: c._id, name: c.name, era: c.era, pop: c.pop, score: c.score } : null,
       };
     }),
   });

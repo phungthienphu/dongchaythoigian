@@ -4,6 +4,7 @@ import type { ClientSession } from "mongodb";
 import { battles, cities, mongoClient, type CityDoc } from "./db";
 import { RES, UKEYS, W, MARCH_TILES_PER_MIN, MIN, canVisit, derive, stats, score, settle, troopCount, type City, type Troops, type Res } from "./engine";
 import { createBattle, type BattleState, type BattleResult } from "./battle";
+import { knowsNation } from "./world-discovery";
 import { worldDist } from "./world";
 
 export type BattleDoc = {
@@ -70,6 +71,7 @@ export function validateTroops(input: unknown, available: Troops): Troops {
 }
 export function attackRestriction(a: City, d: City, target: string, now: number) {
   if (a.battleId) return "Làng đang có trận đánh, hãy chỉ huy phòng thủ.";
+  if (!knowsNation(a,target)) return "Cần sứ giả dò tìm vị trí nước này trước.";
   if (!canVisit(a, target, now)) return "Cần sứ giả thăm nước này trong 3 ngày gần nhất.";
   if (a.era - d.era > 1) return "Không được đánh nước kém mình quá một thời đại.";
   if ((d.shieldUntil ?? 0) > now) return "Nước này đang có khiên bảo vệ.";

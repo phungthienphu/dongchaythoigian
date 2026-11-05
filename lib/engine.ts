@@ -134,7 +134,7 @@ export type TaskInput =
 export type Haul = {
   phase: "travel" | "work" | "return" | "unload";
   at: number; nextAt: number; tile: number; route: number[]; routeStart: number;
-  resource?: ResKey; carried: number; capacity: number;
+  resource?: ResKey; carried: number; capacity: number; resting?: boolean;
   source?: { kind: "tile" | "herd" | "building"; key: number };
   taskKey: string; workRate?: number; drop?: number;
 };
@@ -178,12 +178,13 @@ export type City = {
   auto?: { on: boolean; mix: Record<ResKey, number> }; // auto-assign shares (control centre)
   raid?: { at: number; warn: number; power: number; from: number } | null; // incoming barbarians
   trips?: EnvoyTrip[]; // envoys travelling on the world map
+  discoveries?: string[]; // permanent nation IDs discovered by envoys
   visits?: Record<string, number>; // city id -> visit valid until (ms)
   guardPosts?: { x: number; y: number }[]; // home army guard positions
   alarm?: boolean; // bell rung for the incoming raid
 };
 
-export type EnvoyTrip = { id: number; target: string; targetName: string; depart: number; arrive: number; back: number; arrived?: boolean };
+export type EnvoyTrip = { id: number; target: string; targetName: string; depart: number; arrive: number; back: number; arrived?: boolean; scouting?: boolean };
 export const VISIT_MS = 3 * 24 * HOUR;
 export const WORLD = 200; // world map is WORLD × WORLD cells
 const ENVOY_CELLS_PER_MIN = 2;
@@ -643,6 +644,7 @@ function setTask(c: City, p: Person, tk: TaskInput, now: number) {
   const point = haulPosition(p, now) ?? (exploring ? { x: exploring[0], y: exploring[1] } : null);
   const from = point ? idx(Math.min(W - 1, Math.max(0, Math.floor(point.x))), Math.min(H - 1, Math.max(0, Math.floor(point.y)))) : p.pos ?? c.camp;
   p.pos = from;
+  const restLoaded = !!p.haul?.carried && (tk.t === "idle" || tk.t === "move") && !!p.haul.resource && c.res[p.haul.resource] + p.haul.carried > stats(c,derive(c),now).storage;
   if (p.haul?.carried) {
     p.haul.tile = from;
     p.haul.phase = "unload"; // reroute the existing cargo before beginning the new task
@@ -650,6 +652,13 @@ function setTask(c: City, p: Person, tk: TaskInput, now: number) {
     p.haul.at = now;
     p.haul.nextAt = now;
     delete p.haul.drop;
+    p.haul.resting = restLoaded;
+    if (restLoaded) {
+      const destination = tk.t === "move" ? tk.to : from;
+      const route = haulPath(c,from,destination,haulingContext(c,derive(c))) ?? [from];
+      p.haul.route=route;p.haul.phase=route.length>1?"travel":"unload";
+      p.haul.nextAt=now+Math.max(HAUL_TILE_MS,Math.ceil(routeLength(route))*HAUL_TILE_MS);
+    }
   } else delete p.haul;
   if (tk.t === "explore") { p.task = { t: "explore", from, to: tk.to, start: now }; return; }
   if (tk.t === "move") { p.task = { t: "idle", at: tk.to }; if (!p.haul) beginHaul(c, p, now, haulingContext(c, derive(c))); return; }
@@ -802,8 +811,10 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   let source: HaulJob["source"] = { kind: "building", key: tk.at };
   let tile = tk.at;
   if (b.k === "wood" || b.k === "quarry" || b.k === "smelter") {
-    tile = b.k === "quarry" ? tk.at : nearestTile(c, tk.at, i => c.t[i] === (b.k === "wood" ? F : O), 1);
-    if (tile < 0 || (b.k === "quarry" && c.t[tile] !== HL)) return null;
+    const terrain = b.k === "wood" ? F : b.k === "quarry" ? HL : O;
+    // Keep working after the nearest tree/rock is exhausted; select a reachable source.
+    tile = nearestTile(c, tk.at, i => !!c.seen[i] && c.t[i] === terrain && (!c.b[i] || i === tk.at) && !!haulPath(c,p.pos ?? c.camp,i,ctx), 6);
+    if (tile < 0) return null;
     source = { kind: "tile", key: tile };
   }
   return { tile, resource, rate, source };
@@ -914,6 +925,13 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: number, sme
   for (const p of c.people) {
     if (!p.haul) { beginHaul(c, p, at, ctx); continue; }
     const h = p.haul;
+    if (h.resting) {
+      if(h.nextAt>at) continue;
+      h.tile=h.route[h.route.length-1];p.pos=h.tile;h.route=[h.tile];h.phase="unload";h.at=at;
+      if(h.resource && storage-c.res[h.resource]>=h.carried){h.resting=false;returnCargo(c,p,at,ctx);}
+      else h.nextAt=at+HAUL_TILE_MS;
+      continue;
+    }
     if (h.phase === "work" && p.task.t === "work" && !isBuildingActive(c.b[p.task.at])) { delete p.haul; beginHaul(c, p, at, ctx); continue; }
     if (h.phase === "work" && h.source && (h.source.kind === "tile" ? ![F, HL, O].includes(c.t[h.source.key]) : h.source.kind === "building" ? !isBuildingActive(c.b[h.source.key]) : !herdById(c, h.source.key)?.n)) {
       delete p.haul; beginHaul(c, p, at, ctx); continue;
@@ -936,7 +954,7 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: number, sme
       if (h.drop === undefined || !activeDrop(c, h.drop, h.resource!)) returnCargo(c, p, at, ctx);
     } else {
       if (!h.carried) { delete p.haul; beginHaul(c, p, at, ctx); continue; }
-      if (h.drop === undefined || !activeDrop(c, h.drop, h.resource!) || h.tile !== h.drop) { returnCargo(c, p, at, ctx); continue; }
+      if (h.drop === undefined || !activeDrop(c, h.drop, h.resource!) || (h.tile !== h.drop && !([HL,O].includes(c.t[h.drop]) && cheb(h.tile,h.drop) === 1))) { returnCargo(c, p, at, ctx); continue; }
       const amount = Math.min(h.carried, Math.max(0, storage - c.res[h.resource!]));
       c.res[h.resource!] += amount; h.carried -= amount;
       if (h.carried > 1e-9) { h.nextAt = at + HAUL_TILE_MS; continue; }
@@ -1051,8 +1069,11 @@ function raid(c: City, at: number, r: () => number) {
 function stepEnvoys(c: City, nt: number) {
   let changed = false;
   for (const tr of [...(c.trips ?? [])]) {
+    // Exploration is resolved by the server; clients cannot predict a hidden target.
+    if (tr.scouting && !tr.target) continue;
     if (!tr.arrived && tr.arrive <= nt) {
       tr.arrived = true;
+      c.discoveries = [...new Set([...(c.discoveries ?? []), tr.target])];
       c.visits = { ...(c.visits ?? {}), [tr.target]: tr.arrive + VISIT_MS };
       log(c, tr.arrive, `${ENVOY_NAMES[c.era]} đã tới ${tr.targetName}. Có thể xem làng họ, và được phép xuất quân tới đó trong 3 ngày.`, "good");
       changed = true;

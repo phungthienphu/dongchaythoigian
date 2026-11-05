@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BattleCommand, BattleSide, BattleState } from "@/lib/battle";
-import type { BattleDoc } from "@/lib/war";
+import type { WarView } from "@/lib/war-view";
 import { derive, UNITS, W, type City, type Derived } from "@/lib/engine";
 import { camView, clampCam, drawCity, fitView, focusOn, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import styles from "./BattleView.module.css";
 
-type Packet = { war: BattleDoc; battle: BattleState | null; village: City | null; side: BattleSide; socket: string | null };
+type Packet = { war: WarView; battle: BattleState | null; village: City | null; side: BattleSide; socket: string | null };
 const MERCY = "Thí chủ hãy giữ cho mình chút nhân tánh, hãy cho những người lương thiện một con đường sống…";
 const EMPTY_PICKED = new Set<number>(), EMPTY_CHOPPING = new Set<number>();
 
@@ -44,7 +44,7 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
     let controller: AbortController | undefined;
     focused.current = false;
     setPacket(null); setBattle(null); setSelected(null);
-    const finish = (state: BattleState | null, war?: BattleDoc) => {
+    const finish = (state: BattleState | null, war?: WarView) => {
       if ((state?.status === "finished" || war?.result || war?.status === "completed" || war?.status === "cancelled") && settled.current !== id) {
         settled.current = id; onSettledRef.current?.();
       }

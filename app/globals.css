@@ -348,3 +348,7 @@ a.google.small { padding: 4px 10px; font-size: 12.5px; }
 
 .haul-detail { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.5; white-space: normal; }
 .next-step { max-width: min(680px, 90vw); padding: 7px 12px; background: rgba(20,32,29,.94); border: 1px solid #8b793c; color: #eee1b5; font-size: 12px; line-height: 1.5; text-align: left; }
+.wm-discovery { position: absolute; top: 90px; left: 16px; max-width: min(360px, calc(100vw - 32px)); padding: 8px 12px; border-radius: 8px; background: rgba(12,20,18,.86); color: #d0d8ce; font-size: 12px; pointer-events: none; }
+.wm-discovery p { margin: 3px 0; }
+.wm-top { flex-wrap: wrap; }
+@media(max-width:700px) { .wm-discovery { top: 150px; max-width: calc(100vw - 32px); font-size: 11px; } }

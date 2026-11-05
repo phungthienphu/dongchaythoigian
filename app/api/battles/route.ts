@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { battlePlayerId } from "@/lib/city-store";
-import { battles } from "@/lib/db";
+import { warView } from "@/lib/war-view";
+import { battles, cities } from "@/lib/db";
 import { launchAttack, socketUrl, warConfigured, returnArmy, startBattle } from "@/lib/war";
 
 export async function GET() {
@@ -13,8 +14,10 @@ export async function GET() {
     await Promise.allSettled(rows.filter((r) => r.status === "marching" && r.arrive <= Date.now() || r.status === "returning" && (r.back ?? Infinity) <= Date.now()).map((r) => r.status === "marching" ? startBattle(r._id) : returnArmy(r._id)));
     rows = await col.find({ $or: [{ attackerId: pid }, { defenderId: pid }], status: { $ne: "cancelled" } }).sort({ createdAt: -1 }).limit(20).toArray();
   }
+  const mine=await (await cities()).findOne({_id:pid},{projection:{state:1}});
+  if(!mine) return NextResponse.json({error:"Chưa có thành phố."},{status:401});
   return NextResponse.json({ enabled: warConfigured(), playerId: pid, socket: warConfigured() ? socketUrl(`player-${pid}`, pid, "defender") : null,
-    battles: rows.map(({ snapshot: _snapshot, ...r }) => ({ ...r, side: r.attackerId === pid ? "attacker" : "defender" })) });
+    battles: rows.map((r) => ({ ...warView(r,pid,mine.state), side: r.attackerId === pid ? "attacker" : "defender" })) });
 }
 export async function POST(req: Request) {
   const pid = await battlePlayerId();

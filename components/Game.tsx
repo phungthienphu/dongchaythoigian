@@ -19,7 +19,7 @@ import type { Nation } from "@/lib/world";
 type Cell = { x: number; y: number };
 type Row = { name: string; score: number; era: number; pop: number; temple: boolean; me: boolean };
 type Panel = "shop" | "army" | "people" | "era" | "log" | "rank" | "control" | "friends";
-type Me = { user: { id: string; name: string; picture?: string; email: string; friendCode: string; hasCity: boolean } | null; friends: { id: string; name: string; picture?: string; online: boolean; city: { name: string; era: number; pop: number; score: number } | null }[] };
+type Me = { user: { id: string; name: string; picture?: string; email: string; friendCode: string; hasCity: boolean } | null; friends: { id: string; name: string; picture?: string; online: boolean; city: { id: string; name: string; era: number; pop: number; score: number } | null }[] };
 
 function fmtDur(ms: number) {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -70,8 +70,9 @@ function taskLabel(c: City, p: Person) {
 }
 function haulDetail(p: Person, at: number, storage: number, stock: City["res"]) {
   const h = p.haul;
-  if (!h) return p.task.t === "idle" ? "Chưa có việc — chọn dân rồi bấm nơi làm việc." : "Đang chuẩn bị đường đi.";
+  if (!h) return p.task.t === "idle" ? "Chưa có việc — chọn dân rồi bấm nơi làm việc." : p.task.t === "explore" ? "Đang dò đường trong làng." : "Chưa làm được: kiểm tra tài nguyên gần trại và đường đi; có thể giao việc khác.";
   const left = fmtDur(h.nextAt - at), name = h.resource ? RN[h.resource].toLowerCase() : "hàng";
+  if (h.resting) return `${h.phase === "travel" ? "Đang đi theo lệnh" : "Đã nghỉ"} · vẫn giữ ${fmt(h.carried)} ${name} vì kho đầy. Dùng bớt tài nguyên hoặc xây Kho.`;
   if (h.phase === "travel") return `Đang tới chỗ làm · còn ${left}`;
   if (h.phase === "return") return `Đang mang ${fmt(h.carried)} ${name} về · tới nơi sau ${left}`;
   if (h.phase === "unload") return h.resource && stock[h.resource] >= storage
@@ -124,7 +125,7 @@ function Stepper({ value, max, onChange, label }: { value: number; max: number; 
   );
 }
 
-function FriendsPanel({ me, reload }: { me: Me; reload: () => Promise<void> }) {
+function FriendsPanel({ me, reload, onVisit }: { me: Me; reload: () => Promise<void>; onVisit: (id:string)=>void }) {
   const [code, setCode] = useState("");
   const [note, setNote] = useState<{ text: string; err?: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -171,6 +172,7 @@ function FriendsPanel({ me, reload }: { me: Me; reload: () => Promise<void> }) {
         </div>
         {note && <p className={"small " + (note.err ? "err" : "ok")}>{note.text}</p>}
       </form>
+      <p className="muted small">Xem làng bạn bè không tiết lộ vị trí. Cần sứ giả dò tìm để hiện nước của họ trên bản đồ thế giới.</p>
       <h3>Bạn bè ({me.friends.length})</h3>
       {me.friends.length ? (
         <ul className="friends">
@@ -182,6 +184,7 @@ function FriendsPanel({ me, reload }: { me: Me; reload: () => Promise<void> }) {
                 <span className="muted small">{f.city ? `${f.city.name} · ${ERA_NAMES[f.city.era].replace("Thời ", "")} · ${f.city.pop} dân · ${fmt(f.city.score)} điểm` : "Chưa dựng làng"}</span>
                 <span className="muted small">{f.online ? "Đang online" : "Offline"}</span>
               </div>
+              {f.city && <button onClick={() => onVisit(f.city!.id)}>Xem làng</button>}
               <button className="link" onClick={() => remove(f.id)}>{armed === f.id ? "Bấm lần nữa để xoá" : "Xoá"}</button>
             </li>
           ))}
@@ -401,6 +404,15 @@ export default function Game() {
   }, []);
 
   useEffect(() => { if (worldOpen) void loadWorld(); }, [worldOpen, loadWorld]);
+
+  const envoySchedule = (cityRef.current?.trips ?? []).map(tr => `${tr.id}:${tr.target}:${tr.arrived ? tr.back : tr.arrive}`).join("|");
+  useEffect(() => {
+    const trips=cityRef.current?.trips ?? [];
+    if(!trips.length) return;
+    const deadline=Math.min(...trips.map(tr=>tr.arrived?tr.back:tr.arrive));
+    const timer=setTimeout(() => { void loadCity().then(() => loadWorld()); },Math.max(500,deadline-(Date.now()+offsetRef.current)+500));
+    return () => clearTimeout(timer);
+  },[envoySchedule,loadCity,loadWorld]);
 
   const loadVisit = useCallback(async (id: string, first: boolean) => {
     const request = ++visitRequest.current;
@@ -812,13 +824,14 @@ export default function Game() {
           {RES.map((r) => {
             const rate = r === "copper" ? st.copperRate : r === "wood" ? st.rate.wood - st.woodUse : st.rate[r];
             const pct = Math.min(100, (c.res[r] / st.storage) * 100);
+            const waiting = c.people.some(p => p.haul?.resource === r && p.haul.carried > 0 && st.storage-c.res[r] < p.haul.carried);
             return (
               <div className="chip" key={r} tabIndex={0} title={`${RN[r]} trong kho: ${fmt(c.res[r])} / ${fmt(st.storage)} sức chứa. Thanh ngang biểu thị mức đầy kho. Dòng /giờ* là thu nhập ròng ước tính, không phải cộng tài nguyên tự động; dân phải mang hàng về nộp.${r === "food" ? " Lương thực bị tiêu hao liên tục để nuôi dân và quân." : r === "wood" ? " Gỗ bị tiêu hao liên tục khi lò đúc hoạt động, hoặc trừ ngay khi xây, nâng cấp và luyện quân." : " Xây dựng, nâng cấp và luyện quân có thể tiêu tốn tài nguyên."}` }>
                 <Icon k={r} />
                 <div className="cv">
                   <span className={"v" + (pct >= 100 ? " full" : "")}>{fmt(c.res[r])}<small>/{fmt(st.storage)}</small></span>
                   <span className="bar"><i style={{ width: pct + "%" }} /></span>
-                  <span title="Năng suất ước tính; hàng chỉ vào kho khi dân mang về nộp." className={"d" + (rate > 0.05 ? " up" : rate < -0.05 ? " down" : "")}>{rate >= 0 ? "+" : ""}{fmt(rate)}/giờ*</span>
+                  <span title="Năng suất ước tính; hàng chỉ vào kho khi dân mang về nộp." className={"d" + (rate > 0.05 ? " up" : rate < -0.05 ? " down" : "")}>{waiting ? "Kho chật · dân chờ nộp" : `${rate >= 0 ? "+" : ""}${fmt(rate)}/giờ*`}</span>
                 </div>
               </div>
             );
@@ -1013,10 +1026,11 @@ export default function Game() {
             if (actionQueue.current?.isPending) { setMsg({ text: "Đang lưu thao tác, hãy cử sứ giả sau giây lát." }); return; }
             setBusy(true);
             try {
-              const res = await fetch("/api/world/envoy", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target: id }) });
+              const res = await fetch("/api/world/envoy", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(id ? { target: id } : { explore: true }) });
               const data = await res.json();
               if (data.state) accept(data);
-              setMsg(data.error ? { text: data.error, err: true } : { text: `${ENVOY_NAMES[c.era]} đã lên đường.` });
+              void loadWorld();
+              setMsg(data.error ? { text: data.error, err: true } : { text: id ? `${ENVOY_NAMES[c.era]} đã lên đường.` : "Sứ giả đang dò tìm nước mới. Có tin sau 2 phút; trở về sau 4 phút." });
             } catch {
               setMsg({ text: "Mất kết nối khi cử sứ giả. Thử lại sau.", err: true });
             } finally { setBusy(false); }
@@ -1183,7 +1197,7 @@ export default function Game() {
               />
             )}
 
-            {panel === "friends" && <FriendsPanel me={me} reload={loadMe} />}
+            {panel === "friends" && <FriendsPanel me={me} reload={loadMe} onVisit={(id) => { setPanel(null);setWorldOpen(false);setSelected(null);setPicked(new Set());setTool(null);void loadVisit(id,true); }} />}
 
             {panel === "rank" && (
               <ol className="board-list">

@@ -385,7 +385,7 @@ export class Crowd {
     v.carry = h.resource ?? null; v.carrying = h.carried > 0;
     v.moving = (h.phase === "travel" || h.phase === "return") && now < h.nextAt;
     v.run = false; v.visible = true;
-    v.state = h.phase === "travel" ? "toWork" : h.phase === "work" ? "work" : "toHome";
+    v.state = h.resting && h.phase !== "travel" ? "rest" : h.phase === "travel" ? "toWork" : h.phase === "work" ? "work" : "toHome";
     if (h.drop !== undefined) v.home = h.drop;
     if (h.source) v.work = h.source.kind === "herd" ? herdById(city, h.source.key)?.at ?? h.tile : h.source.key;
     if (h.phase !== "work" || !(h.workRate && h.workRate > 0)) { v.swing = 0; return; }

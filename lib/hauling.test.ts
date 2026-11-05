@@ -75,3 +75,32 @@ test('population grows after one minute with housing and food and stops at housi
  settle(c,61_000);assert.equal(c.people.length,4);
  settle(c,240_000);assert.equal(c.people.length,6);
 });
+test('quarry workers unload stone beside the rock without getting stuck in an unload loop',()=>{
+ const c=fixture(),rock=idx(24,20);c.t[rock]=HL;c.b[rock]={k:'quarry',lvl:1,doneAt:null};
+ assert.equal(applyAction(c,{type:'assign',ids:[c.people[0].id],task:{t:'work',at:rock}},0),null);
+ settle(c,50_000);assert.ok(c.res.stone>=10);assert.ok(c.people[0].haul);assert.ok(c.people[0].haul!.carried===0||c.res.stone>=20);
+});
+test('wood camp workers find reachable trees beyond one tile when the nearest tree is exhausted',()=>{
+ const c=fixture(),camp=idx(23,20),near=idx(24,20),far=idx(26,20);
+ c.b[camp]={k:'wood',lvl:1,doneAt:null};c.t[near]=F;c.t[far]=F;c.dep[near]=CAP.forest-3;
+ assert.equal(applyAction(c,{type:'assign',ids:[c.people[0].id],task:{t:'work',at:camp}},0),null);
+ settle(c,70_000);assert.equal(c.t[near],G);assert.ok(c.res.wood>3);assert.ok((c.dep[far]??0)>0);
+});
+test('a loaded villager can rest and move on command while stock is full without losing cargo',()=>{
+ const c=fixture();c.res.wood=500;assign(c);settle(c,31_000);
+ const p=c.people[0];assert.equal(p.haul?.carried,10);
+ assert.equal(applyAction(c,{type:'assign',ids:[p.id],task:{t:'idle'}},31_000),null);
+ assert.equal(p.task.t,'idle');assert.equal(p.haul?.resting,true);
+ const to=idx(18,20);assert.equal(applyAction(c,{type:'assign',ids:[p.id],task:{t:'move',to}},31_000),null);
+ settle(c,40_000);assert.equal(p.pos,to);assert.equal(p.haul?.carried,10);assert.equal(c.res.wood,500);
+ c.res.wood-=10;settle(c,50_000);assert.equal(c.res.wood,500);assert.equal(p.haul,undefined);
+});
+test('rest stays responsive when a nearly full food stockpile only frees tiny amounts through upkeep',()=>{
+ const c=fixture(),p=c.people[0];c.res.food=500;
+ p.task={t:'work',at:idx(22,20)};
+ p.haul={phase:'unload',at:0,nextAt:0,tile:c.camp,route:[c.camp],routeStart:0,resource:'food',carried:10,capacity:10,taskKey:'old',drop:c.camp};
+ assert.equal(applyAction(c,{type:'assign',ids:[p.id],task:{t:'idle'}},0),null);
+ assert.equal(p.haul?.resting,true);
+ const to=idx(18,20);applyAction(c,{type:'assign',ids:[p.id],task:{t:'move',to}},0);
+ settle(c,5000);assert.equal(p.pos,to);assert.equal(p.haul?.resting,true);assert.equal(p.haul?.carried,10);
+});

@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { BattleDoc } from "@/lib/war";
-export type WarSummary = Omit<BattleDoc, "snapshot"> & { side: "attacker" | "defender" };
+import type { WarView } from "@/lib/war-view";
+export type WarSummary = WarView & { side: "attacker" | "defender" };
 export function useWars(ready: boolean, onUpdate: () => void) {
   const [wars, setWars] = useState<WarSummary[]>([]);
   const [enabled, setEnabled] = useState(false);

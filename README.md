@@ -34,9 +34,21 @@ bun run dev
 ```bash
 bun run type-check
 bun run test
+bun run test:world # API khám phá/bạn bè với database giả lập, chạy riêng
 bun run test:render
 bun run test:worker
 bun run build
 ```
 
 Các bài kiểm tra mô phỏng không thay thế QA hai tài khoản trên Worker/Vercel đã deploy.
+
+### Khám phá thế giới và bạn bè
+
+- Bạn bè xem làng qua danh sách mà không cần sứ giả. API xem làng không gửi thông tin khám phá, chuyến đi hoặc nhật ký của chủ làng.
+- Bản đồ/API thế giới chỉ trả nước mình và các nước đã khám phá. Những chuyến sứ giả cũ được giữ lại như kiến thức đã có, kể cả báo cáo hết hạn.
+- “Dò tìm nước mới” có kết quả sau 2 phút và trở về sau 4 phút. Server chọn một nước chưa biết khi đến hạn; trước đó không trả ID, tên hay tọa độ mục tiêu. Nếu không còn nước mới, sứ giả trở về bình thường.
+- Vị trí đã khám phá được giữ lâu dài. Báo cáo cho phép xem làng người lạ và xuất quân có hiệu lực 3 ngày; cần thăm lại khi hết hạn. Kết bạn không tự cấp quyền tấn công.
+- Cảnh báo quân địch không làm lộ gốc hành quân của một nước chưa khám phá.
+- `/dev/world` là bản thử giao diện bằng dữ liệu cố định, không gọi API hay thay đổi tài khoản thật.
+
+Kho chật: dân giữ hàng chờ nộp thay vì làm mất tài nguyên. “Cho nghỉ” ngừng công việc ngay và vẫn cho di chuyển; hàng đang giữ chỉ được nộp lại khi kho có đủ chỗ. Bảng dân và thanh tài nguyên giải thích trạng thái này. Trại gỗ tự tìm nguồn còn khai thác được trong 6 ô khi cây gần nhất hết; bãi đá cho nộp từ ô đứng cạnh mỏ.

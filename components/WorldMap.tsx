@@ -14,7 +14,7 @@ type Props = {
   city: City;
   now: () => number;
   busy: boolean;
-  onEnvoy: (id: string) => void;
+  onEnvoy: (id?: string) => void;
   onVisit: (id: string) => void;
   onClose: () => void;
 };
@@ -104,6 +104,7 @@ export default function WorldMap({ wars, warEnabled, onAttack, nations, city, no
       // Outgoing and incoming armies follow authoritative departure/return times.
       for (const march of state.current.wars) {
         if (!["marching", "returning", "fighting"].includes(march.status)) continue;
+        if (!march.from || !march.to || march.depart === undefined || march.duration === undefined) continue;
         const [ax, ay] = S(march.from.x, march.from.y), [bx, by] = S(march.to.x, march.to.y);
         ctx.strokeStyle = march.side === "attacker" ? "#f0c766" : "#ff8575"; ctx.lineWidth = 2;
         ctx.setLineDash([8, 4]); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
@@ -176,7 +177,10 @@ export default function WorldMap({ wars, warEnabled, onAttack, nations, city, no
       </div>
       <header className="wm-top">
         <h2>Bản đồ thế giới</h2>
-        <span className="muted small">{nations.length} nước · {en}: {myEnvoys ? `${myEnvoys - away}/${myEnvoys} ở nhà` : "chưa có"} · chấm xanh lá: đang được phép thăm</span>
+        <span className="muted small">Đã biết {nations.filter(n=>!n.me).length} nước · {en}: {myEnvoys ? `${myEnvoys - away}/${myEnvoys} ở nhà` : "chưa có"} · chấm xanh lá: đang được phép thăm</span>
+        <button disabled={busy || !myEnvoys || away >= myEnvoys} onClick={() => onEnvoy()} title="Dò tìm một nước chưa biết: có tin sau 2 phút, trở về sau 4 phút.">
+          {!myEnvoys ? "Cần xây Nhà sứ giả" : "Dò tìm nước mới · 2 phút"}
+        </button>
         <select aria-label="Tìm nước trên bản đồ" value={sel?.id ?? ""} onChange={(e) => {
           const n = nations.find(n => n.id === e.target.value); if (!n) return;
           setSel(n); cam.current = { x: n.x, y: n.y, z: 7 };
@@ -186,6 +190,10 @@ export default function WorldMap({ wars, warEnabled, onAttack, nations, city, no
         </select>
         <button onClick={onClose}>Về làng</button>
       </header>
+      <aside className="wm-discovery" aria-label="Khám phá thế giới">
+        <p>Chỉ hiện nước đã được sứ giả tìm thấy. Bạn bè có thể xem làng qua danh sách, nhưng vị trí vẫn giữ kín.</p>
+        {(city.trips ?? []).map(tr=><p key={tr.id}>{!tr.target ? `Đang dò vùng chưa biết · có tin sau ${fmtMin(tr.arrive-t)}` : `${tr.targetName} · ${t<tr.arrive?`tới sau ${fmtMin(tr.arrive-t)}`:`đang trở về, còn ${fmtMin(tr.back-t)}`}`}</p>)}
+      </aside>
       {sel && (
         <div className="hud-card wm-card">
           <button className="x" onClick={() => setSel(null)} aria-label="Đóng">×</button>

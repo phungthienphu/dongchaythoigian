@@ -3,6 +3,8 @@ import { cities, users, type CityDoc } from "./db";
 import { SESSION_COOKIE, readSession, currentUser } from "./auth";
 import { ENGINE_VER, newCity, score, settle, type City } from "./engine";
 
+import { resolveDiscoveries } from "./world";
+
 export const PID_COOKIE = "pid";
 
 /** The signed-in player's city, or the guest city from the `pid` cookie. */
@@ -51,6 +53,7 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
     }
     // cities from an older engine are replaced by a fresh world (prototype stage, no migration)
     const c = doc.state.ver === ENGINE_VER ? doc.state : newCity(now);
+    await resolveDiscoveries(pid, c, now);
     settle(c, now);
     const result = mutate(c, now);
     const res = await col.updateOne(

@@ -8,6 +8,7 @@
     "start": "next start",
     "type-check": "tsc --noEmit",
     "test": "bun test lib/*.test.ts",
+    "test:world": "bun test tests/world-api.test.ts",
     "test:render": "node tests/render-performance.mjs",
     "test:worker": "node worker/tests.mjs"
   },
