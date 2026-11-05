@@ -63,6 +63,19 @@ export function screenToCell(v: View, sx: number, sy: number) {
   return inb(x, y) ? { x, y } : null;
 }
 
+/** Conservative inverse-projection bounds, including the existing tall-object margins. */
+export function visibleTileBounds(v: View) {
+  const corners = [[-v.TW, -v.TW * 0.5], [v.width + v.TW, -v.TW * 0.5], [-v.TW, v.height + v.TW * 2], [v.width + v.TW, v.height + v.TW * 2]];
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [sx, sy] of corners) {
+    const a = (sx - v.ox) / (v.TW / 2), b = (sy - v.oy) / (v.TH / 2);
+    const x = (a + b) / 2 - 0.5, y = (b - a) / 2 - 0.5;
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+    y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  return { x0: Math.max(0, Math.floor(x0)), y0: Math.max(0, Math.floor(y0)), x1: Math.min(W - 1, Math.ceil(x1)), y1: Math.min(H - 1, Math.ceil(y1)) };
+}
+
 /* ---------- colour helpers ---------- */
 const mixCache = new Map<string, string>();
 function mix(a: string, b: string, t: number) {
@@ -442,6 +455,47 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
   const c = r.c, s = r.v.s, q = tp(r, x, y), hs = 1 + 0.2 * Math.max(0, lvl - 1);
   const night = false;
   switch (k) {
+    case "wall": {
+      const era = r.city.era, h = (era === 1 ? 14 : 18) * hs;
+      shadow(r, x, y, 0.44);
+      if (era === 1) {
+        for (let n = 0; n < 7; n++) {
+          const u = -0.43 + n * 0.14;
+          box(r, x, y, u, -0.08, u + 0.09, 0.08, 0, h, "#b58a51", "#87603a", "#624329");
+          pyramid(r, x, y, u, -0.08, u + 0.09, 0.08, h, 4, "#c69d60", "#916c41");
+        }
+        line(r, q(-0.45, 0.09, 5), q(0.5, 0.09, 5), "#503b28", 2);
+      } else {
+        const top = era === 2 ? "#bc9561" : "#b7b7a8", left = era === 2 ? "#9d774c" : "#93988f", right = era === 2 ? "#795b3c" : "#727d78";
+        box(r, x, y, -0.5, -0.12, 0.5, 0.12, 0, h, top, left, right);
+        for (const u of [-0.47, -0.12, 0.23]) box(r, x, y, u, -0.12, u + 0.22, 0.12, h, h + 4, top, left, right);
+        for (let row = 1; row < 4; row++) line(r, q(-0.5, 0.125, row * h / 4), q(0.5, 0.125, row * h / 4), "rgba(45,45,35,.35)", 0.8);
+      }
+      break;
+    }
+    case "gate": {
+      const era = r.city.era, h = 22 * hs, stone = era === 3;
+      shadow(r, x, y, 0.46);
+      for (const u of [-0.46, 0.27]) box(r, x, y, u, -0.16, u + 0.19, 0.16, 0, h, stone ? "#b9b7a8" : "#ba8c50", stone ? "#92988c" : "#8a633c", stone ? "#6d7a73" : "#65492e");
+      box(r, x, y, -0.46, -0.16, 0.46, 0.16, h - 5, h, stone ? "#c8c2ae" : "#b88b50", stone ? "#a2a48f" : "#8a633c", stone ? "#7c887a" : "#65492e");
+      box(r, x, y, -0.27, 0.05, 0.27, 0.1, 0, h - 5, "#805b38", "#63472d", "#493723");
+      for (const u of [-0.18, 0, 0.18]) line(r, q(u, 0.11, 0), q(u, 0.11, h - 5), era > 1 ? "#b6a36f" : "#986e41", 1);
+      if (era > 1) gable(r, x, y, -0.5, -0.22, 0.5, 0.22, h, 8, era === 3 ? "#4d7181" : "#ab573c", "#5f6153", "#555842");
+      flag(r, x, y, -0.38, 0, h, 14, "#d4ae4e", i, true);
+      break;
+    }
+    case "watchtower": {
+      const era = r.city.era, h = (era === 1 ? 25 : 32) * hs;
+      shadow(r, x, y, 0.4);
+      if (era < 3) stilts(r, x, y, -0.22, -0.22, 0.22, 0.22, h - 8);
+      else box(r, x, y, -0.23, -0.23, 0.23, 0.23, 0, h - 8, "#c4c0af", "#a0a393", "#7e8b80");
+      box(r, x, y, -0.33, -0.33, 0.33, 0.33, h - 8, h - 3, "#baa16e", "#947647", "#6e5938");
+      if (era === 1) pyramid(r, x, y, -0.4, -0.4, 0.4, 0.4, h - 2, 12, "#d9b460", "#a88642");
+      else gable(r, x, y, -0.4, -0.4, 0.4, 0.4, h, 10, era === 3 ? "#4b7184" : "#ad5b40", "#665b46", "#6c5a3d");
+      for (let n = 0; n < 6; n++) line(r, q(0.25, 0.34, n * 3.5), q(0.38, 0.34, n * 3.5), "#886439", 1);
+      flag(r, x, y, -0.26, 0, h + 2, 17, "#d4ae4e", i, true);
+      break;
+    }
     case "hut": {
       if (lvl >= 3) {
         // stilt house
@@ -1082,6 +1136,70 @@ export function herdAnimals(city: City, h: { id: number; at: number; n: number }
   return out;
 }
 
+type HitShape = { u0: number; v0: number; u1: number; v1: number; wall: number; roof?: number; pyramid?: boolean; z?: number };
+
+/** Match the main solid silhouettes; ignore smoke, shadows and thin waving flags. */
+function buildingHitShapes(k: BKey, lvl: number, era: number): HitShape[] {
+  const hs = 1 + .2 * Math.max(0, lvl - 1);
+  const shape = (u0: number, v0: number, u1: number, v1: number, wall: number, roof = 0, pyramid = false): HitShape => ({ u0, v0, u1, v1, wall, roof, pyramid });
+  switch (k) {
+    case "hut": return [lvl >= 3 ? shape(-.4, -.36, .4, .36, 22, 14) : lvl === 2 ? shape(-.36, -.32, .36, .32, 11, 12) : shape(-.32, -.32, .32, .32, 9, 16, true)];
+    case "house": return [shape(-.38, -.34, .38, .34, 15 * hs, 12), { ...shape(.15, -.2, .25, -.1, 14), z: 15 * hs }];
+    case "stonehouse": return [shape(-.4, -.36, .4, .36, 20 * hs, 13), ...(lvl >= 3 ? [shape(-.45, -.45, -.13, -.13, 20 * hs + 34, 12, true)] : [])];
+    case "gather": return [shape(-.34, -.34, .09, .14, 7, 7), shape(-.2, -.1, .38, .4, 3)];
+    case "wood": return [shape(-.36, -.36, .06, .04, 9 * hs, 7), shape(.05, .15, .38, .35, 5)];
+    case "quarry": return [shape(-.34, -.32, .34, .34, 15)];
+    case "storehouse": return [shape(-.4, -.36, .4, .36, 13 * hs, 10)];
+    case "fire": return [shape(-.22, -.22, .22, .22, 1, 20, true)];
+    case "farm": return [shape(-.46, -.46, .46, .46, 3 * hs)];
+    case "canal": return [shape(-.25, -.25, .25, .25, 1)];
+    case "levee": return [shape(-.48, -.48, .48, .48, 6)];
+    case "smelter": return [shape(-.3, -.3, .3, .3, 12, 8, true), shape(.05, -.15, .2, 0, 34)];
+    case "market": return [shape(-.38, -.26, .38, .31, 18, 6)];
+    case "forge": return [shape(-.38, -.38, .36, .36, 16, 8)];
+    case "wheel": return [shape(-.34, -.34, .16, .24, 13 * hs, 9), shape(.14, -.2, .46, .12, 22)];
+    case "envoy": return [era <= 1 ? shape(-.32, -.3, .28, .26, 10 * hs, 14 * hs, true) : era === 2 ? shape(-.38, -.34, .36, .32, 14 * hs, 11) : shape(-.42, -.38, .42, .36, 20 * hs, 13)];
+    case "hall": return [shape(-.48, -.44, .48, .44, 4), shape(-.48, -.42, .48, .4, 17, lvl >= 3 ? 8 : 16 * hs), ...(lvl >= 3 ? [{ ...shape(-.4, -.3, .4, .26, 6, 13), z: 21 }] : [])];
+    case "barracks": return [shape(-.4, -.32, .36, .26, 13 * hs, 9), shape(-.44, .4, .47, .46, 13)];
+    case "temple": return [shape(-.46, -.46, .46, .46, 8), shape(-.36, -.36, .36, .36, 18), shape(-.3, -.3, .3, .3, 34, 22, true)];
+    case "wall": return [shape(-.5, -.12, .5, .12, (era === 1 ? 14 : 18) * hs, 4)];
+    case "gate": return [shape(-.46, -.16, .46, .16, 22 * hs, era > 1 ? 8 : 0)];
+    case "watchtower": return [shape(-.4, -.4, .4, .4, (era === 1 ? 25 : 32) * hs, 10, era === 1)];
+  }
+}
+
+function pointInPolygon(x: number, y: number, points: Pt[]) {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const [ax, ay] = points[j], [bx, by] = points[i];
+    const cross = (x - ax) * (by - ay) - (y - ay) * (bx - ax);
+    if (Math.abs(cross) < .01 && x >= Math.min(ax, bx) - .01 && x <= Math.max(ax, bx) + .01 && y >= Math.min(ay, by) - .01 && y <= Math.max(ay, by) + .01) return true;
+    if ((ay > y) !== (by > y) && x < (bx - ax) * (y - ay) / (by - ay) + ax) inside = !inside;
+  }
+  return inside;
+}
+
+/** Pick solid building faces in reverse painter order, including roofs above their ground tile. */
+export function pickBuilding(v: View, city: City, sx: number, sy: number): { x: number; y: number } | null {
+  const candidates = buildings(city).filter(([tile]) => city.seen[tile]).sort(([a], [b]) => (b % W + Math.floor(b / W)) - (a % W + Math.floor(a / W)) || Math.floor(b / W) - Math.floor(a / W));
+  for (const [tile, building] of candidates) {
+    const x = tile % W, y = Math.floor(tile / W);
+    for (const h of buildingHitShapes(building.k, Math.max(1, building.lvl), city.era)) {
+      const q = (u: number, w: number, z: number): Pt => P(v, x + .5 + u, y + .5 + w, z * v.s);
+      const z = h.z ?? 0, top = z + h.wall;
+      const a = q(h.u0, h.v0, z), b = q(h.u1, h.v0, z), c = q(h.u1, h.v1, z), d = q(h.u0, h.v1, z);
+      const A = q(h.u0, h.v0, top), B = q(h.u1, h.v0, top), C = q(h.u1, h.v1, top), D = q(h.u0, h.v1, top);
+      const faces: Pt[][] = [[d, c, C, D], [b, c, C, B], [A, B, C, D]];
+      if (h.roof) {
+        if (h.pyramid) { const apex = q((h.u0 + h.u1) / 2, (h.v0 + h.v1) / 2, top + h.roof); faces.push([A, B, apex], [B, C, apex], [C, D, apex], [D, A, apex]); }
+        else { const left = q(h.u0, (h.v0 + h.v1) / 2, top + h.roof), right = q(h.u1, (h.v0 + h.v1) / 2, top + h.roof); faces.push([A, B, right, left], [left, right, C, D], [B, C, right]); }
+      }
+      if (faces.some((face) => pointInPolygon(sx, sy, face))) return { x, y };
+    }
+  }
+  return null;
+}
+
 /** Herd whose animal is under a screen point, if any. */
 export function pickHerd(v: View, city: City, anim: number, sx: number, sy: number) {
   const s = Math.max(v.s * 1.3, 0.6);
@@ -1135,7 +1253,10 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     return sx > -v.TW && sx < v.width + v.TW && sy > -v.TW * 0.5 && sy < v.height + v.TW * 2;
   };
   const vis = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (onScreen(x, y)) vis[idx(x, y)] = 1;
+  const bounds = visibleTileBounds(v), visible: number[] = [];
+  for (let y = bounds.y0; y <= bounds.y1; y++) for (let x = bounds.x0; x <= bounds.x1; x++) if (onScreen(x, y)) {
+    const i = idx(x, y); vis[i] = 1; visible.push(i);
+  }
   const seen = city.seen;
   const nearSeen = (x: number, y: number) => {
     for (const [dx, dy] of N8) if (inb(x + dx, y + dy) && seen[idx(x + dx, y + dy)]) return true;
@@ -1143,7 +1264,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   };
 
   // 1. ground, back to front
-  for (let d = 0; d <= W + H - 2; d++) for (let x = Math.max(0, d - H + 1); x <= Math.min(W - 1, d); x++) {
+  for (let d = bounds.x0 + bounds.y0; d <= bounds.x1 + bounds.y1; d++) for (let x = Math.max(bounds.x0, d - bounds.y1); x <= Math.min(bounds.x1, d - bounds.y0); x++) {
     const y = d - x, i = idx(x, y);
     if (!vis[i]) continue;
     if (seen[i]) { drawGroundTile(r, x, y); continue; }
@@ -1164,8 +1285,8 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     return [q(-e, -e), q(e, -e), q(e, e), q(-e, e)] as Pt[];
   };
   if (r.season === 1 || r.season === 2) {
-    for (let i = 0; i < W * H; i++) {
-      if (!vis[i] || !seen[i] || D.rd[i] !== 1 || D.prot[i] || city.t[i] === R) continue;
+    for (const i of visible) {
+      if (!seen[i] || D.rd[i] !== 1 || D.prot[i] || city.t[i] === R) continue;
       poly(c, diamond(i % W, (i / W) | 0), "rgba(90,165,225,.22)");
     }
   }
@@ -1203,17 +1324,26 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   // 3. objects sorted by depth
   type Item = { d: number; f: () => void };
   const items: Item[] = [];
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const i = idx(x, y);
-    if (!vis[i] || !seen[i]) continue;
+  for (const i of visible) {
+    const x = i % W, y = Math.floor(i / W);
+    if (!seen[i]) continue;
     const t = city.t[i], b = city.b[i];
     const d = x + y + 1;
     if (b) {
       items.push({
         d, f: () => {
-          if (b.lvl === 0) c.globalAlpha = 0.5;
+          if (b.lvl === 0 || b.burned) c.globalAlpha = 0.5;
           drawBuilding(r, b.k, x, y, Math.max(1, b.lvl), i);
           c.globalAlpha = 1;
+          if (b.burned) {
+            const q = tp(r, x, y);
+            for (let f = 0; f < 3; f++) {
+              const h = 12 + 6 * Math.sin(o.anim / 140 + i + f), u = (f - 1) * 0.2;
+              poly(c, [q(u - 0.1, 0.18, 3), q(u + 0.1, 0.18, 3), q(u + 0.025, 0.18, h + 8)], "#ed6327");
+              poly(c, [q(u - 0.05, 0.19, 3), q(u + 0.05, 0.19, 3), q(u, 0.19, h)], "#ffd66b");
+            }
+            smoke(r, x, y, 0, 0, 24, i);
+          }
           if (b.flooded) {
             const q = tp(r, x, y);
             poly(c, [q(-0.48, -0.48, 2), q(0.48, -0.48, 2), q(0.48, 0.48, 2), q(-0.48, 0.48, 2)], "rgba(70,150,210,.55)");
@@ -1262,13 +1392,19 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   }
   if (!lod) {
     // soldiers at home stand in rows beside the first barracks
-    const bar = buildings(city).find(([, b]) => b.k === "barracks" && b.lvl >= 1);
-    if (bar) {
-      const bx = (bar[0] % W) + 0.5, by = Math.floor(bar[0] / W) + 0.5;
+    const bar = buildings(city).find(([, b]) => b.k === "barracks" && b.lvl >= 1 && !b.burned && !b.flooded);
+    const guards = city.guardPosts ?? [];
+    if (bar || guards.length) {
+      const home = bar?.[0] ?? city.camp;
+      const bx = (home % W) + 0.5, by = Math.floor(home / W) + 0.5;
       let n = 0;
       for (const u of UKEYS) for (let k = 0; k < Math.min(city.army[u] ?? 0, 8) && n < 24; k++, n++) {
-        const fx = bx + 0.75 + (n % 4) * 0.32, fy = by - 0.6 + Math.floor(n / 4) * 0.32;
-        items.push({ d: fx + fy, f: () => drawSoldier(r, u, fx, fy, -1, false, n * 0.37) });
+        const guard = guards[n % guards.length], row = Math.floor(n / Math.max(1, guards.length));
+        const fx = guard ? guard.x + 0.4 + (row % 3) * 0.15 : bx + 0.75 + (n % 4) * 0.32;
+        const fy = guard ? guard.y + 0.4 + Math.floor(row / 3) * 0.15 : by - 0.6 + Math.floor(n / 4) * 0.32;
+        if (!onScreen(fx - 0.5, fy - 0.5)) continue;
+        const seed = n * 0.37;
+        items.push({ d: fx + fy, f: () => drawSoldier(r, u, fx, fy, -1, false, seed) });
       }
     }
     // incoming barbarian raid

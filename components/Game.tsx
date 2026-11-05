@@ -8,9 +8,12 @@ import {
   reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
 } from "@/lib/engine";
-import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHerd, pickVillager, screenToCell, zoomAt, type Cam, type View } from "./draw";
+import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHerd, pickVillager, pickBuilding, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import { Crowd } from "./villagers";
 import WorldMap from "./WorldMap";
+import BattleView from "./BattleView";
+import { useWars } from "./useWars";
+import { OptimisticCityQueue } from "@/lib/optimistic-city";
 import type { Nation } from "@/lib/world";
 
 type Cell = { x: number; y: number };
@@ -46,7 +49,7 @@ function taskFor(c: City, i: number): { task: TaskInput; label: string } | null 
   if (!c.seen[i]) return { task: { t: "explore", to: i }, label: "Đi thám hiểm tới đây" };
   if (campAt(c, i)) return null;
   const b = c.b[i];
-  if (b) return B[b.k].jobs && b.lvl >= 1 && !b.flooded ? { task: { t: "work", at: i }, label: `Làm ở ${B[b.k].n}` } : null;
+  if (b) return B[b.k].jobs && b.lvl >= 1 && !b.flooded && !b.burned ? { task: { t: "work", at: i }, label: `Làm ở ${B[b.k].n}` } : null;
   if (c.t[i] === F) return { task: { t: "chop", at: i }, label: "Chặt cây ở đây" };
   if (c.t[i] === HL) return { task: { t: "mine", at: i }, label: "Đào đá ở đây" };
   if (c.t[i] === O) return { task: { t: "mine", at: i }, label: "Đào đồng ở đây" };
@@ -296,9 +299,13 @@ export default function Game() {
   const [rows, setRows] = useState<Row[]>([]);
   const [me, setMe] = useState<Me>({ user: null, friends: [] });
   const [busy, setBusy] = useState(false);
+  const [guardEditing, setGuardEditing] = useState(false);
+  const [battleOpen, setBattleOpen] = useState<string | null>(null);
   const [armDemolish, setArmDemolish] = useState(false);
 
   const cityRef = useRef<City | null>(null);
+  const actionQueue = useRef<OptimisticCityQueue | null>(null);
+  const [saving, setSaving] = useState(false);
   const dRef = useRef<Derived | null>(null);
   const offsetRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -325,23 +332,55 @@ export default function Game() {
 
   const accept = useCallback((data: { state: City; serverNow: number; name?: string }) => {
     offsetRef.current = data.serverNow - Date.now();
-    cityRef.current = data.state;
-    dRef.current = derive(data.state);
-    crowdRef.current.sync(data.state);
+    const publish = (state: City) => {
+      cityRef.current = state;
+      dRef.current = derive(state);
+      crowdRef.current.sync(state);
+      setSaving(actionQueue.current?.isPending ?? false);
+      bump();
+    };
+    if (!actionQueue.current) {
+      actionQueue.current = new OptimisticCityQueue({
+        state: data.state, now: () => Date.now() + offsetRef.current,
+        onState: publish, onError: (text) => setMsg({ text, err: true }),
+        send: async (action, requestId) => {
+          const res = await fetch("/api/city/action", {
+            method: "POST", signal: AbortSignal.timeout(15_000),
+            headers: { "content-type": "application/json", "x-action-id": requestId }, body: JSON.stringify(action),
+          });
+          const response = await res.json();
+          if (response.serverNow) offsetRef.current = response.serverNow - Date.now();
+          if (!res.ok && !response.error) throw new Error("Không lưu được thao tác.");
+          return response;
+        },
+        onUncertain: async () => {
+          const res = await fetch("/api/city", { cache: "no-store" });
+          if (!res.ok) throw new Error("Không tải được làng.");
+          const response = await res.json();
+          offsetRef.current = response.serverNow - Date.now();
+          return response.state;
+        },
+      });
+      publish(data.state);
+    } else actionQueue.current.setAuthoritative(data.state);
     if (data.name) setName(data.name);
-    bump();
   }, []);
 
   const loadCity = useCallback(async () => {
+    if (actionQueue.current?.isPending) return;
+    const generation = actionQueue.current?.version;
     const res = await fetch("/api/city", { cache: "no-store" });
     if (res.status === 404) { setNeedsName(true); setLoading(false); return; }
     if (!res.ok) { setMsg({ text: "Không tải được thành phố. Kiểm tra kết nối MongoDB.", err: true }); setLoading(false); return; }
     const data = await res.json();
+    if (actionQueue.current && (actionQueue.current.isPending || generation !== actionQueue.current.version)) return;
     accept(data);
     setShopEra(data.state.era);
     setNeedsName(false);
     setLoading(false);
   }, [accept]);
+
+  const war = useWars(!loading && !needsName && !!me.user?.hasCity, () => { void loadCity(); });
 
   const loadWorld = useCallback(async () => {
     const res = await fetch("/api/world", { cache: "no-store" });
@@ -391,11 +430,11 @@ export default function Game() {
     const tick = setInterval(() => {
       const c = cityRef.current;
       if (!c) return;
-      settle(c, now());
+      if (!c.battleId) settle(c, now());
       dRef.current = derive(c);
       crowdRef.current.sync(c);
       const vis = visitRef.current;
-      if (vis) { settle(vis.city, now()); vis.D = derive(vis.city); vis.crowd.sync(vis.city); }
+      if (vis) { if (!vis.city.battleId) settle(vis.city, now()); vis.D = derive(vis.city); vis.crowd.sync(vis.city); }
       bump();
     }, 1000);
     const sync = setInterval(() => { loadCity(); loadBoard(); loadMe(); }, 60_000);
@@ -419,7 +458,7 @@ export default function Game() {
       const ca = (v.width / 2 - v.ox) / (v.TW / 2), cb = (v.height / 2 - v.oy) / (v.TH / 2);
       if (focusedRef.current) focusOn(f, cam, (ca + cb) / 2, (cb - ca) / 2, cam.zoom);
       else clampCam(f, cam);
-      dpr = window.devicePixelRatio || 1;
+      dpr = Math.min(2, window.devicePixelRatio || 1);
       cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
     };
     const ro = new ResizeObserver(resize);
@@ -455,8 +494,7 @@ export default function Game() {
   }, [loading, needsName]);
 
   const act = async (a: Action) => {
-    if (busy) return false;
-    setBusy(true);
+    if (busy || cityRef.current?.battleId) return false;
     if (a.type === "assign" || a.type === "assignN") {
       const pos: Record<string, number> = {};
       for (const v of crowdRef.current.list) {
@@ -466,18 +504,9 @@ export default function Game() {
       }
       a = { ...a, pos };
     }
-    try {
-      const res = await fetch("/api/city/action", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(a) });
-      const data = await res.json();
-      if (data.state) accept(data);
-      if (data.error) setMsg({ text: data.error, err: true });
-      return !data.error;
-    } catch {
-      setMsg({ text: "Mất kết nối máy chủ.", err: true });
-      return false;
-    } finally {
-      setBusy(false);
-    }
+    const result = actionQueue.current?.enqueue(a) ?? Promise.resolve(false);
+    setSaving(actionQueue.current?.isPending ?? false);
+    return result.finally(() => setSaving(actionQueue.current?.isPending ?? false));
   };
 
   const createCity = async (e: React.FormEvent) => {
@@ -487,7 +516,7 @@ export default function Game() {
     if (!res.ok) { setMsg({ text: data.error ?? "Không tạo được thành phố.", err: true }); return; }
     accept(data);
     setNeedsName(false);
-    loadBoard();
+    loadBoard(); loadMe();
   };
 
   const local = (e: { clientX: number; clientY: number }) => {
@@ -508,7 +537,11 @@ export default function Game() {
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const prev = ptrs.current.get(e.pointerId);
-    if (!prev) { setHover(cellAt(e)); return; }
+    if (!prev) {
+      const cell = cellAt(e); viewRef.current.hover = cell;
+      setHover((old) => old?.x === cell?.x && old?.y === cell?.y ? old : cell);
+      return;
+    }
     const p = local(e), cam = camRef.current, f = fitRef.current, d = dragRef.current;
     ptrs.current.set(e.pointerId, p);
     if (ptrs.current.size >= 2) {
@@ -559,6 +592,13 @@ export default function Game() {
     const c = cityRef.current;
     if (!c) return;
     const p = local(e);
+    if (guardEditing) {
+      const cell = cellAt(e); if (!cell) return;
+      const posts = c.guardPosts ?? [];
+      const exists = posts.some((p) => p.x === cell.x && p.y === cell.y);
+      void act({ type: "setGuardPosts", posts: exists ? posts.filter((p) => p.x !== cell.x || p.y !== cell.y) : [...posts, cell] });
+      return;
+    }
     if (tool) {
       const cell = cellAt(e);
       if (!cell) return;
@@ -579,19 +619,21 @@ export default function Game() {
       const label = h.kind === "deer" ? "Săn đàn hươu" : "Săn đàn lợn rừng";
       if (picked.size) {
         const ids = [...picked];
+        setPicked(new Set());
         if (await act({ type: "assign", ids, task: { t: "hunt", herd: herdId } })) { setMsg({ text: `${ids.length} người: ${label.toLowerCase()}.` }); setPicked(new Set()); }
         return;
       }
       setSelected(null); setHerdSel(herdId); setAssignN(1); setMsg(null);
       return;
     }
-    const cell = cellAt(e);
+    const cell = pickBuilding(view(), c, p.x, p.y) ?? cellAt(e);
     if (!cell) return;
     const i = idx(cell.x, cell.y);
     if (picked.size && !campAt(c, i)) {
       const tk = taskFor(c, i);
       if (!tk) { setMsg({ text: "Không có việc gì để làm ở ô này.", err: true }); return; }
       const ids = [...picked];
+      setPicked(new Set());
       if (await act({ type: "assign", ids, task: tk.task })) {
         setMsg({ text: `${ids.length} người: ${tk.label.toLowerCase()}.` });
         setPicked(new Set());
@@ -600,6 +642,7 @@ export default function Game() {
     }
     setPicked(new Set());
     setHerdSel(null);
+    viewRef.current.selected = cell;
     setSelected(cell);
     setAssignN(1);
     setArmDemolish(false);
@@ -610,6 +653,7 @@ export default function Game() {
   };
 
   const pickTool = (k: BKey | null) => {
+    setGuardEditing(false);
     setTool(k);
     setSelected(null);
     setPicked(new Set());
@@ -620,7 +664,7 @@ export default function Game() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
+      setGuardEditing(false); setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -673,7 +717,7 @@ export default function Game() {
   const sel = selected ? c.b[selI] : undefined;
   const selCamp = selected ? campAt(c, selI) : undefined;
   const selTask: { task: TaskInput; label: string } | null = !selected || selCamp ? null
-    : sel ? (B[sel.k].jobs && sel.lvl >= 1 && !sel.flooded ? { task: { t: "work", at: selI }, label: `Làm ở ${B[sel.k].n}` } : null)
+    : sel ? (B[sel.k].jobs && sel.lvl >= 1 && !sel.flooded && !sel.burned ? { task: { t: "work", at: selI }, label: `Làm ở ${B[sel.k].n}` } : null)
     : taskFor(c, selI);
   const herd = herdSel !== null ? c.herds.find((h) => h.id === herdSel) : undefined;
   const herdTask: TaskInput | null = herd ? { t: "hunt", herd: herd.id } : null;
@@ -755,7 +799,7 @@ export default function Game() {
                 <div className="cv">
                   <span className={"v" + (pct >= 100 ? " full" : "")}>{fmt(c.res[r])}<small>/{fmt(st.storage)}</small></span>
                   <span className="bar"><i style={{ width: pct + "%" }} /></span>
-                  <span className={"d" + (rate > 0.05 ? " up" : rate < -0.05 ? " down" : "")}>{rate >= 0 ? "+" : ""}{fmt(rate)}/giờ</span>
+                  <span title="Năng suất ước tính; hàng chỉ vào kho khi dân mang về nộp." className={"d" + (rate > 0.05 ? " up" : rate < -0.05 ? " down" : "")}>{rate >= 0 ? "+" : ""}{fmt(rate)}/giờ*</span>
                 </div>
               </div>
             );
@@ -824,7 +868,7 @@ export default function Game() {
               <h2>{buildingName(c, sel.k)}{sel.lvl ? ` · cấp ${sel.lvl}` : ""}</h2>
               <p className="muted small">{B[sel.k].d}</p>
               {sel.doneAt && <p className="small">{sel.lvl === 0 ? "Đang xây" : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
-              {sel.flooded && <p className="err small">Bị ngập, không hoạt động.</p>}
+              {(sel.flooded || sel.burned) && <p className="err small">{sel.burned ? "Bị cháy, cần sửa để hoạt động lại." : "Bị ngập, không hoạt động."}</p>}
               {B[sel.k].jobs ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{B[sel.k].jobs}</b></p> : null}
             </>
           ) : (
@@ -852,11 +896,11 @@ export default function Game() {
             <div className="actions">
               {sel.k === "barracks" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
               {sel.k === "hall" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("control")}>{control ? "Trung tâm điều khiển" : "Xem Đình làng"}</button>}
-              {sel.flooded && <button className="primary" disabled={busy} onClick={() => act({ type: "repair", ...selected })}>Sửa ({costText(repairCost(sel.k))})</button>}
+              {(sel.flooded || sel.burned) && <button className="primary" disabled={busy} onClick={() => act({ type: "repair", ...selected })}>Sửa ({costText(repairCost(sel.k, sel.lvl, !!sel.burned))})</button>}
               {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && sel.lvl >= levelCap(c, sel.k) && (
                 <p className="muted small">{hallLv ? `Nâng Đình làng lên cấp ${sel.lvl + 1} để nâng tiếp.` : "Xây Đình làng (Thời đồ đồng) để nâng cấp công trình."}</p>
               )}
-              {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && sel.lvl < levelCap(c, sel.k) && !sel.doneAt && !sel.flooded && (
+              {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && sel.lvl < levelCap(c, sel.k) && !sel.doneAt && !sel.flooded && !sel.burned && (
                 <button disabled={busy} onClick={() => act({ type: "upgrade", ...selected })}>
                   Lên cấp {sel.lvl + 1} ({costText(levelCost(sel.k, sel.lvl + 1))}, {fmtDur(buildMs(sel.k, sel.lvl + 1))})
                 </button>
@@ -890,6 +934,7 @@ export default function Game() {
             <button onClick={() => setPicked(new Set())}>Bỏ chọn</button>
           </div>
         )}
+        {guardEditing && <div className="pickbar"><b>Đặt điểm gác · {c.guardPosts?.length ?? 0}/20</b><span>Bấm ô trống để thêm; bấm lại để bỏ.</span><button onClick={() => setGuardEditing(false)}>Xong</button></div>}
         {tool && (
           <div className="pickbar">
             <b>Đang xây {buildingName(c, tool)}</b>
@@ -897,9 +942,22 @@ export default function Game() {
             <button onClick={() => pickTool(null)}>Xong</button>
           </div>
         )}
-        <div className={"status" + (status?.err ? " err" : "")}>{status?.text ?? "Bấm vào dân để chọn rồi bấm vào rừng, đồi, đàn thú hoặc sương mù để giao việc. Mở Cửa hàng để xây nhà."}</div>
+        <div className={"status" + (status?.err ? " err" : "")}>{saving && <span className="save-state">Đang lưu… · </span>}{status?.text ?? "Bấm vào dân để chọn rồi bấm vào rừng, đồi, đàn thú hoặc sương mù để giao việc. Mở Cửa hàng để xây nhà."}</div>
       </div>
 
+      {battleOpen && <BattleView id={battleOpen} onClose={() => { setBattleOpen(null); void loadCity(); void war.refresh(); }} onSettled={() => { void loadCity(); void war.refresh(); }} />}
+      {!worldOpen && !battleOpen && (war.wars.some((w) => w.status !== "completed") || war.error) && (
+        <aside className="war-alerts" aria-live="polite">
+          {war.error && <p className="small">{war.error}</p>}
+          {war.wars.filter((w) => w.status !== "completed").map((w) => (
+            <div key={w._id} className={w.side === "defender" ? "incoming" : ""}>
+              <b>{w.side === "defender" ? `${w.attackerName} tiến đánh làng!` : `Đoàn quân tới ${w.defenderName}`}</b>
+              <span className="small">{w.status === "marching" ? ` · tới sau ${fmtDur(w.arrive - t)}` : w.status === "returning" ? ` · về sau ${fmtDur((w.back ?? t) - t)}` : " · đang giao chiến"}</span>
+              {w.status === "fighting" && <button onClick={() => { setBattleOpen(w._id); setPanel(null); }}>Chỉ huy trận</button>}
+            </div>
+          ))}
+        </aside>
+      )}
       {visiting && (
         <div className="visitbar">
           <b>Đang thăm {visiting.name}</b>
@@ -912,11 +970,26 @@ export default function Game() {
       {worldOpen && (
         <WorldMap
           nations={nations}
+          wars={war.wars}
+          warEnabled={war.enabled}
+          onAttack={async (id, troops) => {
+            if (busy || actionQueue.current?.isPending) { setMsg({ text: "Đang lưu thao tác, chờ giây lát trước khi xuất quân." }); return; }
+            setBusy(true);
+            try {
+              const res = await fetch("/api/battles", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target: id, troops }) });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error ?? "Không xuất quân được.");
+              setMsg({ text: "Đoàn quân đã lên đường." });
+              void war.refresh(); await loadCity();
+            } catch (e) { setMsg({ text: (e as Error).message, err: true }); }
+            finally { setBusy(false); }
+          }}
           city={c}
           now={now}
           busy={busy}
           onClose={() => setWorldOpen(false)}
           onEnvoy={async (id) => {
+            if (actionQueue.current?.isPending) { setMsg({ text: "Đang lưu thao tác, hãy cử sứ giả sau giây lát." }); return; }
             setBusy(true);
             try {
               const res = await fetch("/api/world/envoy", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target: id }) });
@@ -1009,6 +1082,12 @@ export default function Game() {
                 {c.queue.length > 0 && (
                   <p className="small">Đang luyện {c.queue.length} lính · người tiếp theo xong sau {fmtDur(c.queue[0].doneAt - t)} · tất cả xong sau {fmtDur(c.queue[c.queue.length - 1].doneAt - t)}</p>
                 )}
+                <p className="muted small">Đánh nước khác: mở Thế giới, cử sứ giả thăm rồi chọn quân. Hai nước cần đăng nhập Google.</p>
+                <h3>Phòng thủ làng</h3>
+                <p className="muted small">Đặt tối đa 20 điểm gác. Lính ở nhà tự bảo vệ các điểm này khi bạn vắng mặt.</p>
+                <button onClick={() => { setGuardEditing(true); setTool(null); setPicked(new Set()); setSelected(null); setPanel(null); }}>Đặt điểm gác ({c.guardPosts?.length ?? 0}/20)</button>
+                {!!c.guardPosts?.length && <button onClick={() => act({ type: "setGuardPosts", posts: [] })}>Xóa các điểm gác</button>}
+                {(c.shieldUntil ?? 0) > t && <p className="ok small">Khiên bảo vệ còn {fmtDur(c.shieldUntil! - t)}. Xuất quân sẽ bỏ khiên.</p>}
                 <h3>Xuất quân</h3>
                 <p className="muted small">Bấm vào trại man rợ (biển ⚔ đỏ) trên bản đồ để chọn quân và tấn công. Khám phá thêm để tìm trại.</p>
                 {c.exps.length > 0 && (

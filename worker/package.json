@@ -1,0 +1,7 @@
+{
+  "name": "dong-song-battle-worker",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node tests.mjs", "dev": "wrangler dev", "deploy": "wrangler deploy", "type-check": "tsc --noEmit" },
+  "devDependencies": { "typescript": "^5.9.3", "wrangler": "^4.46.0" }
+}

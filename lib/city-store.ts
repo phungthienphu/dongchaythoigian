@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { cities, users, type CityDoc } from "./db";
-import { SESSION_COOKIE, readSession } from "./auth";
+import { SESSION_COOKIE, readSession, currentUser } from "./auth";
 import { ENGINE_VER, newCity, score, settle, type City } from "./engine";
 
 export const PID_COOKIE = "pid";
@@ -11,22 +11,44 @@ export async function playerId() {
   const uid = readSession(jar.get(SESSION_COOKIE)?.value);
   if (uid) {
     const u = await (await users()).findOne({ _id: uid }, { projection: { cityId: 1 } });
-    if (u?.cityId) return u.cityId;
+    if (u?.cityId) {
+      const owned = await (await cities()).findOne({ _id: u.cityId, owner: uid }, { projection: { _id: 1 } });
+      if (owned) return owned._id;
+    }
   }
-  return jar.get(PID_COOKIE)?.value ?? null;
+  const guest = jar.get(PID_COOKIE)?.value;
+  if (!guest) return null;
+  // Legacy guest identifiers remain supported, but never grant access to an owned city.
+  const doc = await (await cities()).findOne({ _id: guest }, { projection: { owner: 1 } });
+  return doc && !doc.owner ? doc._id : null;
+}
+
+/** PvP requires a signed Google session and independently verified city ownership. */
+export async function battlePlayerId(): Promise<string | null> {
+  const user = await currentUser();
+  if (!user?.cityId) return null;
+  const owned = await (await cities()).findOne({ _id: user.cityId, owner: user._id }, { projection: { _id: 1 } });
+  return owned?._id ?? null;
 }
 
 /**
  * Load the player's city, let `mutate` change it (after settling to now), and save it back.
  * Uses the `ver` field for optimistic locking so two tabs can't overwrite each other.
  */
-export async function withCity<T>(pid: string, mutate: (c: City, now: number) => T, opts: { readOnlyFallback?: boolean } = {}) {
+export async function withCity<T>(pid: string, mutate: (c: City, now: number) => T, opts: { readOnlyFallback?: boolean; requestId?: string } = {}) {
   const col = await cities();
+  const uid = readSession((await cookies()).get(SESSION_COOKIE)?.value);
   for (let attempt = 0; attempt < 5; attempt++) {
     if (attempt) await new Promise((r) => setTimeout(r, 30 + Math.random() * 70));
     const doc = await col.findOne({ _id: pid });
-    if (!doc) return null;
+    if (!doc || (doc.owner && doc.owner !== uid)) return null;
     const now = Date.now();
+    const receipt = opts.requestId && doc.actionReceipts?.find((r) => r.id === opts.requestId);
+    if (receipt) return { doc, result: receipt.result as T, now };
+    if (doc.state.battleId) {
+      if (opts.readOnlyFallback) return { doc, result: null as T, now };
+      throw new Error("Làng đang trong trận đánh. Hãy dùng bảng chỉ huy trận.");
+    }
     // cities from an older engine are replaced by a fresh world (prototype stage, no migration)
     const c = doc.state.ver === ENGINE_VER ? doc.state : newCity(now);
     settle(c, now);
@@ -34,7 +56,7 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
     const res = await col.updateOne(
       { _id: pid, ver: doc.ver },
       {
-        $set: { state: c, score: score(c), era: c.era, pop: c.pop, templeAt: c.templeAt, updatedAt: new Date(now) },
+        $set: { state: c, score: score(c), era: c.era, pop: c.pop, templeAt: c.templeAt, updatedAt: new Date(now), ...(opts.requestId ? { actionReceipts: [...(doc.actionReceipts ?? []).slice(-63), { id: opts.requestId, result }] } : {}) },
         $inc: { ver: 1 },
       },
     );

@@ -17,7 +17,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const doc = await col.findOne({ _id: id });
   if (!doc) return NextResponse.json({ error: "Không tìm thấy nước này." }, { status: 404 });
   const state = doc.state;
-  settle(state, now); // bring it up to now for viewing only, never saved here
+  if (!state.battleId) settle(state, now); // bring it up to now for viewing only, never saved here
   const owner = doc.owner ? await (await users()).findOne({ _id: doc.owner }, { projection: { name: 1 } }) : null;
   return NextResponse.json({ id, name: doc.name, ownerName: owner?.name ?? null, state, serverNow: now, ver: doc.ver });
 }

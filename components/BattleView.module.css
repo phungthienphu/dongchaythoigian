@@ -1,0 +1,23 @@
+.overlay { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; background: #18241f; color: #f5e9ca; font-family: system-ui, sans-serif; }
+.header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; background: #25352d; border-bottom: 1px solid #82754b; }
+.header h2 { font-size: 17px; margin: 0 0 4px; }
+.header p, .footer p { font-size: 12px; margin: 0; color: #d7ccb1; }
+.overlay button { font: inherit; color: inherit; border: 1px solid #8b7c52; border-radius: 8px; background: #394333; padding: 9px 12px; min-height: 42px; cursor: pointer; }
+.overlay button:focus-visible { outline: 3px solid #ffe08a; outline-offset: 2px; }
+.overlay button:disabled { opacity: .5; cursor: default; }
+.overlay button[aria-pressed="true"] { background: #69552b; border-color: #ffe08a; box-shadow: inset 0 0 0 1px #ffe08a; }
+.map { position: relative; min-height: 0; flex: 1; overflow: hidden; }
+.map canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.waiting { position: absolute; left: 50%; top: 25%; transform: translateX(-50%); max-width: 85%; padding: 12px 18px; text-align: center; background: #18241fe8; border: 1px solid #82754b; border-radius: 8px; pointer-events: none; }
+.zoom { position: absolute; right: 12px; bottom: 12px; display: grid; gap: 6px; }
+.zoom button { font-size: 22px; width: 44px; padding: 0; background: #25352def; }
+.footer { position: relative; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid #82754b; background: #25352d; }
+.groups { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; }
+.groups button { flex-shrink: 0; font-size: 13px; }
+.footer p { padding-right: 100px; line-height: 1.5; }
+.retreat { position: absolute; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom)); background: #6f3b30 !important; }
+.error { padding: 8px 16px; background: #6e382c; font-size: 13px; }
+.error button { margin-left: 8px; font-size: 12px; padding: 4px 8px; min-height: 34px; }
+.result { padding: 10px 16px; background: #59492d; border-bottom: 1px solid #ac945a; }
+.result p { margin: 5px 0 0; font-size: 13px; line-height: 1.5; }
+@media (max-width: 600px) { .header { padding: 10px; }.header h2 { font-size: 14px; }.footer { padding-left: 10px; padding-right: 10px; }.footer p { font-size: 11px; }.result { max-height: 24vh; overflow: auto; } }

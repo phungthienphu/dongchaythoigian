@@ -2,10 +2,14 @@
 
 // World map: every nation is a fortress on a WORLD × WORLD board. Envoys travel between them.
 import { useEffect, useRef, useState } from "react";
-import { ENVOY_NAMES, ERA_NAMES, WORLD, canVisit, envoyCount, envoyMs, envoysAway, type City } from "@/lib/engine";
+import { ENVOY_NAMES, ERA_NAMES, WORLD, canVisit, envoyCount, envoyMs, envoysAway, UKEYS, UNITS, troopCount, type Troops, type City } from "@/lib/engine";
+import type { WarSummary } from "./useWars";
 import type { Nation } from "@/lib/world";
 
 type Props = {
+  wars: WarSummary[];
+  warEnabled: boolean;
+  onAttack: (id: string, troops: Troops) => void;
   nations: Nation[];
   city: City;
   now: () => number;
@@ -27,22 +31,24 @@ function hash(n: number) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-export default function WorldMap({ nations, city, now, busy, onEnvoy, onVisit, onClose }: Props) {
+export default function WorldMap({ wars, warEnabled, onAttack, nations, city, now, busy, onEnvoy, onVisit, onClose }: Props) {
   const cv = useRef<HTMLCanvasElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const me = nations.find((n) => n.me);
   const cam = useRef({ x: me?.x ?? WORLD / 2, y: me?.y ?? WORLD / 2, z: 7 }); // z = pixels per cell
   const [sel, setSel] = useState<Nation | null>(null);
+  const [army, setArmy] = useState<Troops>({});
+  useEffect(() => { setArmy({}); }, [sel?.id]);
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
-  const state = useRef({ nations, city, now });
-  state.current = { nations, city, now };
+  const state = useRef({ nations, city, now, wars });
+  state.current = { nations, city, now, wars };
 
   useEffect(() => {
     const c = cv.current, w = wrap.current;
     if (!c || !w) return;
     const ctx = c.getContext("2d")!;
     let raf = 0, dpr = 1;
-    const resize = () => { dpr = devicePixelRatio || 1; c.width = w.clientWidth * dpr; c.height = w.clientHeight * dpr; };
+    const resize = () => { dpr = Math.min(2, devicePixelRatio || 1); c.width = w.clientWidth * dpr; c.height = w.clientHeight * dpr; };
     const ro = new ResizeObserver(resize); ro.observe(w); resize();
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -87,6 +93,18 @@ export default function WorldMap({ nations, city, now, busy, onEnvoy, onVisit, o
         ctx.fillStyle = "#7fe0ff"; ctx.beginPath(); ctx.arc(ex, ey, 5 + Math.sin(t / 200) * 1, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = "#0b2a33"; ctx.font = "600 11px system-ui, sans-serif"; ctx.textAlign = "center";
         ctx.fillText(going ? "→" : "←", ex, ey + 4);
+      }
+      // Outgoing and incoming armies follow authoritative departure/return times.
+      for (const march of state.current.wars) {
+        if (!["marching", "returning", "fighting"].includes(march.status)) continue;
+        const [ax, ay] = S(march.from.x, march.from.y), [bx, by] = S(march.to.x, march.to.y);
+        ctx.strokeStyle = march.side === "attacker" ? "#f0c766" : "#ff8575"; ctx.lineWidth = 2;
+        ctx.setLineDash([8, 4]); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
+        const tn = now();
+        const progress = march.status === "marching" ? (tn - march.depart) / Math.max(1, march.arrive - march.depart)
+          : march.status === "returning" ? 1 - (tn - (march.endedAt ?? (march.back! - march.duration))) / march.duration : 1;
+        const p = Math.max(0, Math.min(1, progress));
+        ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(ax + (bx - ax) * p, ay + (by - ay) * p, 7, 0, Math.PI * 2); ctx.fill();
       }
       // nations
       for (const n of ns) {
@@ -170,6 +188,22 @@ export default function WorldMap({ nations, city, now, busy, onEnvoy, onVisit, o
                   {!myEnvoys ? "Cần xây nhà sứ giả" : trip ? `${en} đang đi` : away >= myEnvoys ? `Hết ${en.toLowerCase()} ở nhà` : `Cử ${en.toLowerCase()} tới đây`}
                 </button>
               </div>
+              {canVisit(city, sel.id, t) && (
+                <div className="world-army">
+                  <h3>Xuất quân</h3>
+                  {wars.some((w) => w.status !== "completed" && w.status !== "cancelled") && <p className="muted small">Hoàn tất đoàn quân hoặc trận hiện tại trước khi xuất quân tiếp.</p>}
+                  {sel.registered === false && <p className="muted small">Nước này cần đăng nhập Google để tham gia trận đánh.</p>}
+                  {!warEnabled && <p className="muted small">Máy chủ trận đánh chưa được kết nối.</p>}
+                  {(sel.shieldUntil ?? 0) > t && <p className="small">Đang có khiên bảo vệ: {fmtMin(sel.shieldUntil! - t)}.</p>}
+                  {city.era - sel.era > 1 && <p className="small">Không đánh nước kém mình quá một thời đại.</p>}
+                  {UKEYS.filter((u) => (city.army[u] ?? 0) > 0).map((u) => (
+                    <label key={u} className="army-input">{UNITS[u].n} ({city.army[u]} ở nhà)
+                      <input type="number" min={0} max={city.army[u] ?? 0} value={army[u] ?? 0} onChange={(e) => setArmy((a) => ({ ...a, [u]: Math.max(0, Math.min(city.army[u] ?? 0, Math.floor(Number(e.target.value) || 0))) }))} />
+                    </label>
+                  ))}
+                  <button disabled={busy || !warEnabled || sel.registered === false || !troopCount(army) || city.era - sel.era > 1 || (sel.shieldUntil ?? 0) > t || wars.some((w) => w.status !== "completed" && w.status !== "cancelled")} onClick={() => onAttack(sel.id, army)}>Xuất {troopCount(army)} lính</button>
+                </div>
+              )}
             </>
           )}
         </div>

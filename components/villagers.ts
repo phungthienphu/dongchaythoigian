@@ -1,6 +1,6 @@
 // Client-side animation of the people stored on the server. Positions are visual only;
 // what each person does (their task) comes from the server.
-import { B, H, R, W, buildings, cheb, explorerPos, herdById, idx, inb, type City, type Person, type ResKey } from "@/lib/engine";
+import { B, H, R, W, buildings, cheb, explorerPos, haulPosition, herdById, idx, inb, type City, type Haul, type Person, type ResKey } from "@/lib/engine";
 import { herdAnimals } from "./draw";
 
 export type Job = "wood" | "quarry" | "gather" | "farm" | "build" | "smith" | "trade" | "hunt" | "explore" | "idle" | "other";
@@ -21,6 +21,8 @@ export type Villager = {
   t: number;
   carry: ResKey | null;
   carrying: boolean;
+  cargo?: number; // exact authoritative load; never increments in the renderer
+  haulPhase?: Haul["phase"];
   shirt: string;
   skin: string;
   band: string;
@@ -56,7 +58,7 @@ function passable(city: City, j: number, to: number, water: boolean) {
   if (j === to) return true;
   if (!water && city.t[j] === R) return false;
   const b = city.b[j];
-  return !b || b.k === "canal" || b.k === "farm" || b.k === "levee";
+  return !b || b.k === "canal" || b.k === "farm" || b.k === "levee" || b.k === "gate";
 }
 
 /** 8-direction BFS (no corner cutting), then straightened so people walk diagonally instead of in steps. */
@@ -85,9 +87,7 @@ function findPath(city: City, from: number, to: number, water: boolean): [number
   return smooth(city, tiles.map(center), to, water);
 }
 
-/** Drop waypoints while the straight line to a later one stays on passable ground. */
-function smooth(city: City, pts: [number, number][], to: number, water: boolean) {
-  const clear = (a: [number, number], b: [number, number]) => {
+function clearSegment(city: City, a: [number, number], b: [number, number], to: number, water: boolean) {
     const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * 4);
     for (let k = 1; k < n; k++) {
       const x = a[0] + ((b[0] - a[0]) * k) / n, y = a[1] + ((b[1] - a[1]) * k) / n;
@@ -98,12 +98,15 @@ function smooth(city: City, pts: [number, number][], to: number, water: boolean)
       }
     }
     return true;
-  };
+}
+
+/** Drop waypoints while the straight line to a later one stays on passable ground. */
+function smooth(city: City, pts: [number, number][], to: number, water: boolean) {
   const out: [number, number][] = [pts[0]];
   let i = 0;
   while (i < pts.length - 1) {
     let j = pts.length - 1;
-    while (j > i + 1 && !clear(pts[i], pts[j])) j--;
+    while (j > i + 1 && !clearSegment(city, pts[i], pts[j], to, water)) j--;
     out.push(pts[j]);
     i = j;
   }
@@ -112,6 +115,8 @@ function smooth(city: City, pts: [number, number][], to: number, water: boolean)
 
 /** Prefer land, but swim across when the river is in the way (or the land detour is much longer). */
 function route(city: City, from: number, to: number) {
+  if (from === to) return [center(to)];
+  if (clearSegment(city, center(from), center(to), to, false)) return [center(from), center(to)];
   const land = findPath(city, from, to, false);
   const any = findPath(city, from, to, true);
   const len = (p: [number, number][] | null) => {
@@ -145,10 +150,30 @@ export class Crowd {
   chopping = new Set<number>(); // tiles with an axe swinging right now
   private paths = new Map<string, [number, number][] | null>();
   private homes: number[] = [];
+  private waterMask = new Uint8Array(W * H);
+  private obstacles = "";
+  private hasTopology = false;
+
+  /** Routes depend only on water and blocking tiles, never on resource ticks or task sync. */
+  private syncTopology(city: City) {
+    let changed = !this.hasTopology;
+    for (let i = 0; i < W * H; i++) {
+      const water = city.t[i] === R ? 1 : 0;
+      if (this.waterMask[i] !== water) { this.waterMask[i] = water; changed = true; }
+    }
+    const obstacles = Object.keys(city.b).filter((i) => !passable(city, Number(i), -1, true)).join(",");
+    if (obstacles !== this.obstacles) { this.obstacles = obstacles; changed = true; }
+    this.hasTopology = true;
+    if (changed) this.paths.clear();
+    return changed;
+  }
 
   private path(city: City, a: number, b: number) {
     const k = a + ">" + b;
-    if (!this.paths.has(k)) this.paths.set(k, route(city, a, b));
+    if (!this.paths.has(k)) {
+      if (this.paths.size >= 1024) this.paths.delete(this.paths.keys().next().value!);
+      this.paths.set(k, route(city, a, b));
+    }
     return this.paths.get(k)!;
   }
 
@@ -160,8 +185,8 @@ export class Crowd {
 
   /** Match the visual crowd to the server's people and builders. */
   sync(city: City) {
-    this.paths.clear();
-    this.homes = buildings(city).filter(([, b]) => HOMES.has(b.k) && b.lvl >= 1 && !b.flooded).map(([i]) => i);
+    const topologyChanged = this.syncTopology(city);
+    this.homes = buildings(city).filter(([, b]) => HOMES.has(b.k) && b.lvl >= 1 && !b.flooded && !b.burned).map(([i]) => i);
     const old = new Map(this.list.map((v) => [v.key, v]));
     const next: Villager[] = [];
     for (const p of city.people) {
@@ -171,20 +196,25 @@ export class Crowd {
       if (prev) {
         if (prev.sig !== d.sig) {
           Object.assign(prev, d, { home });
-          this.start(prev, city, true);
+          if (!p.haul && (p.task.t === "idle" || p.task.t === "explore")) this.start(prev, city, true);
         }
         prev.home = home;
+        if (!p.haul && (p.task.t === "idle" || p.task.t === "explore") && topologyChanged && (prev.state === "toHome" || prev.state === "toWork")) {
+          this.go(prev, city, tileOf(prev.fx, prev.fy), prev.state === "toHome" ? home : prev.work, prev.state, prev.run);
+        }
         next.push(prev);
         continue;
       }
       const seed = ((p.id * 0.618) % 1 + 1) % 1;
-      const [fx, fy] = center(home);
+      const [fx, fy] = center(p.haul?.tile ?? p.pos ?? home);
       const v: Villager = {
         key, id: p.id, name: p.name, ...d, home, state: "rest", path: [], pi: 0, fx: fx + (seed - 0.5) * 0.6, fy: fy + 0.3,
         t: seed * 3, carrying: false, shirt: SHIRT[d.job], skin: SKINS[p.id % 3], band: BANDS[p.id % 4], seed,
         visible: true, moving: false, run: false, tx: fx, ty: fy, face: seed < 0.5 ? 1 : -1, hits: 0, cool: 0, swing: 0,
       };
-      this.start(v, city, false);
+      if (p.haul) this.haulVisual(v, city, p, 0, city.last, performance.now());
+      else if (p.task.t === "idle" || p.task.t === "explore") this.start(v, city, false);
+      else { v.state = "work"; v.carrying = false; v.cargo = 0; }
       next.push(v);
     }
     for (const [i, b] of buildings(city)) {
@@ -240,10 +270,20 @@ export class Crowd {
     this.fx = this.fx.filter((f) => tnow - f.t0 < f.dur * 1000);
     this.chopping.clear();
     const alarm = !!(city.raid && city.alarm);
+    const people = new Map(city.people.map((p) => [p.id, p]));
     for (const v of this.list) {
       v.visible = true;
       v.moving = false;
       v.swing = Math.max(0, v.swing - dt * 3);
+      const person = v.id === null ? undefined : people.get(v.id);
+      if (person?.haul) { this.haulVisual(v, city, person, dt, now, tnow); continue; }
+      if (person && person.task.t !== "idle" && person.task.t !== "explore") {
+        // A newly assigned worker waits for the engine's first haul tick; no decorative income cycle.
+        v.state = "work"; v.moving = false; v.carrying = false; v.cargo = 0; v.haulPhase = undefined;
+        continue;
+      }
+      if (v.haulPhase && person) this.start(v, city, person.task.t === "idle" && person.task.at !== undefined);
+      v.haulPhase = undefined; v.cargo = 0;
       if (alarm && v.id !== null) {
         // bell rung: everyone runs to the nearest house and stays inside
         if (v.state === "rest") { v.visible = false; v.t = Math.max(v.t, 1); continue; }
@@ -320,6 +360,41 @@ export class Crowd {
           }
           break;
         }
+      }
+    }
+  }
+
+  /** Render the same timestamped movement and cargo as the deterministic economy. */
+  private haulVisual(v: Villager, city: City, p: Person, dt: number, now: number, tnow: number) {
+    const h = p.haul;
+    if (!h) return;
+    const position = haulPosition(p, now);
+    if (!position) return;
+    const dx = position.x - v.fx, dy = position.y - v.fy;
+    if (Math.abs(dx - dy) > 1e-5) v.face = dx - dy >= 0 ? 1 : -1;
+    v.fx = position.x; v.fy = position.y;
+    v.shirt = SHIRT[v.job];
+    v.haulPhase = h.phase; v.cargo = h.carried;
+    v.carry = h.resource ?? null; v.carrying = h.carried > 0;
+    v.moving = (h.phase === "travel" || h.phase === "return") && now < h.nextAt;
+    v.run = false; v.visible = true;
+    v.state = h.phase === "travel" ? "toWork" : h.phase === "work" ? "work" : "toHome";
+    if (h.drop !== undefined) v.home = h.drop;
+    if (h.source) v.work = h.source.kind === "herd" ? herdById(city, h.source.key)?.at ?? h.tile : h.source.key;
+    if (h.phase !== "work" || !(h.workRate && h.workRate > 0)) { v.swing = 0; return; }
+    v.cool -= dt;
+    if (v.job === "wood") this.chopping.add(v.work);
+    if (v.cool > 0) return;
+    if (v.job === "hunt") {
+      const herd = h.source?.kind === "herd" ? herdById(city, h.source.key) : city.herds.find((herd) => herd.at === v.work);
+      const animal = herd ? herdAnimals(city, herd, tnow)[0] : undefined;
+      if (animal) { v.swing = 1; v.cool = 2.2 + v.seed; this.emit({ kind: "spear", x0: v.fx, y0: v.fy, x1: animal.fx, y1: animal.fy, dur: .55 }); }
+    } else if (v.job === "wood" || v.job === "quarry" || v.job === "smith") {
+      v.swing = 1; v.cool = .9 + v.seed * .3;
+      const col = v.job === "wood" ? "#d9b07a" : v.job === "smith" ? "#ffcf5a" : "#d8d2c4";
+      for (let k = 0; k < 3; k++) {
+        const angle = Math.random() * Math.PI * 2;
+        this.emit({ kind: "chip", x0: v.fx, y0: v.fy, x1: v.fx + Math.cos(angle) * .4, y1: v.fy + Math.sin(angle) * .4, dur: .5, col });
       }
     }
   }

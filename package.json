@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "bun test lib/*.test.ts",
+    "test:render": "node tests/render-performance.mjs",
+    "test:worker": "node worker/tests.mjs"
   },
   "dependencies": {
     "mongodb": "^7.8.0",

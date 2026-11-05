@@ -20,8 +20,9 @@ export function makeSession(uid: string) {
 
 export function readSession(value: string | undefined): string | null {
   if (!value) return null;
-  const [data, sig] = value.split(".");
-  if (!data || !sig) return null;
+  if (value.length > 4096) return null;
+  const [data, sig, extra] = value.split(".");
+  if (!data || !sig || extra !== undefined) return null;
   const want = Buffer.from(sign(data)), got = Buffer.from(sig);
   if (want.length !== got.length || !timingSafeEqual(want, got)) return null;
   try {

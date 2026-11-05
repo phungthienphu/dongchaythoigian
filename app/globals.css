@@ -335,3 +335,13 @@ a.google.small { padding: 4px 10px; font-size: 12.5px; }
 
 /* Nation actions remain available when reopening the world map during a visit. */
 .game.visiting .worldmap .wm-card { display: block; }
+
+.save-state { color: #f0c766; }
+.war-alerts { position: fixed; z-index: 25; top: 95px; left: 50%; transform: translateX(-50%); width: min(90vw, 540px); padding: 10px 14px; border: 1px solid #b58e42; border-radius: 12px; background: rgba(20,30,25,.95); }
+.war-alerts > div { padding: 5px 0; }
+.war-alerts .incoming { color: #ffb2a4; }
+.war-alerts button { margin-left: 8px; }
+.world-army { border-top: 1px solid #ffffff25; margin-top: 12px; padding-top: 8px; }
+.army-input { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }
+.army-input input { width: 76px; }
+.wm-card { max-height: calc(100dvh - 120px); overflow-y: auto; }

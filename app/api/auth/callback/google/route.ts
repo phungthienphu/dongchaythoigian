@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
   let cityId = user.cityId;
   const guest = req.cookies.get(PID_COOKIE)?.value;
   if (!cityId && guest) {
-    const claimed = await (await cities()).updateOne({ _id: guest, owner: { $exists: false } }, { $set: { owner: g.sub } });
+    const claimed = await (await cities()).updateOne({ _id: guest, owner: { $exists: false } }, { $set: { owner: g.sub }, $inc: { ver: 1 } });
     if (claimed.modifiedCount === 1) {
       cityId = guest;
       await col.updateOne({ _id: g.sub }, { $set: { cityId } });

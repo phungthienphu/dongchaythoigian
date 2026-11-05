@@ -7,8 +7,10 @@ export async function POST(req: Request) {
   if (!pid) return NextResponse.json({ error: "Chưa có thành phố." }, { status: 401 });
   const action = (await req.json().catch(() => null)) as Action | null;
   if (!action || typeof action !== "object") return NextResponse.json({ error: "Yêu cầu không hợp lệ." }, { status: 400 });
+  const requestId = req.headers.get("x-action-id") ?? undefined;
+  if (requestId && !/^[a-zA-Z0-9_-]{1,100}$/.test(requestId)) return NextResponse.json({ error: "Mã yêu cầu không hợp lệ." }, { status: 400 });
   try {
-    const out = await withCity(pid, (c, now) => applyAction(c, action, now));
+    const out = await withCity(pid, (c, now) => applyAction(c, action, now), { requestId });
     if (!out) return NextResponse.json({ error: "Chưa có thành phố." }, { status: 401 });
     return NextResponse.json({ error: out.result, state: out.doc.state, serverNow: out.now });
   } catch (e) {
