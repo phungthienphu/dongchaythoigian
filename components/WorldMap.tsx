@@ -47,19 +47,26 @@ export default function WorldMap({ wars, warEnabled, onAttack, nations, city, no
     const c = cv.current, w = wrap.current;
     if (!c || !w) return;
     const ctx = c.getContext("2d")!;
-    let raf = 0, dpr = 1;
+    let raf = 0, dpr = 1, fitted = false;
     const resize = () => { dpr = Math.min(2, devicePixelRatio || 1); c.width = w.clientWidth * dpr; c.height = w.clientHeight * dpr; };
     const ro = new ResizeObserver(resize); ro.observe(w); resize();
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const r = c.getBoundingClientRect(), k = cam.current;
       const wx = k.x + (e.clientX - r.left - r.width / 2) / k.z, wy = k.y + (e.clientY - r.top - r.height / 2) / k.z;
-      k.z = Math.max(2.5, Math.min(40, k.z * Math.exp(-e.deltaY * 0.0018)));
+      k.z = Math.max(0.5, Math.min(40, k.z * Math.exp(-e.deltaY * 0.0018)));
       k.x = wx - (e.clientX - r.left - r.width / 2) / k.z; k.y = wy - (e.clientY - r.top - r.height / 2) / k.z;
     };
     c.addEventListener("wheel", onWheel, { passive: false });
     const draw = (t: number) => {
       const W = c.width / dpr, H = c.height / dpr, k = cam.current, { nations: ns, city: my, now } = state.current;
+      if (!fitted && ns.length && W > 0 && H > 0) {
+        const xs = ns.map(n => n.x), ys = ns.map(n => n.y);
+        const left = Math.min(...xs), right = Math.max(...xs), top = Math.min(...ys), bottom = Math.max(...ys);
+        k.x = (left + right) / 2; k.y = (top + bottom) / 2;
+        k.z = Math.max(0.5, Math.min(7, Math.max(1, W - 160) / Math.max(20, right-left), Math.max(1, H - 220) / Math.max(20, bottom-top)));
+        fitted = true;
+      }
       const S = (x: number, y: number) => [W / 2 + (x - k.x) * k.z, H / 2 + (y - k.y) * k.z] as const;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       // sea and land
@@ -170,6 +177,13 @@ export default function WorldMap({ wars, warEnabled, onAttack, nations, city, no
       <header className="wm-top">
         <h2>Bản đồ thế giới</h2>
         <span className="muted small">{nations.length} nước · {en}: {myEnvoys ? `${myEnvoys - away}/${myEnvoys} ở nhà` : "chưa có"} · chấm xanh lá: đang được phép thăm</span>
+        <select aria-label="Tìm nước trên bản đồ" value={sel?.id ?? ""} onChange={(e) => {
+          const n = nations.find(n => n.id === e.target.value); if (!n) return;
+          setSel(n); cam.current = { x: n.x, y: n.y, z: 7 };
+        }}>
+          <option value="" disabled>Tìm nước…</option>
+          {nations.map(n => <option key={n.id} value={n.id}>{n.me ? "Bạn · " : n.friend ? "★ " : ""}{n.name}</option>)}
+        </select>
         <button onClick={onClose}>Về làng</button>
       </header>
       {sel && (

@@ -385,7 +385,10 @@ export default function Game() {
   const loadWorld = useCallback(async () => {
     const res = await fetch("/api/world", { cache: "no-store" });
     if (res.ok) setNations((await res.json()).nations);
+    else setMsg({ text: "Không tải được danh sách các nước. Hãy mở lại bản đồ.", err: true });
   }, []);
+
+  useEffect(() => { if (worldOpen) void loadWorld(); }, [worldOpen, loadWorld]);
 
   const loadVisit = useCallback(async (id: string, first: boolean) => {
     const request = ++visitRequest.current;
@@ -1003,7 +1006,7 @@ export default function Game() {
       )}
 
       <nav className="bubbles" aria-label="Bảng điều khiển">
-        <button className="bubble" onClick={() => { loadWorld(); setWorldOpen(true); setPanel(null); }}>
+        <button className="bubble" onClick={() => { setWorldOpen(true); setPanel(null); }}>
           <Icon k="world" />
           <span className="bl">Thế giới</span>
           {(c.trips ?? []).length > 0 && <span className="badge">{(c.trips ?? []).length}</span>}
