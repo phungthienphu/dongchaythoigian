@@ -23,6 +23,12 @@ function Cell({ k, lvl, preview = city }: { k: BKey; lvl: number; preview?: City
 export default function Page() {
   return (
     <main className="wrap">
+      <h1>Kiến trúc qua các thời đại</h1>
+      <p>Hàng ngang: thời đại. Cấp công trình giữ ở 1 để so sánh kiến trúc.</p>
+      <div style={{display:"grid",gridTemplateColumns:"160px repeat(3,150px)",gap:8,alignItems:"center",overflowX:"auto"}}>
+        <b>Công trình</b>{eraCities.map(c=><b key={c.era}>{ERA_NAMES[c.era]}</b>)}
+        {BKEYS.map(k=><div key={k} style={{display:"contents"}}><b>{B[k].n}</b>{eraCities.map(preview=>B[k].era>preview.era?<span key={preview.era}>Chưa mở</span>:<div key={preview.era}><Cell k={k} lvl={1} preview={preview}/><small>{buildingName(preview,k)}</small></div>)}</div>)}
+      </div>
       <h1>Công trình theo cấp</h1>
       <h2>Nhà sứ giả qua ba thời đại</h2>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 24, marginBottom: 24 }}>

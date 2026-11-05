@@ -345,3 +345,6 @@ a.google.small { padding: 4px 10px; font-size: 12.5px; }
 .army-input { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }
 .army-input input { width: 76px; }
 .wm-card { max-height: calc(100dvh - 120px); overflow-y: auto; }
+
+.haul-detail { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.5; white-space: normal; }
+.next-step { max-width: min(680px, 90vw); padding: 7px 12px; background: rgba(20,32,29,.94); border: 1px solid #8b793c; color: #eee1b5; font-size: 12px; line-height: 1.5; text-align: left; }

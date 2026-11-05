@@ -14,11 +14,13 @@ export const HOUR = 60 * MIN;
 export const SEASON_MS = 6 * HOUR; // 4 seasons = 1 real day
 export const MAX_SETTLE_MS = 14 * 24 * HOUR; // offline progress cap
 const BASE_STORAGE = 500;
+export const POP_GROWTH_PER_HOUR = 60;
 const FOOD_PER_POP = 4; // per hour
 const MIN_POP = 3;
 
 // gathering by hand (per person per hour) and how much each tile/animal holds
-const CHOP_RATE = 30, STONE_RATE = 20, ORE_RATE = 8, HUNT_RATE = 40;
+export const GATHER_SPEED = 120; // Active play: a wood load takes 10 seconds, not 20 minutes.
+const CHOP_RATE = 30 * GATHER_SPEED, STONE_RATE = 20 * GATHER_SPEED, ORE_RATE = 8 * GATHER_SPEED, HUNT_RATE = 40 * GATHER_SPEED;
 export const CAP = { forest: 400, hill: 1500, ore: 400 };
 const MEAT_PER_ANIMAL = 50, HERD_REGROW = 0.5; // animals per hour
 export const EXPLORE_TILES_PER_MIN = 36; // matches the on-screen walking pace (~0.6 tiles/s)
@@ -52,11 +54,11 @@ export type Def = {
 };
 
 const DEFS = {
-  hut: { n: "Lều", era: 1, cost: { wood: 30 }, sec: 20, house: 3, up: true, d: "Chỗ ở cho 3 người mỗi cấp." },
-  gather: { n: "Trại hái lượm", era: 1, cost: { wood: 25 }, sec: 20, jobs: 2, prod: { food: 60 }, up: true, d: "Lương thực. Thêm 50% trên đất phù sa." },
-  wood: { n: "Trại đốn gỗ", era: 1, cost: { food: 30 }, sec: 20, jobs: 2, prod: { wood: 60 }, need: "forest", up: true, drop: ["wood"], d: "Phải kề rừng. Người chặt cây gần đây đỡ phải đi xa." },
-  quarry: { n: "Bãi đá", era: 1, cost: { wood: 50 }, sec: 40, jobs: 2, prod: { stone: 40 }, need: "hill", up: true, drop: ["stone", "copper"], d: "Đặt trên đồi. Người đào đá gần đây đỡ phải đi xa." },
-  storehouse: { n: "Kho", era: 1, cost: { wood: 60, stone: 20 }, sec: 90, storage: 1000, up: true, drop: ["food", "wood", "stone", "copper"], d: "+1.000 sức chứa mỗi loại, mỗi cấp." },
+  hut: { n: "Lều", era: 1, cost: { wood: 20 }, sec: 10, house: 3, up: true, d: "Chỗ ở cho 3 người mỗi cấp." },
+  gather: { n: "Trại hái lượm", era: 1, cost: { wood: 15 }, sec: 10, jobs: 2, prod: { food: 60 }, up: true, d: "Lương thực. Thêm 50% trên đất phù sa." },
+  wood: { n: "Trại đốn gỗ", era: 1, cost: { food: 10 }, sec: 10, jobs: 2, prod: { wood: 60 }, need: "forest", up: true, drop: ["wood"], d: "Phải kề rừng. Người chặt cây gần đây đỡ phải đi xa." },
+  quarry: { n: "Bãi đá", era: 1, cost: { wood: 20 }, sec: 15, jobs: 2, prod: { stone: 40 }, need: "hill", up: true, drop: ["stone", "copper"], d: "Đặt trên đồi. Người đào đá gần đây đỡ phải đi xa." },
+  storehouse: { n: "Kho", era: 1, cost: { wood: 40, stone: 10 }, sec: 30, storage: 1000, up: true, drop: ["food", "wood", "stone", "copper"], d: "+1.000 sức chứa mỗi loại, mỗi cấp." },
   fire: { n: "Bếp lửa chung", era: 1, cost: { wood: 80, stone: 30 }, sec: 60, max: 2, drop: ["food"], d: "Dân tăng nhanh gấp đôi. Tối đa 2 bếp." },
   farm: { n: "Ruộng lúa", era: 2, cost: { wood: 80 }, sec: 120, jobs: 2, prod: { food: 90 }, up: true, d: "Gấp đôi trên đất phù sa." },
   canal: { n: "Kênh tưới", era: 2, cost: { stone: 40 }, sec: 30, need: "water", d: "Nối thẳng vào sông hoặc kênh. Đất quanh kênh thành phù sa." },
@@ -65,10 +67,10 @@ const DEFS = {
   smelter: { n: "Lò đúc đồng", era: 2, cost: { wood: 100, stone: 120 }, sec: 600, jobs: 3, prod: { copper: 20 }, use: { wood: 20 }, need: "ore", up: true, drop: ["copper"], d: "Kề mỏ đồng. Đốt gỗ ra đồng." },
   market: { n: "Chợ", era: 2, cost: { wood: 200, stone: 100 }, sec: 900, jobs: 2, max: 3, d: "+10% mọi sản lượng. Tối đa 3 chợ." },
   stonehouse: { n: "Nhà đá", era: 3, cost: { stone: 250, copper: 30 }, sec: 1200, house: 12, up: true, d: "12 người mỗi cấp. Lũ không làm ngập." },
-  forge: { n: "Lò rèn", era: 3, cost: { stone: 200, copper: 100 }, sec: 1800, jobs: 3, max: 2, d: "+25% chặt cây, đào đá, săn bắn và sản lượng ruộng, trại. Tối đa 2." },
+  forge: { n: "Xưởng dụng cụ", era: 1, cost: { wood: 40, stone: 20 }, sec: 30, up: true, max: 2, d: "Mỗi cấp tăng 25% tốc độ chặt cây, đào đá, săn bắn và làm ruộng, trại hái lượm. Áp dụng toàn làng ngay khi xây xong, không cần giao thợ. Tối đa 2 xưởng; nâng cấp sau khi có Đình làng." },
   wheel: { n: "Cối nước", era: 3, cost: { wood: 200, stone: 100 }, sec: 1200, jobs: 2, prod: { food: 150 }, need: "river", up: true, d: "Sát sông. Mùa đông không giảm." },
   hall: { n: "Đình làng", era: 2, cost: { wood: 300, stone: 200, copper: 20 }, sec: 900, house: 5, storage: 500, up: true, max: 1, drop: ["food", "wood", "stone", "copper"], d: "Nhà chính. Công trình khác chỉ nâng được tới cấp của Đình. Cấp 3 mở trung tâm điều khiển." },
-  envoy: { n: "Nhà sứ giả", era: 1, cost: { wood: 150, stone: 60, food: 60 }, sec: 300, up: true, max: 1, d: "Có sứ giả để đi thăm các nước. Mỗi cấp thêm một sứ giả và đi nhanh hơn." },
+  envoy: { n: "Nhà sứ giả", era: 1, cost: { wood: 80, stone: 30, food: 30 }, sec: 90, up: true, max: 1, d: "Có sứ giả để đi thăm các nước. Mỗi cấp thêm một sứ giả và đi nhanh hơn." },
   barracks: { n: "Trại lính", era: 1, cost: { wood: 120, stone: 40 }, sec: 120, up: true, max: 3, d: "Huấn luyện quân. Mỗi cấp chứa thêm 10 lính." },
   wall: { n: "Tường thành", era: 1, cost: { wood: 30, stone: 20 }, sec: 30, up: true, d: "Chặn quân địch. Độ bền tăng theo cấp và thời đại." },
   gate: { n: "Cổng làng", era: 1, cost: { wood: 60, stone: 30 }, sec: 60, up: true, d: "Cho quân nhà đi qua tuyến tường, chặn quân địch." },
@@ -194,7 +196,24 @@ export const DEFENSE_NAMES: Partial<Record<BKey, string[]>> = {
   gate: ["", "Cổng gỗ", "Cổng đồng", "Cổng thành"],
   watchtower: ["", "Chòi canh", "Tháp canh gỗ", "Tháp canh đá"],
 };
-export const buildingName = (c: City, k: BKey) => (k === "envoy" ? ENVOY_HOUSE[c.era] : DEFENSE_NAMES[k]?.[c.era] ?? def(k).n);
+export const BUILDING_ERA_NAMES: Partial<Record<BKey, string[]>> = {
+  hut: ["", "Lều", "Nhà gỗ nhỏ", "Nhà đá nhỏ"],
+  house: ["", "Nhà gỗ", "Nhà gỗ", "Nhà xây mái ngói"],
+  gather: ["", "Trại hái lượm", "Nhà thu hoạch", "Trạm lương thực"],
+  wood: ["", "Trại đốn gỗ", "Xưởng gỗ", "Xưởng cưa"],
+  quarry: ["", "Bãi đá", "Trạm khai thác đá", "Công trường đá"],
+  storehouse: ["", "Kho tranh", "Kho gỗ", "Kho kiên cố"],
+  forge: ["", "Xưởng dụng cụ", "Lò rèn đồng", "Lò rèn sắt"],
+  barracks: ["", "Trại chiến binh", "Doanh trại", "Doanh trại kiên cố"],
+  fire: ["", "Bếp lửa chung", "Bếp làng", "Bếp xây"],
+  farm: ["", "Ruộng lúa", "Ruộng lúa", "Ruộng có thủy lợi"],
+  canal: ["", "Kênh tưới", "Kênh đất", "Kênh xây"],
+  levee: ["", "Đê", "Đê đất", "Đê kè đá"],
+  smelter: ["", "Lò đúc đồng", "Lò đúc đồng", "Lò luyện kim"],
+  market: ["", "Chợ", "Chợ làng", "Thương quán"],
+  hall: ["", "Đình làng", "Đình gỗ", "Đình đá"],
+};
+export const buildingName = (c: City, k: BKey) => (k === "envoy" ? ENVOY_HOUSE[c.era] : DEFENSE_NAMES[k]?.[c.era] ?? BUILDING_ERA_NAMES[k]?.[c.era] ?? def(k).n);
 /** Built structures cease providing services while flooded or burned. */
 export const isBuildingActive = (b: Building | undefined): b is Building => !!b && b.lvl >= 1 && !b.flooded && !b.burned;
 export const envoyCount = (c: City) => Object.values(c.b).reduce((a, b) => (b.k === "envoy" && isBuildingActive(b) ? Math.max(a, b.lvl) : a), 0);
@@ -474,7 +493,7 @@ export function stats(c: City, D: Derived, at: number): Stats {
   const workers = new Map<number, number>();
   for (const p of c.people) if (p.task.t === "work") workers.set(p.task.at, (workers.get(p.task.at) ?? 0) + 1);
   const mult = 1 + 0.1 * Math.min(3, cnt.market ?? 0);
-  const tools = 1 + 0.25 * Math.min(2, cnt.forge ?? 0);
+  const tools = 1 + 0.25 * buildings(c).reduce((n, [, b]) => n + (b.k === "forge" && built(b) && !b.flooded ? b.lvl : 0), 0);
   const winter = seasonAt(c, at) === 3;
   const boost = at < c.boostUntil;
   const rate: Res = { food: 0, wood: 0, stone: 0, copper: 0 };
@@ -488,7 +507,7 @@ export function stats(c: City, D: Derived, at: number): Stats {
     for (const r of RES) {
       let v = d.prod[r];
       if (!v) continue;
-      v *= LVL_MULT[b.lvl];
+      v *= LVL_MULT[b.lvl] * GATHER_SPEED;
       const crop = b.k === "farm" || b.k === "gather";
       if (crop && D.fert[i]) v *= b.k === "farm" ? 2 : 1.5;
       if (crop && D.fert[i] && boost) v *= 1.5;
@@ -755,7 +774,7 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext): number[]
 }
 function haulingContext(c: City, D: Derived): HaulContext {
   const active = Object.values(c.b).filter(b => built(b) && !b.flooded);
-  return { paths: new Map(), D, tools: 1 + 0.25 * Math.min(2, active.filter(b => b.k === "forge").length), mult: 1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length) };
+  return { paths: new Map(), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: 1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length) };
 }
 function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob | null {
   const tk = p.task;
@@ -774,7 +793,7 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   if (!built(b) || b.flooded) return null;
   const d = def(b.k), resource = RES.find(r => (d.prod?.[r] ?? 0) > 0);
   if (!resource || !d.jobs) return null;
-  let rate = d.prod![resource]! * LVL_MULT[b.lvl] / d.jobs * ctx.mult;
+  let rate = d.prod![resource]! * LVL_MULT[b.lvl] / d.jobs * ctx.mult * GATHER_SPEED;
   const crop = b.k === "farm" || b.k === "gather";
   if (crop && ctx.D.fert[tk.at]) rate *= b.k === "farm" ? 2 : 1.5;
   if (crop && ctx.D.fert[tk.at] && at < c.boostUntil) rate *= 1.5;
@@ -1175,7 +1194,7 @@ export function settle(c: City, now: number) {
       c.res.food = 0;
       c.popAcc -= h * 6;
     } else if (c.people.length < st.housing) {
-      c.popAcc += h * 12 * (1 + st.fires);
+      c.popAcc += h * POP_GROWTH_PER_HOUR * (1 + st.fires);
     } else c.popAcc = 0;
     while (c.popAcc >= 1 && c.people.length < st.housing) { addPerson(c); c.popAcc--; autoStaff(c); }
     while (c.popAcc <= -1 && c.people.length > MIN_POP) {

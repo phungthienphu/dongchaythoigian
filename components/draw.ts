@@ -451,7 +451,59 @@ export function drawBuilding(r: RC, k: BKey, x: number, y: number, lvl: number, 
   if (lvl >= 2) frontExtras(r, k, x, y, lvl, i);
 }
 
+/** Era changes the architecture; levels add size and equipment within that era. */
+function drawEvolvingWorkshop(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) {
+  if (!["gather", "wood", "storehouse", "forge", "barracks"].includes(k)) return false;
+  const era = r.city.era, q = tp(r,x,y), c = r.c, s = r.v.s, hs = 1 + .2 * Math.max(0,lvl-1);
+  const military = k === "barracks", small = k === "wood" || k === "gather";
+  const u0 = small ? -.32 : -.34, v0 = small ? -.32 : -.28;
+  const u1 = small ? .02 : .32, v1 = small ? .08 : .26;
+  const height = (small ? 9 : k === "forge" ? 16 : 13) * hs;
+  const wall = era === 1 ? ["#bf9967","#a27b4c","#805b35"] : era === 2 ? ["#c18b51","#a77240","#83562f"] : ["#c6c8bc","#a3aea1","#788e85"];
+  const roof = era === 1 ? ["#e1bf6a","#c8a44d","#ac873a"] : era === 2 ? ["#b65e42","#98472f","#7f3b29"] : ["#577d8d","#426371","#314e60"];
+  shadow(r,x,y,.42);
+  if (era > 1) box(r,x,y,u0-.04,v0-.04,u1+.04,v1+.04,0,3,"#c8bfa7","#a99f89","#88816f");
+  if (era === 1 && military) {
+    // Open training tent, distinct from the enclosed timber and stone barracks.
+    for (const u of [u0,u1]) for (const v of [v0,v1]) line(r,q(u,v,0),q(u,v,height),"#77512e",1.5);
+    poly(c,[q(u0,v1,0),q(u1,v1,0),q(u1,v1,height),q(u0,v1,height)],"#9b7850");
+  } else box(r,x,y,u0,v0,u1,v1,era>1?3:0,height,...wall as [string,string,string]);
+  if (era === 1 && military) pyramid(r,x,y,u0-.05,v0-.05,u1+.05,v1+.05,height,9,roof[0],roof[1]);
+  else gable(r,x,y,u0-.05,v0-.05,u1+.05,v1+.05,height,small?7:9,...roof as [string,string,string]);
+  if (era > 1) tileRows(r,x,y,u0-.05,u1+.05,v0-.05,v1+.05,height,small?7:9,"rgba(35,30,25,.35)");
+  if (era === 3) {
+    for(let row=1;row<4;row++)line(r,q(u0,v1,row*height/4),q(u1,v1,row*height/4),"#6e8075",.8);
+    for(const u of [u0,u1-.06])box(r,x,y,u,v0,u+.06,v0+.07,height,height+4,"#bdc4b5","#9ca995","#768a7d");
+  } else if (era === 2) {
+    for(const u of [u0,u1])line(r,q(u,v1,3),q(u,v1,height),"#654025",1.5);
+    line(r,q(u0,v1,height*.45),q(u1,v1,height*.45),"#654025",1);
+  }
+  if (!small) poly(c,[q(-.09,v1,0),q(.09,v1,0),q(.09,v1,8),q(-.09,v1,8)],"#423226");
+  if (k === "gather") {
+    for(const u of [.16,.31]) { const [bx,by]=q(u,.25,2);c.fillStyle="#af8150";c.beginPath();c.ellipse(bx,by,4*s,3*s,0,0,Math.PI*2);c.fill();c.fillStyle="#d45849";c.beginPath();c.arc(bx,by-3*s,2.5*s,0,Math.PI*2);c.fill(); }
+  } else if (k === "wood") {
+    for(let n=0;n<3;n++)box(r,x,y,.1,.18+n*.07,.4,.23+n*.07,n===2?3:0,n===2?6:3,"#b68a51","#8a5b32","#674125");
+    if(era>1){line(r,q(.15,-.16,0),q(.15,-.16,14),"#865e3b",2);line(r,q(.15,-.16,14),q(.4,-.16,14),"#b7bdb2",2);}
+  } else if (k === "storehouse") {
+    for(const u of [.18,.33])box(r,x,y,u-.055,.31,u+.055,.43,0,6,"#d4b273","#b48e53","#8f6d3b");
+    if(era===3)for(const u of [-.28,.25])line(r,q(u,v1,2),q(u,v1,height-2),"#566d73",2);
+  } else if (k === "forge") {
+    box(r,x,y,.12,.29,.3,.4,0,5,era===1?"#a4a08b":"#677473","#59615b","#414e49");
+    line(r,q(.2,.34,5),q(.31,.37,10),era===1?"#b0a992":"#d1d1b3",2);
+    if(era>1){box(r,x,y,-.25,-.21,-.12,-.09,height,height+7,"#b5b8a7","#949d8c","#718073");smoke(r,x,y,-.18,-.15,height+9,i);}
+  } else if (military) {
+    const tip=era===1?"#aaa28b":era===2?"#d4a654":"#d8e1df";
+    for(let n=0;n<3;n++){const u=.34+n*.045;line(r,q(u,-.15,0),q(u,-.15,23),"#765231",1.3);poly(c,[q(u,-.15,27),q(u-.025,-.15,22),q(u+.025,-.15,22)],tip);}
+    for(let n=0;n<5;n++){const u=-.4+n*.18;box(r,x,y,u,.4,u+.06,.46,0,era===3?10:9,wall[0],wall[1],wall[2]);}
+    flag(r,x,y,-.3,-.22,height,18,era===3?"#b84138":"#d19d43",i,true);
+  }
+  return true;
+}
+
 function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) {
+  if (k === "hut" && r.city.era > 1) { drawBase(r,r.city.era === 2 ? "house" : "stonehouse",x,y,lvl,i); return; }
+  if (k === "house" && r.city.era === 3) { drawBase(r,"stonehouse",x,y,lvl,i); return; }
+  if (drawEvolvingWorkshop(r,k,x,y,lvl,i)) return;
   const c = r.c, s = r.v.s, q = tp(r, x, y), hs = 1 + 0.2 * Math.max(0, lvl - 1);
   const night = false;
   switch (k) {
@@ -556,6 +608,12 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       break;
     }
     case "quarry": {
+      if(r.city.era>1){
+        const stone=r.city.era===3;
+        for(const u of [-.3,.3])box(r,x,y,u-.035,-.25,u+.035,-.18,0,24,stone?"#adb8ad":"#ae8350",stone?"#889d90":"#865e36",stone?"#637e73":"#644528");
+        line(r,q(-.3,-.22,24),q(.3,-.22,24),stone?"#768d87":"#765130",3);
+        line(r,q(.05,-.22,24),q(.05,-.22,8),"#d8c59c",1);
+      }
       drawRock(r, x, y, true);
       box(r, x, y, -0.3, 0.05, -0.05, 0.3, 4, 10, "#ddd6c6", "#c3bba9", "#a49c8b");
       box(r, x, y, 0.05, 0.08, 0.3, 0.32, 4, 8, "#d3ccbb", "#b9b19f", "#9a9281");
@@ -572,6 +630,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       break;
     }
     case "fire": {
+      if(r.city.era>1){const stone=r.city.era===3;box(r,x,y,-.28,-.22,.28,.22,0,4,stone?"#c6c8bb":"#b59266",stone?"#9baa9c":"#98764f",stone?"#758d80":"#775a3a");}
       const [fx, fy] = q(0, 0);
       for (let a = 0; a < 8; a++) {
         const [sx, sy] = q(Math.cos((a / 8) * Math.PI * 2) * 0.22, Math.sin((a / 8) * Math.PI * 2) * 0.22);
@@ -587,6 +646,10 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       break;
     }
     case "farm": {
+      if(r.city.era===3){
+        poly(c,[q(-.49,.39,1),q(.49,.39,1),q(.49,.49,1),q(-.49,.49,1)],"#579dc5");
+        for(const u of [-.48,.44])box(r,x,y,u,-.48,u+.04,.49,0,2,"#c1c2ab","#9da991","#7b907a");
+      }
       const soil = r.season === 3 ? "#8a7158" : "#7a5634";
       poly(c, [q(-0.46, -0.46, 1), q(0.46, -0.46, 1), q(0.46, 0.46, 1), q(-0.46, 0.46, 1)], soil);
       const crop = ["#8fd05a", "#a9c24a", "#e2b84a", "#9c8466"][r.season];
@@ -614,7 +677,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
         if (r.city.t[j] === R || r.city.b[j]?.k === "canal") links.push([dx, dy]);
       }
       const rect = (u0: number, v0: number, u1: number, v1: number) => {
-        poly(c, [q(u0, v0, 1), q(u1, v0, 1), q(u1, v1, 1), q(u0, v1, 1)], "#a9a08c");
+        poly(c, [q(u0, v0, 1), q(u1, v0, 1), q(u1, v1, 1), q(u0, v1, 1)], r.city.era===3 ? "#b3c0b6" : "#a28a62");
         poly(c, [q(u0 + 0.05, v0 + 0.05, z), q(u1 - 0.05, v0 + 0.05, z), q(u1 - 0.05, v1 - 0.05, z), q(u0 + 0.05, v1 - 0.05, z)], water);
       };
       rect(-w - 0.05, -w - 0.05, w + 0.05, w + 0.05);
@@ -625,6 +688,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       break;
     }
     case "levee": {
+      if(r.city.era===3)for(let n=0;n<6;n++)box(r,x,y,-.48+n*.16,.35,-.33+n*.16,.49,0,8,"#bcc6b8","#98aa98","#758e7e");
       box(r, x, y, -0.48, -0.48, 0.48, 0.48, 0, 6, r.season === 3 ? "#d8e0dc" : "#7aa64a", "#8a6a42", "#6f5434");
       for (let k2 = 0; k2 < 5; k2++) {
         const [sx, sy] = q(-0.35 + k2 * 0.17, 0.48, 3);
@@ -653,6 +717,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       break;
     }
     case "smelter": {
+      if(r.city.era===3){box(r,x,y,-.39,-.38,.37,.36,0,4,"#bdc4b4","#96aa99","#738d7d");box(r,x,y,-.26,-.22,-.13,-.09,0,30,"#a6b6a8","#889e8c","#637f70");}
       shadow(r, x, y, 0.4);
       box(r, x, y, -0.3, -0.3, 0.3, 0.3, 0, 12, "#8d8173", "#7c7064", "#62584e");
       pyramid(r, x, y, -0.3, -0.3, 0.3, 0.3, 12, 8, "#6d6257", "#564d44");
@@ -664,6 +729,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       break;
     }
     case "market": {
+      if(r.city.era===3){box(r,x,y,-.4,-.3,.4,.3,0,4,"#bcc5b5","#99ac98","#768f7b");for(const u of [-.35,.3])box(r,x,y,u,-.23,u+.05,.23,4,17,"#c6d0c3","#a3b6a4","#7c9a86");}
       shadow(r, x, y, 0.42);
       box(r, x, y, -0.34, -0.2, 0.34, 0.25, 0, 6, "#8a6038", "#7a5430", "#634426");
       for (const u of [-0.32, 0.32]) for (const v of [-0.18, 0.23]) box(r, x, y, u - 0.02, v - 0.02, u + 0.02, v + 0.02, 6, 18, "#6b4526", "#5c3b20", "#4b301a");
@@ -757,7 +823,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       // village communal house: stone platform, red pillars, sweeping tiled roof
       shadow(r, x, y, 0.5);
       box(r, x, y, -0.48, -0.44, 0.48, 0.44, 0, 4, "#cfc6b4", "#b9b09c", "#9a917e");
-      box(r, x, y, -0.4, -0.34, 0.4, 0.3, 4, 16, "#a8743e", "#955f30", "#7a4c26");
+      box(r, x, y, -0.4, -0.34, 0.4, 0.3, 4, 16, r.city.era===3?"#c6c8bc":"#a8743e", r.city.era===3?"#a3aea1":"#955f30", r.city.era===3?"#788e85":"#7a4c26");
       for (const u of [-0.36, -0.18, 0, 0.18, 0.36]) box(r, x, y, u - 0.025, 0.33, u + 0.025, 0.38, 4, 17, "#b8322a", "#a32a23", "#87221c");
       for (const v of [-0.22, 0, 0.2]) box(r, x, y, 0.42, v - 0.025, 0.47, v + 0.025, 4, 17, "#b8322a", "#a32a23", "#87221c");
       if (lvl >= 3) {
@@ -771,7 +837,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
         const [mx, my] = q(0, -0.02, 40);
         c.fillStyle = "#f0c766"; c.beginPath(); c.arc(mx, my - 3 * s, 3 * s, 0, Math.PI * 2); c.fill();
       } else {
-        gable(r, x, y, -0.48, -0.42, 0.48, 0.4, 17, 16 * hs, "#b0543a", "#994632", "#8c3f2c");
+        gable(r, x, y, -0.48, -0.42, 0.48, 0.4, 17, 16 * hs, r.city.era===3?"#577d8d":"#b0543a", r.city.era===3?"#426371":"#994632", r.city.era===3?"#314e60":"#8c3f2c");
         tileRows(r, x, y, -0.48, 0.48, -0.42, 0.4, 17, 16 * hs, "rgba(90,30,20,.5)");
         upturn(r, x, y, -0.48, 0.48, -0.42, 0.4, 17, 16 * hs, "#7a3a27");
       }
@@ -1142,13 +1208,15 @@ type HitShape = { u0: number; v0: number; u1: number; v1: number; wall: number; 
 function buildingHitShapes(k: BKey, lvl: number, era: number): HitShape[] {
   const hs = 1 + .2 * Math.max(0, lvl - 1);
   const shape = (u0: number, v0: number, u1: number, v1: number, wall: number, roof = 0, pyramid = false): HitShape => ({ u0, v0, u1, v1, wall, roof, pyramid });
+  if (k === "hut" && era > 1) return buildingHitShapes(era === 2 ? "house" : "stonehouse",lvl,era);
+  if (k === "house" && era === 3) return buildingHitShapes("stonehouse",lvl,era);
   switch (k) {
     case "hut": return [lvl >= 3 ? shape(-.4, -.36, .4, .36, 22, 14) : lvl === 2 ? shape(-.36, -.32, .36, .32, 11, 12) : shape(-.32, -.32, .32, .32, 9, 16, true)];
     case "house": return [shape(-.38, -.34, .38, .34, 15 * hs, 12), { ...shape(.15, -.2, .25, -.1, 14), z: 15 * hs }];
     case "stonehouse": return [shape(-.4, -.36, .4, .36, 20 * hs, 13), ...(lvl >= 3 ? [shape(-.45, -.45, -.13, -.13, 20 * hs + 34, 12, true)] : [])];
-    case "gather": return [shape(-.34, -.34, .09, .14, 7, 7), shape(-.2, -.1, .38, .4, 3)];
+    case "gather": return [shape(-.37, -.37, .07, .13, 9*hs, 7), shape(-.2, -.1, .38, .4, 3)];
     case "wood": return [shape(-.36, -.36, .06, .04, 9 * hs, 7), shape(.05, .15, .38, .35, 5)];
-    case "quarry": return [shape(-.34, -.32, .34, .34, 15)];
+    case "quarry": return [shape(-.34, -.32, .34, .34, 15), ...(era>1?[shape(-.34,-.25,.34,-.18,24)]:[])];
     case "storehouse": return [shape(-.4, -.36, .4, .36, 13 * hs, 10)];
     case "fire": return [shape(-.22, -.22, .22, .22, 1, 20, true)];
     case "farm": return [shape(-.46, -.46, .46, .46, 3 * hs)];
@@ -1156,7 +1224,7 @@ function buildingHitShapes(k: BKey, lvl: number, era: number): HitShape[] {
     case "levee": return [shape(-.48, -.48, .48, .48, 6)];
     case "smelter": return [shape(-.3, -.3, .3, .3, 12, 8, true), shape(.05, -.15, .2, 0, 34)];
     case "market": return [shape(-.38, -.26, .38, .31, 18, 6)];
-    case "forge": return [shape(-.38, -.38, .36, .36, 16, 8)];
+    case "forge": return [shape(-.39, -.33, .37, .31, 16*hs, 9)];
     case "wheel": return [shape(-.34, -.34, .16, .24, 13 * hs, 9), shape(.14, -.2, .46, .12, 22)];
     case "envoy": return [era <= 1 ? shape(-.32, -.3, .28, .26, 10 * hs, 14 * hs, true) : era === 2 ? shape(-.38, -.34, .36, .32, 14 * hs, 11) : shape(-.42, -.38, .42, .36, 20 * hs, 13)];
     case "hall": return [shape(-.48, -.44, .48, .44, 4), shape(-.48, -.42, .48, .4, 17, lvl >= 3 ? 8 : 16 * hs), ...(lvl >= 3 ? [{ ...shape(-.4, -.3, .4, .26, 6, 13), z: 21 }] : [])];

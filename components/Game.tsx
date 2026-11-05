@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  B, BKEYS, CAP, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
+  B, BKEYS, CAP, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
   DEFAULT_MIX, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
   armyCap, armyUsed, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
@@ -49,7 +49,7 @@ function taskFor(c: City, i: number): { task: TaskInput; label: string } | null 
   if (!c.seen[i]) return { task: { t: "explore", to: i }, label: "Đi thám hiểm tới đây" };
   if (campAt(c, i)) return null;
   const b = c.b[i];
-  if (b) return B[b.k].jobs && b.lvl >= 1 && !b.flooded && !b.burned ? { task: { t: "work", at: i }, label: `Làm ở ${B[b.k].n}` } : null;
+  if (b) return B[b.k].jobs && b.lvl >= 1 && !b.flooded && !b.burned ? { task: { t: "work", at: i }, label: `Làm ở ${buildingName(c,b.k)}` } : null;
   if (c.t[i] === F) return { task: { t: "chop", at: i }, label: "Chặt cây ở đây" };
   if (c.t[i] === HL) return { task: { t: "mine", at: i }, label: "Đào đá ở đây" };
   if (c.t[i] === O) return { task: { t: "mine", at: i }, label: "Đào đồng ở đây" };
@@ -60,7 +60,7 @@ function taskFor(c: City, i: number): { task: TaskInput; label: string } | null 
 function taskLabel(c: City, p: Person) {
   const tk = p.task;
   switch (tk.t) {
-    case "work": return `Làm ở ${B[c.b[tk.at]?.k ?? "hut"].n}`;
+    case "work": return `Làm ở ${buildingName(c,c.b[tk.at]?.k ?? "hut")}`;
     case "chop": return "Chặt cây";
     case "mine": return c.t[tk.at] === O ? "Đào đồng" : "Đào đá";
     case "hunt": return c.herds.find((h) => h.id === tk.herd)?.kind === "boar" ? "Săn lợn rừng" : "Săn hươu";
@@ -68,6 +68,18 @@ function taskLabel(c: City, p: Person) {
     default: return "Rảnh";
   }
 }
+function haulDetail(p: Person, at: number, storage: number, stock: City["res"]) {
+  const h = p.haul;
+  if (!h) return p.task.t === "idle" ? "Chưa có việc — chọn dân rồi bấm nơi làm việc." : "Đang chuẩn bị đường đi.";
+  const left = fmtDur(h.nextAt - at), name = h.resource ? RN[h.resource].toLowerCase() : "hàng";
+  if (h.phase === "travel") return `Đang tới chỗ làm · còn ${left}`;
+  if (h.phase === "return") return `Đang mang ${fmt(h.carried)} ${name} về · tới nơi sau ${left}`;
+  if (h.phase === "unload") return h.resource && stock[h.resource] >= storage
+    ? `Kho đầy · còn giữ ${fmt(h.carried)} ${name}. Xây thêm Kho hoặc dùng bớt tài nguyên.`
+    : `Đang nộp ${fmt(h.carried)} ${name} · còn ${left}`;
+  return `Đang gom ${name} · đủ ${h.capacity} sau ${left}, rồi mang về nộp`;
+}
+
 function sameTarget(p: Person, tk: TaskInput) {
   const a = p.task;
   if (a.t !== tk.t) return false;
@@ -98,7 +110,7 @@ const Icon = ({ k }: { k: IconKey }) => <span className="ic" aria-hidden="true">
 function Thumb({ city, D, k }: { city: City; D: Derived; k: BKey }) {
   const ref = useRef<HTMLCanvasElement>(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (ref.current) drawThumb(ref.current, city, D, k); }, [k]);
+  useEffect(() => { if (ref.current) drawThumb(ref.current, city, D, k); }, [k, city.era]);
   return <canvas ref={ref} className="thumb" aria-hidden="true" />;
 }
 
@@ -699,6 +711,12 @@ export default function Game() {
   const nextSeasonIn = c.t0 + (si + 1) * SEASON_MS - t;
   const busyN = busyBuilders(c), maxB = builders(c);
   const idle = c.people.filter((p) => p.task.t === "idle");
+  const populationStatus = c.battleId ? "Tạm dừng do trận đánh" : c.people.length >= st.housing ? "Cần thêm nhà" : c.res.food <= 0 ? "Cần lương thực" : `+1 dân sau ${fmtDur((1-c.popAcc) / (POP_GROWTH_PER_HOUR * (1+st.fires)) * HOUR)}`;
+  const hasFoodWorker = c.people.some(p => p.task.t === "hunt" || p.task.t === "work" && ["gather","farm","wheel"].includes(c.b[p.task.at]?.k ?? ""));
+  const goal = !hasFoodWorker ? { text: "1. Kiếm thức ăn: bấm Trại hái lượm → Giao người rảnh, hoặc chọn dân rồi bấm đàn thú.", panel: "people" as Panel }
+    : c.people.length >= st.housing ? { text: "2. Tăng dân: mở Cửa hàng → xây Lều. Còn chỗ ở và đủ ăn thì khoảng 1 phút có thêm dân.", panel: "shop" as Panel }
+    : !c.people.some(p => p.task.t === "chop") ? { text: "3. Lấy gỗ: chọn dân rảnh → bấm rừng. Gom khoảng 10 giây rồi dân mang 10 gỗ về nộp.", panel: "people" as Panel }
+    : { text: `Làng đang phát triển · ${populationStatus}. Bấm Dân làng để xem từng chuyến hàng.`, panel: "people" as Panel };
   const cap = armyCap(c), used = armyUsed(c), homePower = troopPower(c.army);
 
   let status: { text: string; err?: boolean } | null = msg;
@@ -718,7 +736,7 @@ export default function Game() {
   const sel = selected ? c.b[selI] : undefined;
   const selCamp = selected ? campAt(c, selI) : undefined;
   const selTask: { task: TaskInput; label: string } | null = !selected || selCamp ? null
-    : sel ? (B[sel.k].jobs && sel.lvl >= 1 && !sel.flooded && !sel.burned ? { task: { t: "work", at: selI }, label: `Làm ở ${B[sel.k].n}` } : null)
+    : sel ? (B[sel.k].jobs && sel.lvl >= 1 && !sel.flooded && !sel.burned ? { task: { t: "work", at: selI }, label: `Làm ở ${buildingName(c,sel.k)}` } : null)
     : taskFor(c, selI);
   const herd = herdSel !== null ? c.herds.find((h) => h.id === herdSel) : undefined;
   const herdTask: TaskInput | null = herd ? { t: "hunt", herd: herd.id } : null;
@@ -780,7 +798,7 @@ export default function Game() {
             <Icon k="pop" />
             <div className="cv">
               <span className="v">{c.people.length}<small>/{st.housing}</small></span>
-              <span className={"d" + (c.people.length >= st.housing ? " down" : "")}>{c.people.length >= st.housing ? "cần nhà" : `${idle.length} rảnh`}</span>
+              <span className={"d" + (c.people.length >= st.housing ? " down" : "")} title={populationStatus}>{populationStatus}</span>
             </div>
           </div>
           <div className="chip" tabIndex={0} title="Số thợ xây đang bận / tổng số thợ xây. Ví dụ 0/2 nghĩa là có thể xây hoặc nâng cấp đồng thời thêm 2 công trình.">
@@ -829,7 +847,7 @@ export default function Game() {
           {hunters.length > 0 && (
             <ul className="people compact">
               {hunters.map((p) => (
-                <li key={p.id}><span>{p.name}</span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
+                <li key={p.id}><span>{p.name}<small className="haul-detail">{haulDetail(p,t,st.storage,c.res)}</small></span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
               ))}
             </ul>
           )}
@@ -867,10 +885,11 @@ export default function Game() {
           ) : sel ? (
             <>
               <h2>{buildingName(c, sel.k)}{sel.lvl ? ` · cấp ${sel.lvl}` : ""}</h2>
+              <p className="muted small">Kiến trúc {ERA_NAMES[c.era].toLowerCase()} · Lên thời đại đổi kiến trúc; nâng cấp tăng công năng và trang bị.</p>
               <p className="muted small">{B[sel.k].d}</p>
               {sel.doneAt && <p className="small">{sel.lvl === 0 ? "Đang xây" : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
               {(sel.flooded || sel.burned) && <p className="err small">{sel.burned ? "Bị cháy, cần sửa để hoạt động lại." : "Bị ngập, không hoạt động."}</p>}
-              {B[sel.k].jobs ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{B[sel.k].jobs}</b></p> : null}
+              {B[sel.k].jobs ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{B[sel.k].jobs}</b>. {workersAt(c,selI) ? "Gom đủ một chuyến rồi mang về nộp; chỉ khi nộp xong kho mới tăng." : "Chưa có người làm nên chưa tạo tài nguyên. Bấm Giao người rảnh bên dưới."}</p> : null}
             </>
           ) : (
             <>
@@ -889,7 +908,7 @@ export default function Game() {
           {onTarget.length > 0 && (
             <ul className="people compact">
               {onTarget.map((p) => (
-                <li key={p.id}><span>{p.name}</span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
+                <li key={p.id}><span>{p.name}<small className="haul-detail">{haulDetail(p,t,st.storage,c.res)}</small></span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
               ))}
             </ul>
           )}
@@ -927,6 +946,7 @@ export default function Game() {
       )}
 
       <div className="hud-bottom">
+        {!tool && !picked.size && <button className="next-step" onClick={() => openPanel(goal.panel)}>{goal.text}</button>}
         {picked.size > 0 && (
           <div className="pickbar">
             <b>{picked.size} người đã chọn</b>
@@ -1106,7 +1126,7 @@ export default function Game() {
             {panel === "people" && (
               <>
                 <div className="ph">
-                  <span className="small muted">{c.people.length} người · {idle.length} rảnh</span>
+                  <span className="small muted">{c.people.length} người · {idle.length} rảnh · {populationStatus}</span>
                   <button className="link" disabled={!idle.length} onClick={() => setPicked(new Set(idle.map((p) => p.id)))}>Chọn người rảnh</button>
                 </div>
                 <ul className="people">
@@ -1115,7 +1135,7 @@ export default function Game() {
                       <button className={"person" + (p.task.t === "idle" ? " idle" : "")} aria-pressed={picked.has(p.id)}
                         onClick={(e) => togglePick(p.id, e.shiftKey || e.ctrlKey || e.metaKey)}>
                         <span className="nm">{p.name}</span>
-                        <span className="tk">{taskLabel(c, p)}</span>
+                        <span className="tk">{taskLabel(c, p)}</span><small className="haul-detail">{haulDetail(p,t,st.storage,c.res)}</small>
                       </button>
                     </li>
                   ))}
