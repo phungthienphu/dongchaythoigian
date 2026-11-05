@@ -52,7 +52,7 @@ export type Def = {
 };
 
 const DEFS = {
-  hut: { n: "Lều", era: 1, cost: { wood: 30 }, sec: 20, house: 3, up: true, drop: ["food", "wood", "stone", "copper"], d: "Chỗ ở cho 3 người mỗi cấp." },
+  hut: { n: "Lều", era: 1, cost: { wood: 30 }, sec: 20, house: 3, up: true, d: "Chỗ ở cho 3 người mỗi cấp." },
   gather: { n: "Trại hái lượm", era: 1, cost: { wood: 25 }, sec: 20, jobs: 2, prod: { food: 60 }, up: true, d: "Lương thực. Thêm 50% trên đất phù sa." },
   wood: { n: "Trại đốn gỗ", era: 1, cost: { food: 30 }, sec: 20, jobs: 2, prod: { wood: 60 }, need: "forest", up: true, drop: ["wood"], d: "Phải kề rừng. Người chặt cây gần đây đỡ phải đi xa." },
   quarry: { n: "Bãi đá", era: 1, cost: { wood: 50 }, sec: 40, jobs: 2, prod: { stone: 40 }, need: "hill", up: true, drop: ["stone", "copper"], d: "Đặt trên đồi. Người đào đá gần đây đỡ phải đi xa." },
@@ -61,10 +61,10 @@ const DEFS = {
   farm: { n: "Ruộng lúa", era: 2, cost: { wood: 80 }, sec: 120, jobs: 2, prod: { food: 90 }, up: true, d: "Gấp đôi trên đất phù sa." },
   canal: { n: "Kênh tưới", era: 2, cost: { stone: 40 }, sec: 30, need: "water", d: "Nối thẳng vào sông hoặc kênh. Đất quanh kênh thành phù sa." },
   levee: { n: "Đê đất", era: 2, cost: { stone: 30, wood: 20 }, sec: 60, need: "bank", d: "Sát bờ sông. Che lũ cho công trình trong 2 ô." },
-  house: { n: "Nhà gỗ", era: 2, cost: { wood: 120, stone: 40 }, sec: 300, house: 7, up: true, drop: ["food", "wood", "stone", "copper"], d: "Chỗ ở cho 7 người mỗi cấp." },
+  house: { n: "Nhà gỗ", era: 2, cost: { wood: 120, stone: 40 }, sec: 300, house: 7, up: true, d: "Chỗ ở cho 7 người mỗi cấp." },
   smelter: { n: "Lò đúc đồng", era: 2, cost: { wood: 100, stone: 120 }, sec: 600, jobs: 3, prod: { copper: 20 }, use: { wood: 20 }, need: "ore", up: true, drop: ["copper"], d: "Kề mỏ đồng. Đốt gỗ ra đồng." },
   market: { n: "Chợ", era: 2, cost: { wood: 200, stone: 100 }, sec: 900, jobs: 2, max: 3, d: "+10% mọi sản lượng. Tối đa 3 chợ." },
-  stonehouse: { n: "Nhà đá", era: 3, cost: { stone: 250, copper: 30 }, sec: 1200, house: 12, up: true, drop: ["food", "wood", "stone", "copper"], d: "12 người mỗi cấp. Lũ không làm ngập." },
+  stonehouse: { n: "Nhà đá", era: 3, cost: { stone: 250, copper: 30 }, sec: 1200, house: 12, up: true, d: "12 người mỗi cấp. Lũ không làm ngập." },
   forge: { n: "Lò rèn", era: 3, cost: { stone: 200, copper: 100 }, sec: 1800, jobs: 3, max: 2, d: "+25% chặt cây, đào đá, săn bắn và sản lượng ruộng, trại. Tối đa 2." },
   wheel: { n: "Cối nước", era: 3, cost: { wood: 200, stone: 100 }, sec: 1200, jobs: 2, prod: { food: 150 }, need: "river", up: true, d: "Sát sông. Mùa đông không giảm." },
   hall: { n: "Đình làng", era: 2, cost: { wood: 300, stone: 200, copper: 20 }, sec: 900, house: 5, storage: 500, up: true, max: 1, drop: ["food", "wood", "stone", "copper"], d: "Nhà chính. Công trình khác chỉ nâng được tới cấp của Đình. Cấp 3 mở trung tâm điều khiển." },
@@ -442,9 +442,9 @@ export const herdById = (c: City, id: number) => c.herds.find((h) => h.id === id
 
 /** Nearest place a villager can unload `res`, as a Chebyshev distance. */
 export function dropDistance(c: City, at: number, res: ResKey) {
-  let best = cheb(at, c.camp);
+  let best = Infinity;
   for (const [i, b] of buildings(c)) if (built(b) && !b.flooded && def(b.k).drop?.includes(res)) best = Math.min(best, cheb(at, i));
-  return best;
+  return Number.isFinite(best) ? best : cheb(at, c.camp);
 }
 const walkFactor = (d: number, rate = CHOP_RATE) => 1 / (1 + ((2 * d + 1) * rate) / (10 * 3600));
 
@@ -794,9 +794,11 @@ function activeDrop(c: City, tile: number, resource: ResKey) {
 function returnCargo(c: City, p: Person, at: number, ctx: HaulContext) {
   const h = p.haul!;
   if (!h.resource || !h.carried) return false;
-  const candidates = [c.camp, ...buildings(c).filter(([i]) => i !== c.camp && activeDrop(c, i, h.resource!)).map(([i]) => i)];
+  const candidates = [...buildings(c).filter(([i]) => i !== c.camp && activeDrop(c, i, h.resource!)).map(([i]) => i), c.camp];
   let best: number[] | null = null, drop = -1, length = Infinity;
   for (const tile of candidates) {
+    // Use the starter stockpile only when no dedicated drop site is reachable.
+    if (tile === c.camp && best) continue;
     const path = haulPath(c, h.tile, tile, ctx);
     const d = path ? routeLength(path) : Infinity;
     if (d < length) { length = d; best = path; drop = tile; }

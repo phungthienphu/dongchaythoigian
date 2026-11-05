@@ -32,3 +32,14 @@ test('client position hints cannot teleport a gathering worker',()=>{
 test('season and fertility boost changes remain independent of polling intervals',()=>{
  const offline=fixture();offline.oldbed=[idx(30,20)];offline.b[idx(30,20)]={k:'farm',lvl:1,doneAt:null};offline.era=2;offline.boostUntil=4501;assert.equal(applyAction(offline,{type:'assign',ids:[offline.people[0].id],task:{t:'work',at:idx(30,20)}},0),null);const online=structuredClone(offline);settle(offline,30_000);for(const at of [347,2500,4500,4502,6570,10500,30000])settle(online,at);assert.deepEqual(online,offline);
 });
+test('housing never accepts cargo and a warehouse takes priority over the starter camp',()=>{
+ const c=fixture(),tile=assign(c),home=idx(29,20),warehouse=idx(35,20);
+ c.b[home]={k:'hut',lvl:1,doneAt:null};
+ c.b[warehouse]={k:'storehouse',lvl:1,doneAt:null};
+ for(let t=1000;t<=1_300_000;t+=1000){settle(c,t);if(c.people[0].haul?.phase==='return')break;}
+ assert.equal(c.people[0].haul?.drop,warehouse);
+ const nearCamp=fixture();assign(nearCamp,idx(21,20));
+ nearCamp.b[warehouse]={k:'storehouse',lvl:1,doneAt:null};
+ settle(nearCamp,1_201_000);
+ assert.equal(nearCamp.people[0].haul?.drop,warehouse);
+});
