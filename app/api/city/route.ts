@@ -7,7 +7,7 @@ import { PID_COOKIE, playerId, withCity } from "@/lib/city-store";
 export async function GET() {
   const pid = await playerId();
   if (!pid) return NextResponse.json({ needsName: true }, { status: 404 });
-  const out = await withCity(pid, () => null);
+  const out = await withCity(pid, () => null, { readOnlyFallback: true });
   if (!out) return NextResponse.json({ needsName: true }, { status: 404 });
   return NextResponse.json({ name: out.doc.name, state: out.doc.state, serverNow: out.now });
 }

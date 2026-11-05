@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { cities, type CityDoc } from "./db";
-import { score, settle, type City } from "./engine";
+import { ENGINE_VER, newCity, score, settle, type City } from "./engine";
 
 export const PID_COOKIE = "pid";
 
@@ -12,13 +12,15 @@ export async function playerId() {
  * Load the player's city, let `mutate` change it (after settling to now), and save it back.
  * Uses the `ver` field for optimistic locking so two tabs can't overwrite each other.
  */
-export async function withCity<T>(pid: string, mutate: (c: City, now: number) => T) {
+export async function withCity<T>(pid: string, mutate: (c: City, now: number) => T, opts: { readOnlyFallback?: boolean } = {}) {
   const col = await cities();
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 30 + Math.random() * 70));
     const doc = await col.findOne({ _id: pid });
     if (!doc) return null;
     const now = Date.now();
-    const c = doc.state;
+    // cities from an older engine are replaced by a fresh world (prototype stage, no migration)
+    const c = doc.state.ver === ENGINE_VER ? doc.state : newCity(now);
     settle(c, now);
     const result = mutate(c, now);
     const res = await col.updateOne(
@@ -29,6 +31,8 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
       },
     );
     if (res.modifiedCount === 1) return { doc: { ...doc, state: c } as CityDoc, result, now };
+    // a plain load lost the race to another save: show the settled state without saving it
+    if (opts.readOnlyFallback && attempt === 4) return { doc: { ...doc, state: c } as CityDoc, result, now };
   }
   throw new Error("Thành phố đang được cập nhật ở nơi khác, thử lại.");
 }

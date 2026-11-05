@@ -2,14 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  B, BKEYS, ERA_NAMES, ERA_REQ, H, MAX_LVL, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, W, G,
-  builders, busyBuilders, buildMs, canPlace, costText, derive, idx, inb, levelCost, repairCost,
-  reqMet, seasonIndexAt, settle, stamp, stats, type Action, type BKey, type City, type Derived,
+  B, BKEYS, CAP, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
+  armyCap, armyUsed, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
+  reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
+  type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
 } from "@/lib/engine";
-import { drawCity } from "./draw";
+import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHerd, pickVillager, screenToCell, zoomAt, type Cam, type View } from "./draw";
+import { Crowd } from "./villagers";
 
 type Cell = { x: number; y: number };
 type Row = { name: string; score: number; era: number; pop: number; temple: boolean; me: boolean };
+type Panel = "shop" | "army" | "people" | "era" | "log" | "rank";
 
 function fmtDur(ms: number) {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -20,12 +23,84 @@ function fmtDur(ms: number) {
 }
 const fmt = (n: number) => Math.floor(n).toLocaleString("vi-VN");
 
-function tileDesc(c: City, D: Derived, x: number, y: number) {
-  const i = idx(x, y), parts = [TERRAIN[c.t[i]]];
+function tileDesc(c: City, D: Derived, i: number) {
+  if (!c.seen[i]) return "Vùng chưa khám phá";
+  const parts = [TERRAIN[c.t[i]]];
   if (c.t[i] === G && D.fert[i]) parts.push("đất phù sa");
-  if (c.oldbed[i]) parts.push("lòng sông cũ");
   if (D.rd[i] === 1 && c.t[i] !== R) parts.push(D.prot[i] ? "vùng lũ, có đê che" : "vùng lũ");
+  const cap = c.t[i] === F ? CAP.forest : c.t[i] === O ? CAP.ore : c.t[i] === HL ? CAP.hill : 0;
+  if (cap) parts.push(`còn ${fmt(cap - (c.dep[i] ?? 0))} ${c.t[i] === F ? "gỗ" : c.t[i] === O ? "đồng" : "đá"}`);
   return parts.join(", ");
+}
+
+const campAt = (c: City, i: number) => c.camps.find((k) => k.at === i && c.seen[k.at]);
+
+/** What a click on this tile means for the people you have picked. */
+function taskFor(c: City, i: number): { task: TaskInput; label: string } | null {
+  const herd = c.herds.find((h) => h.n >= 1 && c.seen[h.at] && cheb(h.at, i) <= 2);
+  if (herd) return { task: { t: "hunt", herd: herd.id }, label: herd.kind === "deer" ? "Săn đàn hươu" : "Săn đàn lợn rừng" };
+  if (!c.seen[i]) return { task: { t: "explore", to: i }, label: "Đi thám hiểm tới đây" };
+  if (campAt(c, i)) return null;
+  const b = c.b[i];
+  if (b) return B[b.k].jobs && b.lvl >= 1 && !b.flooded ? { task: { t: "work", at: i }, label: `Làm ở ${B[b.k].n}` } : null;
+  if (c.t[i] === F) return { task: { t: "chop", at: i }, label: "Chặt cây ở đây" };
+  if (c.t[i] === HL) return { task: { t: "mine", at: i }, label: "Đào đá ở đây" };
+  if (c.t[i] === O) return { task: { t: "mine", at: i }, label: "Đào đồng ở đây" };
+  if (c.t[i] === R) return null;
+  return { task: { t: "move", to: i }, label: "Chạy tới đây" };
+}
+
+function taskLabel(c: City, p: Person) {
+  const tk = p.task;
+  switch (tk.t) {
+    case "work": return `Làm ở ${B[c.b[tk.at]?.k ?? "hut"].n}`;
+    case "chop": return "Chặt cây";
+    case "mine": return c.t[tk.at] === O ? "Đào đồng" : "Đào đá";
+    case "hunt": return c.herds.find((h) => h.id === tk.herd)?.kind === "boar" ? "Săn lợn rừng" : "Săn hươu";
+    case "explore": return "Đi thám hiểm";
+    default: return "Rảnh";
+  }
+}
+function sameTarget(p: Person, tk: TaskInput) {
+  const a = p.task;
+  if (a.t !== tk.t) return false;
+  if (a.t === "hunt" && tk.t === "hunt") return a.herd === tk.herd;
+  if ((a.t === "work" || a.t === "chop" || a.t === "mine") && "at" in tk) return a.at === tk.at;
+  return false;
+}
+
+/* ---------- icons ---------- */
+const ICON = {
+  food: <svg viewBox="0 0 24 24"><path d="M3 12h18a9 9 0 0 1-18 0z" fill="#c98b4a" /><path d="M5 12c1-3 3.5-4.5 7-4.5S18 9 19 12z" fill="#f4ecd6" /></svg>,
+  wood: <svg viewBox="0 0 24 24"><rect x="3" y="8" width="16" height="8" rx="4" fill="#8a5a2b" /><ellipse cx="19" cy="12" rx="2.6" ry="4" fill="#e0b27a" /></svg>,
+  stone: <svg viewBox="0 0 24 24"><path d="M4 17l3-8 6-3 6 5 1 6z" fill="#b9b2a2" /><path d="M13 6l6 5 1 6h-7z" fill="#948d7e" /></svg>,
+  copper: <svg viewBox="0 0 24 24"><path d="M3 16l4-6h10l4 6z" fill="#d9813a" /><path d="M7 10h10l-2-3H9z" fill="#f0a868" /></svg>,
+  pop: <svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="3.5" fill="#f1c9a0" /><path d="M5 21c0-5 3-8 7-8s7 3 7 8z" fill="#c9503e" /></svg>,
+  build: <svg viewBox="0 0 24 24"><path d="M4 20l8-8" stroke="#8a5a2b" strokeWidth="2.5" strokeLinecap="round" /><rect x="10" y="4" width="10" height="6" rx="1" fill="#d6a03f" transform="rotate(45 15 7)" /></svg>,
+  army: <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z" fill="#b04130" /><path d="M12 6l4 1.7V11c0 3-1.7 5-4 6.3z" fill="#e2b240" /></svg>,
+  shop: <svg viewBox="0 0 24 24"><path d="M3 10h18l-2-5H5z" fill="#c94c38" /><path d="M5 10h14v9H5z" fill="#d9b98a" /><path d="M10 13h4v6h-4z" fill="#6b4526" /></svg>,
+  era: <svg viewBox="0 0 24 24"><path d="M4 20h16l-3-6h-3l-2-4-2 4H7z" fill="#d6a03f" /><path d="M12 3v7" stroke="#f0c766" strokeWidth="2" /></svg>,
+  log: <svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2" fill="#e8d8b0" /><path d="M8 8h8M8 12h8M8 16h5" stroke="#8a6a42" strokeWidth="1.6" /></svg>,
+  rank: <svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z" fill="#e2b240" /><path d="M10 14h4v3h3v3H7v-3h3z" fill="#b4842c" /></svg>,
+};
+type IconKey = keyof typeof ICON;
+const Icon = ({ k }: { k: IconKey }) => <span className="ic" aria-hidden="true">{ICON[k]}</span>;
+
+function Thumb({ city, D, k }: { city: City; D: Derived; k: BKey }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (ref.current) drawThumb(ref.current, city, D, k); }, [k]);
+  return <canvas ref={ref} className="thumb" aria-hidden="true" />;
+}
+
+function Stepper({ value, max, onChange, label }: { value: number; max: number; onChange: (n: number) => void; label: string }) {
+  return (
+    <div className="stepper" role="group" aria-label={label}>
+      <button onClick={() => onChange(Math.max(0, value - 1))} aria-label="Bớt">−</button>
+      <span>{value}</span>
+      <button onClick={() => onChange(Math.min(max, value + 1))} aria-label="Thêm">+</button>
+    </div>
+  );
 }
 
 export default function Game() {
@@ -36,7 +111,13 @@ export default function Game() {
   const [, setVersion] = useState(0);
   const [tool, setTool] = useState<BKey | null>(null);
   const [selected, setSelected] = useState<Cell | null>(null);
+  const [herdSel, setHerdSel] = useState<number | null>(null);
   const [hover, setHover] = useState<Cell | null>(null);
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [assignN, setAssignN] = useState(1);
+  const [send, setSend] = useState<Troops>({});
+  const [panel, setPanel] = useState<Panel | null>(null);
+  const [shopEra, setShopEra] = useState(1);
   const [msg, setMsg] = useState<{ text: string; err?: boolean } | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
@@ -46,10 +127,17 @@ export default function Game() {
   const dRef = useRef<Derived | null>(null);
   const offsetRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const boardRef = useRef<HTMLDivElement>(null);
-  const tsRef = useRef(28);
-  const viewRef = useRef({ hover, selected, tool });
-  viewRef.current = { hover, selected, tool };
+  const frameRef = useRef<HTMLDivElement>(null);
+  const fitRef = useRef<View>(fitView(800, 500));
+  const camRef = useRef<Cam>({ zoom: 1, px: 0, py: 0 });
+  const focusedRef = useRef(false);
+  const crowdRef = useRef(new Crowd());
+  // dev-only handle for inspecting villagers from the browser console
+  if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") (window as unknown as { __game?: unknown }).__game = { crowd: crowdRef.current, city: () => cityRef.current, view: () => camView(fitRef.current, camRef.current) };
+  const ptrs = useRef(new Map<number, { x: number; y: number }>());
+  const dragRef = useRef<{ sx: number; sy: number; moved: boolean; pinch: number } | null>(null);
+  const viewRef = useRef({ hover, selected, tool, picked });
+  viewRef.current = { hover, selected, tool, picked };
 
   const now = () => Date.now() + offsetRef.current;
   const bump = () => setVersion((v) => v + 1);
@@ -58,6 +146,7 @@ export default function Game() {
     offsetRef.current = data.serverNow - Date.now();
     cityRef.current = data.state;
     dRef.current = derive(data.state);
+    crowdRef.current.sync(data.state);
     if (data.name) setName(data.name);
     bump();
   }, []);
@@ -66,7 +155,9 @@ export default function Game() {
     const res = await fetch("/api/city", { cache: "no-store" });
     if (res.status === 404) { setNeedsName(true); setLoading(false); return; }
     if (!res.ok) { setMsg({ text: "Không tải được thành phố. Kiểm tra kết nối MongoDB.", err: true }); setLoading(false); return; }
-    accept(await res.json());
+    const data = await res.json();
+    accept(data);
+    setShopEra(data.state.era);
     setNeedsName(false);
     setLoading(false);
   }, [accept]);
@@ -83,45 +174,73 @@ export default function Game() {
       if (!c) return;
       settle(c, now());
       dRef.current = derive(c);
+      crowdRef.current.sync(c);
       bump();
     }, 1000);
     const sync = setInterval(() => { loadCity(); loadBoard(); }, 60_000);
     return () => { clearInterval(tick); clearInterval(sync); };
   }, [loadCity, loadBoard]);
 
-  // canvas sizing + render loop
+  // canvas sizing, camera and render loop
   useEffect(() => {
-    const cv = canvasRef.current, board = boardRef.current;
-    if (!cv || !board) return;
+    const cv = canvasRef.current, frame = frameRef.current;
+    if (!cv || !frame) return;
     const ctx = cv.getContext("2d")!;
     const rm = matchMedia("(prefers-reduced-motion: reduce)").matches;
     let dpr = 1;
     const resize = () => {
-      const ts = Math.max(12, Math.min(44, Math.floor(board.clientWidth / W)));
-      tsRef.current = ts;
+      const w = frame.clientWidth, h = frame.clientHeight;
+      const cam = camRef.current, v = camView(fitRef.current, cam);
+      const f = fitView(w, h);
+      fitRef.current = f;
+      const ca = (v.width / 2 - v.ox) / (v.TW / 2), cb = (v.height / 2 - v.oy) / (v.TH / 2);
+      if (focusedRef.current) focusOn(f, cam, (ca + cb) / 2, (cb - ca) / 2, cam.zoom);
+      else clampCam(f, cam);
       dpr = window.devicePixelRatio || 1;
-      cv.width = ts * W * dpr; cv.height = ts * H * dpr;
-      cv.style.width = ts * W + "px"; cv.style.height = ts * H + "px";
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
     };
     const ro = new ResizeObserver(resize);
-    ro.observe(board);
+    ro.observe(frame);
     resize();
-    let raf = 0;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const r = cv.getBoundingClientRect(), cam = camRef.current;
+      zoomAt(fitRef.current, cam, cam.zoom * Math.exp(-e.deltaY * 0.0018), e.clientX - r.left, e.clientY - r.top);
+    };
+    cv.addEventListener("wheel", onWheel, { passive: false });
+    let raf = 0, last = 0;
     const loop = (t: number) => {
       const c = cityRef.current, D = dRef.current;
+      const dt = last ? Math.min(0.1, (t - last) / 1000) : 0;
+      last = t;
       if (c && D) {
+        if (!focusedRef.current) {
+          const f = fitRef.current;
+          focusOn(f, camRef.current, (c.camp % W) + 0.5, Math.floor(c.camp / W) + 0.5, Math.min(MAX_ZOOM, 60 / f.TW));
+          focusedRef.current = true;
+        }
+        if (!rm) crowdRef.current.update(c, dt, now());
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        drawCity(ctx, c, D, { ts: tsRef.current, now: now(), anim: rm ? 0 : t, ...viewRef.current });
+        drawCity(ctx, c, D, { v: camView(fitRef.current, camRef.current), now: now(), anim: rm ? 0 : t, villagers: crowdRef.current.list, fx: crowdRef.current.fx, chopping: crowdRef.current.chopping, ...viewRef.current });
       }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); cv.removeEventListener("wheel", onWheel); };
   }, [loading, needsName]);
 
   const act = async (a: Action) => {
-    if (busy) return;
+    if (busy) return false;
     setBusy(true);
+    if (a.type === "assign" || a.type === "assignN") {
+      const pos: Record<string, number> = {};
+      for (const v of crowdRef.current.list) {
+        if (v.id === null) continue;
+        const x = Math.max(0, Math.min(W - 1, Math.floor(v.fx))), y = Math.max(0, Math.min(W - 1, Math.floor(v.fy)));
+        pos[v.id] = idx(x, y);
+      }
+      a = { ...a, pos };
+    }
     try {
       const res = await fetch("/api/city/action", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(a) });
       const data = await res.json();
@@ -146,33 +265,136 @@ export default function Game() {
     loadBoard();
   };
 
-  const cellAt = (e: React.PointerEvent | React.MouseEvent): Cell | null => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const x = Math.floor((e.clientX - r.left) / (r.width / W)), y = Math.floor((e.clientY - r.top) / (r.height / H));
-    return inb(x, y) ? { x, y } : null;
+  const local = (e: { clientX: number; clientY: number }) => {
+    const r = canvasRef.current!.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const view = () => camView(fitRef.current, camRef.current);
+  const cellAt = (e: { clientX: number; clientY: number }): Cell | null => {
+    const p = local(e);
+    return screenToCell(view(), p.x, p.y);
   };
 
+  const onPointerDown = (e: React.PointerEvent) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const p = local(e);
+    ptrs.current.set(e.pointerId, p);
+    if (ptrs.current.size === 1) dragRef.current = { sx: p.x, sy: p.y, moved: false, pinch: 0 };
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const prev = ptrs.current.get(e.pointerId);
+    if (!prev) { setHover(cellAt(e)); return; }
+    const p = local(e), cam = camRef.current, f = fitRef.current, d = dragRef.current;
+    ptrs.current.set(e.pointerId, p);
+    if (ptrs.current.size >= 2) {
+      const [a, b] = [...ptrs.current.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d) {
+        if (d.pinch) zoomAt(f, cam, cam.zoom * (dist / d.pinch), (a.x + b.x) / 2, (a.y + b.y) / 2);
+        d.pinch = dist; d.moved = true;
+      }
+      return;
+    }
+    if (d) {
+      if (!d.moved && Math.hypot(p.x - d.sx, p.y - d.sy) < 6) return;
+      if (!d.moved) { d.moved = true; prev.x = d.sx; prev.y = d.sy; }
+      cam.px += p.x - prev.x; cam.py += p.y - prev.y;
+      clampCam(f, cam);
+      setHover(null);
+    }
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    ptrs.current.delete(e.pointerId);
+    if (dragRef.current) dragRef.current.pinch = 0;
+  };
+
+  const zoomBy = (k: number) => {
+    const f = fitRef.current, cam = camRef.current;
+    zoomAt(f, cam, cam.zoom * k, f.width / 2, f.height / 2);
+  };
+  const focusHome = () => {
+    const c = cityRef.current, f = fitRef.current;
+    if (c) focusOn(f, camRef.current, (c.camp % W) + 0.5, Math.floor(c.camp / W) + 0.5, Math.min(MAX_ZOOM, 60 / f.TW));
+  };
+
+  const togglePick = (id: number, add: boolean) =>
+    setPicked((old) => {
+      const next = new Set(add ? old : []);
+      if (add && old.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+
+  const openPanel = (p: Panel | null) => setPanel((cur) => (cur === p ? null : p));
+
   const onClick = async (e: React.MouseEvent) => {
-    const cell = cellAt(e), c = cityRef.current;
-    if (!cell || !c) return;
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (drag?.moved) return;
+    const c = cityRef.current;
+    if (!c) return;
+    const p = local(e);
     if (tool) {
+      const cell = cellAt(e);
+      if (!cell) return;
       const ok = await act({ type: "build", k: tool, x: cell.x, y: cell.y });
       if (ok) setMsg({ text: `Thợ bắt đầu xây ${B[tool].n}.` });
       return;
     }
+    const vl = pickVillager(view(), crowdRef.current.list, p.x, p.y);
+    if (vl && vl.id !== null) {
+      togglePick(vl.id, e.shiftKey || e.ctrlKey || e.metaKey);
+      setSelected(null);
+      setMsg({ text: "Bấm vào rừng, đồi, đàn thú, công trình hoặc vùng sương mù để giao việc. Giữ Shift để chọn thêm người." });
+      return;
+    }
+    const herdId = pickHerd(view(), c, performance.now(), p.x, p.y);
+    if (herdId !== null) {
+      const h = c.herds.find((x) => x.id === herdId)!;
+      const label = h.kind === "deer" ? "Săn đàn hươu" : "Săn đàn lợn rừng";
+      if (picked.size) {
+        const ids = [...picked];
+        if (await act({ type: "assign", ids, task: { t: "hunt", herd: herdId } })) { setMsg({ text: `${ids.length} người: ${label.toLowerCase()}.` }); setPicked(new Set()); }
+        return;
+      }
+      setSelected(null); setHerdSel(herdId); setAssignN(1); setMsg(null);
+      return;
+    }
+    const cell = cellAt(e);
+    if (!cell) return;
+    const i = idx(cell.x, cell.y);
+    if (picked.size && !campAt(c, i)) {
+      const tk = taskFor(c, i);
+      if (!tk) { setMsg({ text: "Không có việc gì để làm ở ô này.", err: true }); return; }
+      const ids = [...picked];
+      if (await act({ type: "assign", ids, task: tk.task })) {
+        setMsg({ text: `${ids.length} người: ${tk.label.toLowerCase()}.` });
+        setPicked(new Set());
+      }
+      return;
+    }
+    setPicked(new Set());
+    setHerdSel(null);
     setSelected(cell);
+    setAssignN(1);
     setArmDemolish(false);
     setMsg(null);
+    if (campAt(c, i)) setSend({ ...c.army });
+    if (c.b[i]?.k === "barracks") setPanel("army");
   };
 
   const pickTool = (k: BKey | null) => {
     setTool(k);
     setSelected(null);
+    setPicked(new Set());
+    if (k) setPanel(null);
     setMsg(k ? { text: `${B[k].n} (${costText(B[k].cost)}, ${fmtDur(buildMs(k, 1))}): ${B[k].d} Chuột phải hoặc Esc để bỏ chọn.` } : null);
   };
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setTool(null); setSelected(null); } };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
@@ -186,7 +408,7 @@ export default function Game() {
     return (
       <main className="wrap start">
         <h1>Dòng Sông Thời Đại</h1>
-        <p className="lede">Dựng một khu định cư bên sông và đưa nó từ thời đồ đá lên thời đồ sắt. Thành phố vẫn sản xuất khi bạn rời đi, sông vẫn lũ mỗi mùa thu.</p>
+        <p className="lede">Dựng một khu định cư bên sông và đưa nó từ thời đồ đá lên thời đồ sắt. Giao việc cho dân làng, săn thú, khám phá vùng đất, luyện quân phá trại man rợ. Thành phố vẫn chạy khi bạn rời đi.</p>
         <form onSubmit={createCity} className="startform">
           <label htmlFor="cityname">Đặt tên thành phố</label>
           <input id="cityname" value={nameInput} onChange={(e) => setNameInput(e.target.value)} maxLength={24} placeholder="Ví dụ: Bến Phù Sa" autoFocus />
@@ -201,128 +423,341 @@ export default function Game() {
   const si = seasonIndexAt(c, t), season = si % 4;
   const nextSeasonIn = c.t0 + (si + 1) * SEASON_MS - t;
   const busyN = busyBuilders(c), maxB = builders(c);
+  const idle = c.people.filter((p) => p.task.t === "idle");
+  const cap = armyCap(c), used = armyUsed(c), homePower = troopPower(c.army);
 
-  // hover / status line
   let status: { text: string; err?: boolean } | null = msg;
   if (hover && tool) {
     const bad = canPlace(c, D, tool, hover.x, hover.y);
-    status = bad ? { text: `${B[tool].n}: ${bad}`, err: true } : { text: `${B[tool].n}: bấm để xây. Ô: ${tileDesc(c, D, hover.x, hover.y)}.` };
+    status = bad ? { text: `${B[tool].n}: ${bad}`, err: true } : { text: `${B[tool].n}: bấm để xây. Ô: ${tileDesc(c, D, idx(hover.x, hover.y))}.` };
+  } else if (hover && picked.size) {
+    const tk = taskFor(c, idx(hover.x, hover.y));
+    status = tk ? { text: `Bấm để giao ${picked.size} người: ${tk.label.toLowerCase()}.` } : { text: "Không có việc ở ô này.", err: true };
   } else if (hover && !msg) {
-    const b = c.b[idx(hover.x, hover.y)];
-    status = { text: `${b ? B[b.k].n + (b.lvl ? ` cấp ${b.lvl}` : " (đang xây)") + ". " : ""}Ô: ${tileDesc(c, D, hover.x, hover.y)}.` };
+    const i = idx(hover.x, hover.y), b = c.b[i], camp = campAt(c, i);
+    const herd = c.herds.find((h) => c.seen[h.at] && cheb(h.at, i) <= 2 && h.n >= 1);
+    status = { text: camp ? `Trại man rợ, sức mạnh ${camp.power}${camp.cleared ? " (đã bị phá)" : ""}. Bấm để xem và xuất quân.` : `${b ? B[b.k].n + (b.lvl ? ` cấp ${b.lvl}` : " (đang xây)") + ". " : ""}${herd ? `Đàn ${herd.kind === "deer" ? "hươu" : "lợn rừng"} ${Math.floor(herd.n)} con. ` : ""}${tileDesc(c, D, i)}.` };
   }
 
-  const sel = selected ? c.b[idx(selected.x, selected.y)] : null;
+  const selI = selected ? idx(selected.x, selected.y) : -1;
+  const sel = selected ? c.b[selI] : undefined;
+  const selCamp = selected ? campAt(c, selI) : undefined;
+  const selTask: { task: TaskInput; label: string } | null = !selected || selCamp ? null
+    : sel ? (B[sel.k].jobs && sel.lvl >= 1 && !sel.flooded ? { task: { t: "work", at: selI }, label: `Làm ở ${B[sel.k].n}` } : null)
+    : taskFor(c, selI);
+  const herd = herdSel !== null ? c.herds.find((h) => h.id === herdSel) : undefined;
+  const herdTask: TaskInput | null = herd ? { t: "hunt", herd: herd.id } : null;
+  const hunters = herdTask ? c.people.filter((p) => sameTarget(p, herdTask)) : [];
+  const onTarget = selTask ? c.people.filter((p) => sameTarget(p, selTask.task)) : [];
   const next = ERA_REQ[c.era + 1];
+  const sendPower = troopPower(send);
+
+  const bubbles: { k: Panel; icon: IconKey; label: string; badge?: number | string }[] = [
+    { k: "shop", icon: "shop", label: "Cửa hàng" },
+    { k: "army", icon: "army", label: "Quân đội", badge: troopCount(c.army) || undefined },
+    { k: "people", icon: "pop", label: "Dân làng", badge: idle.length ? `${idle.length} rảnh` : undefined },
+    { k: "era", icon: "era", label: "Thời đại", badge: reqMet(c) ? "!" : undefined },
+    { k: "log", icon: "log", label: "Biên niên" },
+    { k: "rank", icon: "rank", label: "Xếp hạng" },
+  ];
 
   return (
-    <main className="wrap">
-      <header className="top">
+    <main className="game">
+      <div className="mapframe" ref={frameRef}>
+        <canvas
+          ref={canvasRef}
+          aria-label="Bản đồ. Lăn chuột để phóng to, kéo để di chuyển, bấm vào dân để chọn."
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onPointerLeave={() => setHover(null)}
+          onClick={onClick}
+          onContextMenu={(e) => { e.preventDefault(); pickTool(null); setPicked(new Set()); }}
+        />
+      </div>
+
+      <header className="hud-top">
         <div className="brand">
           <h1>{name}</h1>
           <div className="when">
             <span className="era">{ERA_NAMES[c.era]}</span>
             <span className={"date" + (season === 2 ? " flood" : "")}>
-              Năm {Math.floor(si / 4) + 1} · mùa {SEASONS[season]}{season === 2 ? " (mùa lũ)" : ""} · sang mùa {SEASONS[(season + 1) % 4]} sau {fmtDur(nextSeasonIn)}
+              Năm {Math.floor(si / 4) + 1} · {SEASONS[season]}{season === 2 ? " (lũ)" : ""} · còn {fmtDur(nextSeasonIn)}
             </span>
           </div>
         </div>
-        <div className="builders" title="Thợ xây đang bận / tổng số thợ">Thợ xây <b>{busyN}/{maxB}</b></div>
+        <div className="chips">
+          <div className="chip" title="Dân số / chỗ ở">
+            <Icon k="pop" />
+            <div className="cv">
+              <span className="v">{c.people.length}<small>/{st.housing}</small></span>
+              <span className={"d" + (c.people.length >= st.housing ? " down" : "")}>{c.people.length >= st.housing ? "cần nhà" : `${idle.length} rảnh`}</span>
+            </div>
+          </div>
+          <div className="chip" title="Thợ xây đang bận / tổng số thợ">
+            <Icon k="build" />
+            <div className="cv"><span className="v">{busyN}/{maxB}</span><span className="d">thợ xây</span></div>
+          </div>
+          <div className="chip" title="Quân ở nhà / sức chứa trại lính">
+            <Icon k="army" />
+            <div className="cv"><span className="v">{troopCount(c.army)}<small>/{cap}</small></span><span className="d">⚔ {fmt(homePower)}</span></div>
+          </div>
+          {RES.map((r) => {
+            const rate = r === "copper" ? st.copperRate : r === "wood" ? st.rate.wood - st.woodUse : st.rate[r];
+            const pct = Math.min(100, (c.res[r] / st.storage) * 100);
+            return (
+              <div className="chip" key={r} title={`${RN[r]}: ${fmt(c.res[r])} / ${fmt(st.storage)}`}>
+                <Icon k={r} />
+                <div className="cv">
+                  <span className={"v" + (pct >= 100 ? " full" : "")}>{fmt(c.res[r])}<small>/{fmt(st.storage)}</small></span>
+                  <span className="bar"><i style={{ width: pct + "%" }} /></span>
+                  <span className={"d" + (rate > 0.05 ? " up" : rate < -0.05 ? " down" : "")}>{rate >= 0 ? "+" : ""}{fmt(rate)}/giờ</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </header>
 
-      <div className="res">
-        <div><span className="k">Dân số</span><span className="v">{c.pop}/{st.housing}</span><span className={"d" + (c.pop >= st.housing ? " down" : "")}>{c.pop >= st.housing ? "cần thêm nhà" : "chỗ ở"}</span></div>
-        <div><span className="k">Việc làm</span><span className="v">{Math.min(c.pop, st.jobs)}/{st.jobs}</span><span className={"d" + (st.jobs > c.pop ? " down" : "")}>{st.jobs > c.pop ? "thiếu người" : "đủ người"}</span></div>
-        {RES.map((r) => {
-          const rate = r === "copper" ? st.copperRate : r === "wood" ? st.rate.wood - st.woodUse : st.rate[r];
-          return (
-            <div key={r}>
-              <span className="k">{RN[r]}</span>
-              <span className={"v" + (c.res[r] >= st.storage ? " full" : "")}>{fmt(c.res[r])}<small>/{fmt(st.storage)}</small></span>
-              <span className={"d" + (rate > 0.05 ? " up" : rate < -0.05 ? " down" : "")}>{rate >= 0 ? "+" : ""}{fmt(rate)}/giờ</span>
-            </div>
-          );
-        })}
+      <div className="zoom" role="group" aria-label="Điều khiển bản đồ">
+        <button onClick={() => zoomBy(1.5)} aria-label="Phóng to">+</button>
+        <button onClick={() => zoomBy(1 / 1.5)} aria-label="Thu nhỏ">−</button>
+        <button onClick={focusHome} aria-label="Về trại" title="Về trại">⌂</button>
+        <button onClick={() => { camRef.current = { zoom: 1, px: 0, py: 0 }; }} aria-label="Xem toàn bản đồ" title="Xem toàn bản đồ">⤢</button>
       </div>
 
-      <div className="layout">
-        <section className="board" ref={boardRef}>
-          <canvas
-            ref={canvasRef}
-            aria-label="Bản đồ thành phố ven sông"
-            onPointerMove={(e) => setHover(cellAt(e))}
-            onPointerLeave={() => setHover(null)}
-            onClick={onClick}
-            onContextMenu={(e) => { e.preventDefault(); pickTool(null); }}
-          />
-          <div className={"status" + (status?.err ? " err" : "")}>{status?.text ?? "Chọn công trình bên phải rồi bấm lên bản đồ để xây. Bấm vào công trình có sẵn để nâng cấp hoặc sửa."}</div>
-          <div className="legend">
-            <span><i style={{ background: "#58783b" }} />Đất phù sa</span>
-            <span><i style={{ background: "#738c4f" }} />Đồng cỏ</span>
-            <span><i style={{ background: "#2f5530" }} />Rừng</span>
-            <span><i style={{ background: "#8b7d63" }} />Đồi đá</span>
-            <span><i style={{ background: "#d0843f" }} />Mỏ đồng</span>
-            <span><i style={{ background: "rgba(120,180,225,.7)" }} />Vùng lũ (mùa hạ, thu)</span>
+      {herd && herdTask && (
+        <div className="hud-card">
+          <button className="x" onClick={() => setHerdSel(null)} aria-label="Đóng">×</button>
+          <h2>{herd.kind === "deer" ? "Đàn hươu" : "Đàn lợn rừng"}</h2>
+          <p className="small">Còn <b>{Math.floor(herd.n)}</b>/{herd.max} con · mỗi con cho khoảng 50 thịt · tự sinh sôi lại theo thời gian.</p>
+          <div className="assign">
+            <Stepper value={assignN} max={Math.max(1, idle.length)} label="Số người" onChange={(n) => setAssignN(Math.max(1, n))} />
+            <button className="primary" disabled={busy || !idle.length || herd.n < 1} onClick={() => act({ type: "assignN", n: assignN, task: herdTask })}>
+              {herd.n < 1 ? "Đàn đã bị săn hết" : idle.length ? `Giao ${Math.min(assignN, idle.length)} người đi săn` : "Không ai rảnh"}
+            </button>
           </div>
-        </section>
+          {hunters.length > 0 && (
+            <ul className="people compact">
+              {hunters.map((p) => (
+                <li key={p.id}><span>{p.name}</span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
-        <aside className="side">
-          {sel && selected && (
-            <div className="panel card">
+      {/* selection card */}
+      {selected && (sel || selTask || selCamp) && (
+        <div className="hud-card">
+          <button className="x" onClick={() => setSelected(null)} aria-label="Đóng">×</button>
+          {selCamp ? (
+            <>
+              <h2>Trại man rợ</h2>
+              {selCamp.cleared ? (
+                <p className="muted small">Đã bị phá. Chúng sẽ dựng lại sau {fmtDur((selCamp.respawnAt ?? t) - t)}, mạnh hơn.</p>
+              ) : (
+                <>
+                  <p className="small">Sức mạnh: <b className="danger">⚔ {selCamp.power}</b> · Chiến lợi phẩm: {costText(selCamp.loot)}</p>
+                  <p className="muted small">Hành quân {fmtDur(marchMs(c.camp, selCamp.at))} mỗi chiều.</p>
+                  {troopCount(c.army) ? (
+                    <>
+                      <ul className="units">
+                        {UKEYS.filter((u) => c.army[u]).map((u) => (
+                          <li key={u}><span>{UNITS[u].n} <span className="muted">({c.army[u]})</span></span>
+                            <Stepper value={send[u] ?? 0} max={c.army[u] ?? 0} label={UNITS[u].n} onChange={(n) => setSend({ ...send, [u]: n })} /></li>
+                        ))}
+                      </ul>
+                      <p className="small">Quân gửi đi: <b className={sendPower >= selCamp.power ? "ok" : "danger"}>⚔ {fmt(sendPower)}</b> {sendPower >= selCamp.power * 1.2 ? "· nhiều khả năng thắng" : sendPower >= selCamp.power * 0.8 ? "· ngang sức, may rủi" : "· yếu hơn, dễ thua"}</p>
+                      <button className="primary wide" disabled={busy || !troopCount(send)} onClick={async () => { if (await act({ type: "attack", camp: selCamp.id, units: send })) setSelected(null); }}>Xuất quân</button>
+                    </>
+                  ) : <p className="muted small">Chưa có quân ở nhà. Xây Trại lính trong Cửa hàng rồi luyện quân.</p>}
+                </>
+              )}
+            </>
+          ) : sel ? (
+            <>
               <h2>{B[sel.k].n}{sel.lvl ? ` · cấp ${sel.lvl}` : ""}</h2>
-              <p className="muted small">{B[sel.k].d} Ô: {tileDesc(c, D, selected.x, selected.y)}.</p>
-              {sel.doneAt && <p>{sel.lvl === 0 ? "Đang xây" : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
-              {sel.flooded && <p className="err">Bị ngập, không hoạt động.</p>}
-              <div className="actions">
-                {sel.flooded && (
-                  <button className="primary" disabled={busy} onClick={() => act({ type: "repair", ...selected })}>Sửa ({costText(repairCost(sel.k))})</button>
-                )}
-                {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && !sel.doneAt && !sel.flooded && (
-                  <button className="primary" disabled={busy} onClick={() => act({ type: "upgrade", ...selected })}>
-                    Lên cấp {sel.lvl + 1} ({costText(levelCost(sel.k, sel.lvl + 1))}, {fmtDur(buildMs(sel.k, sel.lvl + 1))})
-                  </button>
-                )}
-                <button
-                  disabled={busy}
-                  onClick={async () => {
-                    if (!armDemolish) { setArmDemolish(true); return; }
-                    if (await act({ type: "demolish", ...selected })) { setSelected(null); setMsg({ text: "Đã phá, thu lại một nửa vật liệu." }); }
-                    setArmDemolish(false);
-                  }}
-                >{armDemolish ? "Bấm lần nữa để phá" : "Phá dỡ"}</button>
-              </div>
+              <p className="muted small">{B[sel.k].d}</p>
+              {sel.doneAt && <p className="small">{sel.lvl === 0 ? "Đang xây" : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
+              {sel.flooded && <p className="err small">Bị ngập, không hoạt động.</p>}
+              {B[sel.k].jobs ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{B[sel.k].jobs}</b></p> : null}
+            </>
+          ) : (
+            <>
+              <h2>{selTask!.label}</h2>
+              <p className="muted small">{tileDesc(c, D, selI)}.</p>
+            </>
+          )}
+          {selTask && (
+            <div className="assign">
+              <Stepper value={assignN} max={Math.max(1, idle.length)} label="Số người" onChange={(n) => setAssignN(Math.max(1, n))} />
+              <button className="primary" disabled={busy || !idle.length} onClick={() => act({ type: "assignN", n: assignN, task: selTask.task })}>
+                {idle.length ? `Giao ${Math.min(assignN, idle.length)} người rảnh` : "Không ai rảnh"}
+              </button>
             </div>
           )}
+          {onTarget.length > 0 && (
+            <ul className="people compact">
+              {onTarget.map((p) => (
+                <li key={p.id}><span>{p.name}</span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
+              ))}
+            </ul>
+          )}
+          {sel && selected && (
+            <div className="actions">
+              {sel.k === "barracks" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
+              {sel.flooded && <button className="primary" disabled={busy} onClick={() => act({ type: "repair", ...selected })}>Sửa ({costText(repairCost(sel.k))})</button>}
+              {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && !sel.doneAt && !sel.flooded && (
+                <button disabled={busy} onClick={() => act({ type: "upgrade", ...selected })}>
+                  Lên cấp {sel.lvl + 1} ({costText(levelCost(sel.k, sel.lvl + 1))}, {fmtDur(buildMs(sel.k, sel.lvl + 1))})
+                </button>
+              )}
+              <button disabled={busy} onClick={async () => {
+                if (!armDemolish) { setArmDemolish(true); return; }
+                if (await act({ type: "demolish", ...selected })) { setSelected(null); setMsg({ text: "Đã phá, thu lại một nửa vật liệu." }); }
+                setArmDemolish(false);
+              }}>{armDemolish ? "Bấm lần nữa để phá" : "Phá dỡ"}</button>
+            </div>
+          )}
+        </div>
+      )}
 
-          <div className="panel">
-            <h2>Xây dựng</h2>
-            <div className="pal">
-              {[1, 2, 3].map((era) => (
-                <div key={era} className="palgroup">
-                  <div className="erah">{ERA_NAMES[era]}{era > c.era ? " (chưa mở)" : ""}</div>
-                  {BKEYS.filter((k) => B[k].era === era).map((k) => {
+      <div className="hud-bottom">
+        {picked.size > 0 && (
+          <div className="pickbar">
+            <b>{picked.size} người đã chọn</b>
+            <span>Bấm lên bản đồ để giao việc</span>
+            <button disabled={busy} onClick={() => act({ type: "assign", ids: [...picked], task: { t: "idle" } }).then((ok) => { if (ok) setPicked(new Set()); })}>Cho nghỉ</button>
+            <button onClick={() => setPicked(new Set())}>Bỏ chọn</button>
+          </div>
+        )}
+        {tool && (
+          <div className="pickbar">
+            <b>Đang xây {B[tool].n}</b>
+            <span>Bấm ô trống để đặt</span>
+            <button onClick={() => pickTool(null)}>Xong</button>
+          </div>
+        )}
+        <div className={"status" + (status?.err ? " err" : "")}>{status?.text ?? "Bấm vào dân để chọn rồi bấm vào rừng, đồi, đàn thú hoặc sương mù để giao việc. Mở Cửa hàng để xây nhà."}</div>
+      </div>
+
+      <nav className="bubbles" aria-label="Bảng điều khiển">
+        {bubbles.map((b) => (
+          <button key={b.k} className="bubble" aria-pressed={panel === b.k} onClick={() => openPanel(b.k)}>
+            <Icon k={b.icon} />
+            <span className="bl">{b.label}</span>
+            {b.badge !== undefined && <span className="badge">{b.badge}</span>}
+          </button>
+        ))}
+      </nav>
+
+      {panel && (
+        <aside className="drawer" aria-label={bubbles.find((b) => b.k === panel)?.label}>
+          <div className="dh">
+            <h2>{bubbles.find((b) => b.k === panel)?.label}</h2>
+            <button className="x" onClick={() => setPanel(null)} aria-label="Đóng">×</button>
+          </div>
+          <div className="db">
+            {panel === "shop" && (
+              <>
+                <div className="tabs" role="tablist">
+                  {[1, 2, 3].map((e) => (
+                    <button key={e} role="tab" aria-selected={shopEra === e} className={"tab" + (shopEra === e ? " on" : "")} onClick={() => setShopEra(e)}>
+                      {ERA_NAMES[e].replace("Thời ", "")}{e > c.era ? " 🔒" : ""}
+                    </button>
+                  ))}
+                </div>
+                {shopEra > c.era && <p className="muted small">Lên {ERA_NAMES[shopEra]} để mở các công trình này.</p>}
+                <div className="shopgrid">
+                  {BKEYS.filter((k) => B[k].era === shopEra).map((k) => {
                     const locked = B[k].era > c.era;
                     const poor = RES.some((r) => (B[k].cost[r] ?? 0) > c.res[r]);
                     return (
-                      <button key={k} className="tool" aria-pressed={tool === k} disabled={locked} title={B[k].d} onClick={() => pickTool(tool === k ? null : k)}>
+                      <button key={k} className="shopcard" aria-pressed={tool === k} disabled={locked} onClick={() => pickTool(k)}>
+                        <Thumb city={c} D={D} k={k} />
                         <span className="n">{B[k].n}</span>
                         <span className={"c" + (poor && !locked ? " no" : "")}>{costText(B[k].cost)}</span>
+                        <span className="tm">⏱ {fmtDur(buildMs(k, 1))}</span>
+                        <span className="ds">{B[k].d}</span>
                       </button>
                     );
                   })}
                 </div>
-              ))}
-            </div>
-          </div>
+              </>
+            )}
 
-          <div className="panel">
-            {next ? (
+            {panel === "army" && (
               <>
-                <h2>Lên {ERA_NAMES[c.era + 1]}</h2>
+                {!cap ? (
+                  <p className="small">Chưa có Trại lính. <button className="link" onClick={() => { setShopEra(1); setPanel("shop"); }}>Mở Cửa hàng để xây</button>.</p>
+                ) : (
+                  <p className="small">Sức chứa trại: <b>{used}/{cap}</b> · Quân ở nhà: <b>⚔ {fmt(homePower)}</b></p>
+                )}
+                <ul className="units train">
+                  {UKEYS.map((u) => {
+                    const U = UNITS[u], locked = U.era > c.era;
+                    return (
+                      <li key={u} className={locked ? "locked" : ""}>
+                        <div>
+                          <b>{U.n}</b> <span className="muted small">· {c.army[u] ?? 0} ở nhà</span>
+                          <div className="muted small">⚔ {U.atk} · ❤ {U.hp}{U.space > 1 ? ` · ${U.space} chỗ` : ""} · {costText(U.cost)} · {fmtDur(U.sec * 1000)}</div>
+                          <div className="muted small">{locked ? `Mở ở ${ERA_NAMES[U.era]}` : U.d}</div>
+                        </div>
+                        <div className="tb">
+                          <button disabled={locked || !cap || busy} onClick={() => act({ type: "train", u, n: 1 })}>+1</button>
+                          <button disabled={locked || !cap || busy} onClick={() => act({ type: "train", u, n: 5 })}>+5</button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {c.queue.length > 0 && (
+                  <p className="small">Đang luyện {c.queue.length} lính · người tiếp theo xong sau {fmtDur(c.queue[0].doneAt - t)} · tất cả xong sau {fmtDur(c.queue[c.queue.length - 1].doneAt - t)}</p>
+                )}
+                <h3>Xuất quân</h3>
+                <p className="muted small">Bấm vào trại man rợ (biển ⚔ đỏ) trên bản đồ để chọn quân và tấn công. Khám phá thêm để tìm trại.</p>
+                {c.exps.length > 0 && (
+                  <ul className="exps">
+                    {c.exps.map((e) => (
+                      <li key={e.id}>
+                        <b>{troopCount(e.units)} lính</b> · {t < e.arrive ? `đang hành quân, tới sau ${fmtDur(e.arrive - t)}` : `${e.won ? "thắng" : "thua"}, về làng sau ${fmtDur(e.back - t)}`}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+
+            {panel === "people" && (
+              <>
+                <div className="ph">
+                  <span className="small muted">{c.people.length} người · {idle.length} rảnh</span>
+                  <button className="link" disabled={!idle.length} onClick={() => setPicked(new Set(idle.map((p) => p.id)))}>Chọn người rảnh</button>
+                </div>
+                <ul className="people">
+                  {c.people.map((p) => (
+                    <li key={p.id}>
+                      <button className={"person" + (p.task.t === "idle" ? " idle" : "")} aria-pressed={picked.has(p.id)}
+                        onClick={(e) => togglePick(p.id, e.shiftKey || e.ctrlKey || e.metaKey)}>
+                        <span className="nm">{p.name}</span>
+                        <span className="tk">{taskLabel(c, p)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="muted small">Chọn người rồi bấm lên bản đồ để giao việc. Giữ Shift để chọn nhiều người.</p>
+              </>
+            )}
+
+            {panel === "era" && (next ? (
+              <>
+                <h3>Lên {ERA_NAMES[c.era + 1]}</h3>
                 <ul className="goal">
-                  <li className={c.pop >= next.pop ? "met" : ""}><span>Dân số</span><span>{Math.min(c.pop, next.pop)}/{next.pop}</span></li>
+                  <li><span>Dân số</span><span className="gbar"><i style={{ width: Math.min(100, (c.people.length / next.pop) * 100) + "%" }} /></span><span>{Math.min(c.people.length, next.pop)}/{next.pop}</span></li>
                   {RES.filter((r) => next.cost[r]).map((r) => (
-                    <li key={r} className={c.res[r] >= next.cost[r]! ? "met" : ""}><span>{RN[r]}</span><span>{fmt(Math.min(c.res[r], next.cost[r]!))}/{next.cost[r]}</span></li>
+                    <li key={r}><span>{RN[r]}</span><span className="gbar"><i style={{ width: Math.min(100, (c.res[r] / next.cost[r]!) * 100) + "%" }} /></span><span>{fmt(Math.min(c.res[r], next.cost[r]!))}/{next.cost[r]}</span></li>
                   ))}
                 </ul>
                 <button className="wide primary" disabled={!reqMet(c) || busy} onClick={() => act({ type: "advance" })}>
@@ -331,38 +766,36 @@ export default function Game() {
               </>
             ) : (
               <>
-                <h2>{c.templeAt ? "Kỳ quan đã đứng" : "Xây Đền Sông Mẹ"}</h2>
-                <p className="muted small">
-                  {c.templeAt ? `Đền hoàn thành ${stamp(c, c.templeAt).toLowerCase()}. Tiếp tục nâng cấp để leo bảng xếp hạng.` : `Cần ${costText(B.temple.cost)}, xây ${fmtDur(buildMs("temple", 1))}. Nhớ xây thêm Kho để đủ sức chứa.`}
-                </p>
+                <h3>{c.templeAt ? "Kỳ quan đã đứng" : "Xây Đền Sông Mẹ"}</h3>
+                <p className="muted small">{c.templeAt ? `Đền hoàn thành ${stamp(c, c.templeAt).toLowerCase()}.` : `Cần ${costText(B.temple.cost)}, xây ${fmtDur(buildMs("temple", 1))}. Nhớ xây thêm Kho để đủ sức chứa.`}</p>
               </>
+            ))}
+
+            {panel === "log" && (
+              <ol className="log">
+                {c.log.map((l, i) => (
+                  <li key={i} className={l.cls ?? ""}><span className="t">{stamp(c, l.at)}</span>{l.msg}</li>
+                ))}
+              </ol>
+            )}
+
+            {panel === "rank" && (
+              <ol className="board-list">
+                {rows.map((r, i) => (
+                  <li key={i} className={r.me ? "me" : ""}>
+                    <span className="rk">{i + 1}</span>
+                    <span className="nm">{r.name}{r.temple ? " ★" : ""}</span>
+                    <span className="muted small">{ERA_NAMES[r.era].replace("Thời ", "")} · {r.pop} dân</span>
+                    <span className="sc">{fmt(r.score)}</span>
+                  </li>
+                ))}
+              </ol>
             )}
           </div>
-
-          <div className="panel">
-            <h2>Bảng xếp hạng</h2>
-            <ol className="board-list">
-              {rows.map((r, i) => (
-                <li key={i} className={r.me ? "me" : ""}>
-                  <span className="rk">{i + 1}</span>
-                  <span className="nm">{r.name}{r.temple ? " ★" : ""}</span>
-                  <span className="muted small">{ERA_NAMES[r.era].replace("Thời ", "")} · {r.pop} dân</span>
-                  <span className="sc">{fmt(r.score)}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
-
-          <div className="panel">
-            <h2>Biên niên</h2>
-            <ol className="log">
-              {c.log.map((l, i) => (
-                <li key={i} className={l.cls ?? ""}><span className="t">{stamp(c, l.at)}</span>{l.msg}</li>
-              ))}
-            </ol>
-          </div>
         </aside>
-      </div>
+      )}
     </main>
   );
 }
+
+export type { UKey };
