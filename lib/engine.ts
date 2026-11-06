@@ -333,6 +333,7 @@ export const canVisit = (c: City, id: string, at: number) => (c.visits?.[id] ?? 
 export type Mix = Record<ResKey, number>;
 export const DEFAULT_MIX: Mix = { food: 40, wood: 30, stone: 20, copper: 10, gold: 0, diamond: 0 };
 export const RAID_WARNING_MS = 30 * MIN;
+export const RAID_SHELTER_MS = MIN; // Work through the warning; shelter only just before arrival.
 
 /** Level of the village hall (0 = not built yet). */
 export const hallLevel = (c: City) => Object.values(c.b).reduce((a, b) => (b.k === "hall" && isBuildingActive(b) ? Math.max(a, b.lvl) : a), 0);
@@ -1175,8 +1176,11 @@ export function refugePosition(p:Person,now:number){
   const returning=f.returnAt!==undefined;
   return {x,y,hidden:!returning && progress>=1 && f.building!==undefined,moving:returning?now<f.back!:progress<1,returning};
 }
+export function civiliansInDanger(c:City,at:number){
+  return !!c.battleId || !!(c.raid && Math.max(c.raid.warn,c.raid.at-RAID_SHELTER_MS)<=at && at<c.raid.at);
+}
 export function updateRefuges(c:City,at:number){
-  const danger=!!c.battleId || !!(c.raid && c.raid.warn<=at && at<c.raid.at);
+  const danger=civiliansInDanger(c,at);
   let changed=false,started=0,returning=0;
   let ctx:HaulContext|undefined;
   for(const p of c.people){
@@ -1212,7 +1216,7 @@ export function updateRefuges(c:City,at:number){
     }
   }
   if(started)log(c,at,"Có địch! Dân ngừng làm việc, giữ hàng đang mang và chạy tìm chỗ trú gần nhất.","warn");
-  if(returning)log(c,at,"Đã an toàn. Dân rời chỗ trú, quay lại vị trí cũ rồi tiếp tục công việc.","good");
+  if(returning)log(c,at,c.raid && at<c.raid.at-RAID_SHELTER_MS ? "Địch còn ở xa. Dân quay lại công việc, sẽ tự trú ẩn trong 60 giây cuối trước khi địch tới." : "Đã an toàn. Dân rời chỗ trú, quay lại vị trí cũ rồi tiếp tục công việc.","good");
   return changed;
 }
 
@@ -2089,7 +2093,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if (!c.raid) return "Không có man rợ nào đang kéo đến.";
     if (c.alarm) return "Kẻng đã được đánh.";
     c.alarm = true;
-    log(c, now, "Kẻng báo động vang lên: dân vào nhà trú ẩn, quân tập trung ở Đình làng.", "warn");
+    log(c, now, "Kẻng báo động vang lên: quân chuẩn bị phòng thủ (+25% sức thủ). Dân tiếp tục làm việc và tự trú ẩn trong 60 giây cuối trước khi địch tới.", "warn");
     return null;
   }
   if (a.type === "recall") {

@@ -43,3 +43,20 @@ test('PvP refuge survives combat freeze and resumes haul clocks exactly once',()
  const back=p.refuge!.back!,pause=back-p.refuge!.pausedAt;updateRefuges(c,back);assert.equal(p.haul!.nextAt,clock+pause);
  updateRefuges(c,back+1000);assert.equal(p.haul!.nextAt,clock+pause);
 });
+test('distant raid warnings and an early bell do not stop harvesting; shelter starts in the final minute',()=>{
+ const c=fixture();c.raid={warn:0,at:30*60_000,power:0,from:idx(25,10)};c.alarm=true;
+ updateRefuges(c,0);assert.ok(c.people.every(p=>!p.refuge));
+ settle(c,60_000);assert.ok(c.res.wood>0);assert.ok(c.people.every(p=>!p.refuge));
+ updateRefuges(c,29*60_000-1);assert.ok(c.people.every(p=>!p.refuge));
+ updateRefuges(c,29*60_000);assert.ok(c.people.every(p=>p.refuge));
+});
+test('legacy early shelter returns workers with cargo intact while the raid is still distant',()=>{
+ const c=fixture();settle(c,11000);const p=c.people[0],cargo=p.haul!.carried,task=structuredClone(p.task);
+ c.raid={warn:11000,at:31000,power:0,from:idx(25,10)};updateRefuges(c,11000);updateRefuges(c,20000);assert.ok(p.refuge);
+ c.raid.at=30*60_000;updateRefuges(c,20000);assert.ok(p.refuge?.returnAt);assert.equal(p.haul!.carried,cargo);
+ settle(c,90_000);assert.ok(!p.refuge);assert.deepEqual(p.task,task);assert.ok(c.res.wood>=cargo-1);assert.ok(c.raid);
+});
+test('warning, final-minute shelter and recovery remain identical offline and online',()=>{
+ const a=fixture();a.raid={warn:0,at:180_000,power:0,from:idx(25,10)};a.alarm=true;const b=structuredClone(a);
+ settle(a,220_000);for(let at=337;at<220_000;at+=1733)settle(b,at);settle(b,220_000);assert.deepEqual(a,b);
+});
