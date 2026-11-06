@@ -1313,6 +1313,19 @@ export function pickVillager(v: View, list: Villager[], sx: number, sy: number) 
   return best;
 }
 
+/** A building remains clickable beneath an actor's generous touch hit area.
+ * Shift/Ctrl/Meta explicitly picks a person when targets overlap. */
+export function pickVillageTarget(v:View,city:City,list:Villager[],anim:number,sx:number,sy:number,preferPerson=false) {
+  const building=pickBuilding(v,city,sx,sy);
+  const person=(!building || preferPerson)?pickVillager(v,list,sx,sy):null;
+  if(person)return {type:"person" as const,person};
+  if(building)return {type:"building" as const,cell:building};
+  const herd=pickHerd(v,city,anim,sx,sy);
+  if(herd!==null)return {type:"herd" as const,id:herd};
+  const cell=screenToCell(v,sx,sy);
+  return cell?{type:"cell" as const,cell}:null;
+}
+
 export type DrawOpts = {
   v: View;
   now: number;

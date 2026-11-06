@@ -8,7 +8,7 @@ import {
   farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
 } from "@/lib/engine";
-import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHerd, pickVillager, pickBuilding, screenToCell, zoomAt, type Cam, type View } from "./draw";
+import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import { Crowd } from "./villagers";
 import WorldMap from "./WorldMap";
 import HowToPlay from "./HowToPlay";
@@ -659,14 +659,15 @@ export default function Game() {
       if (ok) setMsg({ text: `Thợ bắt đầu xây ${buildingName(c, tool)}.` });
       return;
     }
-    const vl = pickVillager(view(), crowdRef.current.list, p.x, p.y);
+    const target = pickVillageTarget(view(),c,crowdRef.current.list,performance.now(),p.x,p.y,e.shiftKey||e.ctrlKey||e.metaKey);
+    const vl = target?.type==="person" ? target.person : null;
     if (vl && vl.id !== null) {
       togglePick(vl.id, e.shiftKey || e.ctrlKey || e.metaKey);
       setSelected(null);
       setMsg({ text: "Bấm vào rừng, đồi, đàn thú, công trình hoặc vùng sương mù để giao việc. Giữ Shift để chọn thêm người." });
       return;
     }
-    const herdId = pickHerd(view(), c, performance.now(), p.x, p.y);
+    const herdId = target?.type==="herd" ? target.id : null;
     if (herdId !== null) {
       const h = c.herds.find((x) => x.id === herdId)!;
       const label = h.kind === "deer" ? "Săn đàn hươu" : "Săn đàn lợn rừng";
@@ -679,7 +680,7 @@ export default function Game() {
       setSelected(null); setHerdSel(herdId); setAssignN(1); setMsg(null);
       return;
     }
-    const cell = pickBuilding(view(), c, p.x, p.y) ?? cellAt(e);
+    const cell = target && (target.type==="building" || target.type==="cell") ? target.cell : null;
     if (!cell) return;
     const i = idx(cell.x, cell.y);
     if (picked.size && !campAt(c, i)) {

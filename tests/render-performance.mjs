@@ -15,7 +15,7 @@ try {
     fs.writeFileSync(path.join(temp, `${name}.js`), output);
   }
   fs.writeFileSync(path.join(temp, 'package.json'), '{"type":"module"}');
-  const { visibleTileBounds, fitView, camView, focusOn, pickBuilding } = await import(pathToFileURL(path.join(temp, 'draw.js')).href);
+  const { visibleTileBounds, fitView, camView, focusOn, pickBuilding, pickVillageTarget } = await import(pathToFileURL(path.join(temp, 'draw.js')).href);
   const { Crowd } = await import(pathToFileURL(path.join(temp, 'villagers.js')).href);
   const { newCity, G, idx, haulPosition } = await import(pathToFileURL(path.join(temp, 'engine.js')).href);
 let checked=0,minReduction=Infinity;
@@ -104,6 +104,13 @@ for (const [era, roof] of [[1, 20], [2, 22], [3, 30]]) {
   pickCity.era = era;
   assert.deepEqual(pickBuilding(pickView, pickCity, ...project(10.5, 10.5, roof)), { x: 10, y: 10 }, `envoy era ${era} roof`);
 }
+const overlapPoint=project(10.5,10.5,10);
+const blockingPerson={...farmActors[0],id:99,visible:true,fx:10.5,fy:10.5};
+assert.equal(pickVillageTarget(pickView,pickCity,[blockingPerson],1,...overlapPoint)?.type,'building','a person in front cannot steal a building click');
+assert.equal(pickVillageTarget(pickView,pickCity,[blockingPerson],1,...overlapPoint,true)?.type,'person','modifier can explicitly select the overlapping person');
+const lonePerson={...blockingPerson,fx:15.5,fy:15.5};
+assert.equal(pickVillageTarget(pickView,pickCity,[lonePerson],1,...project(15.5,15.5,10))?.type,'person','people on empty terrain remain selectable');
+console.log('PASS: building click survives actor overlap; modifier selects person; empty-ground people remain selectable.');
 console.log('PASS: roof/base building picking, adjacent empty/fog/air rejection, frontmost overlap and three-era envoy heights.');
 
 } finally { fs.rmSync(temp, { recursive: true, force: true }); }
