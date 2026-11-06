@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newCity, G, idx, applyAction, settle, troopCount, expeditionPosition, campDefenders, UNITS, type City } from './engine';
+import { newCity, G, idx, applyAction, settle, troopCount, expeditionPosition, campDefenders, campStrength, UNITS, type City } from './engine';
 function fixture(fighters=10,power=90):City {
   const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.b={};c.camp=idx(10,10);
   c.b[c.camp]={k:'barracks',lvl:3,doneAt:null};c.b[idx(8,8)]={k:'hall',lvl:3,doneAt:null};
@@ -15,7 +15,7 @@ test('arrival starts actual combat; simultaneous exchanges cause casualties on b
   assert.equal(e.resolved,false);assert.ok(e.combat);assert.equal(troopCount(e.units),10);assert.equal(troopCount(e.combat.defenders),10);
   const endpoint=expeditionPosition(e,e.arrive)!,hold=expeditionPosition(e,e.arrive+500)!;
   assert.equal(endpoint.x,hold.x);assert.equal(endpoint.y,hold.y);
-  settle(c,e.arrive+3000);assert.ok(troopCount(e.units)<10);assert.ok(troopCount(e.combat.defenders)<10);
+  settle(c,e.arrive+3000);assert.ok(troopCount(e.units)<10);assert.ok(troopCount(e.combat.defenders)<10);assert.ok(campStrength(c.camps[0])<90);
   for(const u of ['club','sling'] as const)assert.ok((e.combat.defenderHp[u]??0)<=(e.combat.defenders[u]??0)*UNITS[u].hp);
 });
 test('combat, casualties, loot and return agree for offline versus irregular online settlement',()=>{

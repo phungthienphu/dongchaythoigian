@@ -1,6 +1,6 @@
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
-import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, armyStagingTiles, campDefenders, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
+import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
 import { placementTiles } from "@/lib/build-placement";
 import type { Fx, Villager } from "./villagers";
 
@@ -1200,7 +1200,7 @@ function drawCampSite(r: RC, k: Camp) {
   c.fillStyle = "#e8e0d0"; c.beginPath(); c.arc(bx + 4 * s, by - 24 * s, 1.6 * s, 0, Math.PI * 2); c.fill();
   // power badge
   const [tx, ty] = q(0, 0, 34);
-  const label = `⚔ ${k.power}`;
+  const label = `⚔ ${campStrength(k)}`;
   c.font = `700 ${Math.max(11, Math.round(9 * s))}px system-ui, sans-serif`; c.textAlign = "center"; c.textBaseline = "middle";
   const w = c.measureText(label).width + 10;
   c.fillStyle = "rgba(60,15,15,.85)"; c.fillRect(tx - w / 2, ty - 9, w, 18);

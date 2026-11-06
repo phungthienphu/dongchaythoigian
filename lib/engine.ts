@@ -529,6 +529,7 @@ const pay = (c: City, cost: Partial<Res>, sign = -1) => { for (const r of RES) c
 export const soldiers = (c: City) => troopCount(c.army) + troopCount(c.deployedArmy ?? {}) + c.queue.length + c.exps.reduce((a, e) => a + troopCount(e.units), 0);
 export const armyCap = (c: City) => Object.values(c.b).reduce((a, b) => a + (b.k === "barracks" && isBuildingActive(b) ? b.lvl * 10 : 0), 0);
 export const armyUsed = (c: City) => troopSpace(c.army) + troopSpace(c.deployedArmy ?? {}) + c.queue.reduce((a, q) => a + UNITS[q.u].space, 0) + c.exps.reduce((a, e) => a + troopSpace(e.units), 0);
+export const campStrength = (camp:Camp) => camp.garrison ? Math.round(troopPower(camp.garrison)) : camp.power;
 export const campById = (c: City, id: number) => c.camps.find((k) => k.id === id);
 export const marchMs = (from: number, to: number) => (Math.max(1, cheb(from, to)) / EXPLORE_TILES_PER_MIN) * MIN;
 
@@ -1169,9 +1170,9 @@ const troopText = (t: Troops) => UKEYS.filter((u) => t[u]).map((u) => `${t[u]} $
 
 /** Barbarians set out from a nearby camp; they reach the village RAID_WARNING_MS later. */
 function scheduleRaid(c: City, at: number, r: () => number) {
-  const near = c.camps.filter((k) => !k.cleared && cheb(k.at, c.camp) <= 35).sort((a, b) => cheb(a.at, c.camp) - cheb(b.at, c.camp))[0];
+  const near = c.camps.filter((k) => !k.cleared && campStrength(k)>0 && cheb(k.at, c.camp) <= 35).sort((a, b) => cheb(a.at, c.camp) - cheb(b.at, c.camp))[0];
   if (!near || r() > 0.6 || c.raid) return;
-  c.raid = { warn: at, at: at + RAID_WARNING_MS, power: Math.round(near.power * 0.5 + c.era * 10), from: near.at };
+  c.raid = { warn: at, at: at + RAID_WARNING_MS, power: Math.round(campStrength(near) * 0.5 + c.era * 10), from: near.at };
   c.alarm = false;
   log(c, at, `Trinh sát báo: man rợ (⚔ ${c.raid.power}) đang kéo đến làng, tới sau ${Math.round(RAID_WARNING_MS / MIN)} phút.${hasControl(c) ? " Có thể đánh kẻng ở Đình làng." : ""}`, "warn");
 }
@@ -1339,6 +1340,7 @@ function stepArmy(c: City, nt: number) {
         combatHit(fight.defenders,fight.defenderHp,attack);
         combatHeal(e.units,fight.hp);
         fight.rounds++; fight.last+=1000;
+        if(camp && !camp.cleared)camp.garrison={...fight.defenders};
       }
       if (!troopPower(e.units) || !troopPower(fight.defenders) || fight.rounds>=60) finishCampCombat(c,e,camp,fight.last);
       changed = true;

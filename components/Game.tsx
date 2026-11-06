@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  DEFAULT_MIX, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
+  DEFAULT_MIX, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
   armyCap, armyUsed, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -277,7 +277,7 @@ function ControlPanel(props: {
             <ul className="units train">
               {camps.map((k) => (
                 <li key={k.id}>
-                  <div><b className="danger">⚔ {k.power}</b> <span className="muted small">· cách {cheb(k.at, c.camp)} ô · đi {fmtDur(marchMs(c.camp, k.at))}</span><div className="muted small">{costText(k.loot)}</div></div>
+                  <div><b className="danger">⚔ {campStrength(k)}</b> <span className="muted small">· cách {cheb(k.at, c.camp)} ô · đi {expeditionPlan(c,k.at) ? fmtDur(expeditionPlan(c,k.at)!.duration) : "chưa có lối"}</span><div className="muted small">{costText(k.loot)}</div></div>
                   <div className="tb"><button disabled={busy || !troopCount(c.army)} onClick={() => props.attackAll(k.id)}>Đánh</button></div>
                 </li>
               ))}
@@ -288,7 +288,7 @@ function ControlPanel(props: {
             <ul className="units train">
               {c.exps.map((e) => (
                 <li key={e.id}>
-                  <div><b>{troopCount(e.units)} lính</b> <span className="muted small">· {e.recalled ? `đang quay về, còn ${fmtDur(e.back - t)}` : t < e.arrive ? `tới trại ⚔ ${campById(c, e.camp)?.power ?? "?"} sau ${fmtDur(e.arrive - t)}` : !e.resolved ? `đang giao chiến · địch còn ${troopCount(e.combat?.defenders ?? {})} quân` : `${e.won ? "thắng" : "thua"}, về sau ${fmtDur(e.back - t)}`}</span></div>
+                  <div><b>{troopCount(e.units)} lính</b> <span className="muted small">· {e.recalled ? `đang quay về, còn ${fmtDur(e.back - t)}` : t < e.arrive ? `tới trại ⚔ ${campById(c,e.camp) ? campStrength(campById(c,e.camp)!) : "?"} sau ${fmtDur(e.arrive - t)}` : !e.resolved ? `đang giao chiến · địch còn ${troopCount(e.combat?.defenders ?? {})} quân` : `${e.won ? "thắng" : "thua"}, về sau ${fmtDur(e.back - t)}`}</span></div>
                   <div className="tb">{!e.resolved && <button disabled={busy} onClick={() => act({ type: "recall", exp: e.id })}>Gọi về</button>}</div>
                 </li>
               ))}
@@ -790,7 +790,7 @@ export default function Game() {
   } else if (hover && !msg) {
     const i = idx(hover.x, hover.y), b = c.b[i], camp = campAt(c, i);
     const herd = c.herds.find((h) => c.seen[h.at] && cheb(h.at, i) <= 2 && h.n >= 1);
-    status = { text: camp ? `Trại man rợ, sức mạnh ${camp.power}${camp.cleared ? " (đã bị phá)" : ""}. Bấm để xem và xuất quân.` : `${b ? buildingName(c, b.k) + (b.lvl ? ` cấp ${b.lvl}` : " (đang xây)") + ". " : ""}${herd ? `Đàn ${herd.kind === "deer" ? "hươu" : "lợn rừng"} ${Math.floor(herd.n)} con. ` : ""}${tileDesc(c, D, i)}.` };
+    status = { text: camp ? `Trại man rợ, sức mạnh ${campStrength(camp)}${camp.cleared ? " (đã bị phá)" : ""}. Bấm để xem và xuất quân.` : `${b ? buildingName(c, b.k) + (b.lvl ? ` cấp ${b.lvl}` : " (đang xây)") + ". " : ""}${herd ? `Đàn ${herd.kind === "deer" ? "hươu" : "lợn rừng"} ${Math.floor(herd.n)} con. ` : ""}${tileDesc(c, D, i)}.` };
   }
 
   const selI = selected ? idx(selected.x, selected.y) : -1;
@@ -931,7 +931,7 @@ export default function Game() {
                 <p className="muted small">Đã bị phá. Chúng sẽ dựng lại sau {fmtDur((selCamp.respawnAt ?? t) - t)}, mạnh hơn.</p>
               ) : (
                 <>
-                  <p className="small">Sức mạnh: <b className="danger">⚔ {selCamp.power}</b> · Chiến lợi phẩm: {costText(selCamp.loot)}</p>
+                  <p className="small">Sức mạnh: <b className="danger">⚔ {campStrength(selCamp)}</b> · Chiến lợi phẩm: {costText(selCamp.loot)}</p>
                   <p className="muted small">{campPlan?`Hành quân ${fmtDur(campPlan.duration)} mỗi chiều theo lối đi thực tế.`:"Chưa có đường từ trại lính tới mục tiêu. Mở lối hoặc đặt cổng để xuất quân."}</p>
                   {troopCount(c.army) ? (
                     <>
@@ -941,7 +941,7 @@ export default function Game() {
                             <Stepper value={send[u] ?? 0} max={c.army[u] ?? 0} label={UNITS[u].n} onChange={(n) => setSend({ ...send, [u]: n })} /></li>
                         ))}
                       </ul>
-                      <p className="small">Quân gửi đi: <b className={sendPower >= selCamp.power ? "ok" : "danger"}>⚔ {fmt(sendPower)}</b> {sendPower >= selCamp.power * 1.2 ? "· nhiều khả năng thắng" : sendPower >= selCamp.power * 0.8 ? "· ngang sức, may rủi" : "· yếu hơn, dễ thua"}</p>
+                      <p className="small">Quân gửi đi: <b className={sendPower >= campStrength(selCamp) ? "ok" : "danger"}>⚔ {fmt(sendPower)}</b> {sendPower >= campStrength(selCamp) * 1.2 ? "· nhiều khả năng thắng" : sendPower >= campStrength(selCamp) * 0.8 ? "· ngang sức, có thể hao quân" : "· yếu hơn, dễ thua"}</p>
                       <p className="small">Dự trữ cả đi và về: {campSupply?.food} lương thực. {campLogistics?.long?`Đường xa, hiểm trở: dự kiến hao ${campLogistics.losses} chiến binh. Vận tải ${Math.round(campLogistics.transport*100)}%, quân y ${Math.round(campLogistics.medical*100)}%.`:"Chuyến ngắn, không hao quân do đường xa."}</p>
                       <button className="primary wide" disabled={busy || !campPlan || !troopPower(send) || c.res.food<(campSupply?.food??0)} onClick={async () => { if(campLogistics?.long && (campLogistics.transport<1||campLogistics.medical<1) && !window.confirm(`Chuyến hành quân dài và hiểm trở. Thiếu hậu cần/quân y có thể tổn hại lực lượng; dự kiến hao ${campLogistics.losses} chiến binh. Vẫn xuất quân?`))return;if (await act({ type: "attack", camp: selCamp.id, units: send })) setSelected(null); }}>Xuất quân</button>
                     </>
