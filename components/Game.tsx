@@ -46,7 +46,8 @@ function tileDesc(c: City, D: Derived, i: number) {
   if (!c.seen[i]) return "Vùng chưa khám phá";
   const parts = [TERRAIN[c.t[i]]];
   if (c.t[i] === G && D.fert[i]) parts.push("đất phù sa");
-  if (D.rd[i] === 1 && c.t[i] !== R) parts.push(D.prot[i] ? "vùng lũ, có đê che" : "vùng lũ");
+  if(c.t[i]!==R && D.prot[i]) parts.push("được đê bảo vệ khỏi lũ mùa thu");
+  else if(D.rd[i]===1 && c.t[i]!==R) parts.push("vùng lũ");
   const cap = depositCapacity(c.t[i]);
   if (cap) parts.push(`còn ${fmt(cap - (c.dep[i] ?? 0))} ${c.t[i] === F ? "gỗ" : RN[mineralResource(c.t[i])].toLowerCase()}`);
   return parts.join(", ");

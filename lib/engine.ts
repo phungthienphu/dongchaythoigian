@@ -66,7 +66,7 @@ const DEFS = {
   fire: { n: "Bếp lửa chung", era: 1, cost: { wood: 80, stone: 30 }, sec: 60, max: 2, drop: ["food"], d: "Dân tăng nhanh gấp đôi. Tối đa 2 bếp." },
   farm: { n: "Ruộng lúa", era: 2, cost: { wood: 80 }, sec: 120, jobs: 2, prod: { food: 90 }, up: true, d: "Gấp đôi trên đất phù sa." },
   canal: { n: "Kênh tưới", era: 2, cost: { stone: 40 }, sec: 30, need: "water", d: "Nối thẳng vào sông hoặc kênh. Đất quanh kênh thành phù sa." },
-  levee: { n: "Đê đất", era: 2, cost: { stone: 30, wood: 20 }, sec: 60, need: "bank", d: "Sát bờ sông. Che lũ cho công trình trong 2 ô." },
+  levee: { n: "Đê đất", era: 2, cost: { stone: 30, wood: 20 }, sec: 60, need: "bank", d: "Xây sát sông hoặc nối thẳng đê khác. Che lũ trong 2 ô; vòng đê kín bảo vệ toàn bộ đất bên trong khỏi lũ mùa thu." },
   house: { n: "Nhà gỗ", era: 2, cost: { wood: 120, stone: 40 }, sec: 300, house: 7, up: true, d: "Chỗ ở cho 7 người mỗi cấp." },
   smelter: { n: "Lò đúc đồng", era: 2, cost: { wood: 100, stone: 120 }, sec: 600, jobs: 3, prod: { copper: 20 }, use: { wood: 20 }, need: "ore", up: true, drop: ["copper"], d: "Kề mỏ đồng. Đốt gỗ ra đồng." },
   market: { n: "Chợ", era: 2, cost: { wood: 200, stone: 100 }, sec: 900, jobs: 2, max: 3, d: "+10% mọi sản lượng. Đăng bán hàng, tự chọn giá và tài nguyên thanh toán; vận chuyển bằng đoàn xe có thể bị người chơi khác cướp. Tối đa 3 chợ." },
@@ -516,12 +516,34 @@ function addPerson(c: City) {
 export type Derived = { rd: number[]; wet: boolean[]; fert: boolean[]; prot: boolean[] };
 const built = (b: Building | undefined): b is Building => !!b && b.lvl >= 1 && !b.burned;
 
+// Cache only the enclosure mask: harvesting and ordinary actions do not change it.
+const leveeEnclosures = new WeakMap<City,{key:string;mask:Uint8Array}>();
+function enclosedByLevees(c:City,rivers:number[],levees:number[]){
+  const key=rivers.join(",")+"|"+levees.join(","),cached=leveeEnclosures.get(c);
+  if(cached?.key===key)return cached.mask;
+  const n=W*H,barrier=new Uint8Array(n),outside=new Uint8Array(n),queue:number[]=[];
+  for(const i of levees)barrier[i]=1;
+  const visit=(i:number)=>{if(!barrier[i]&&!outside[i]){outside[i]=1;queue.push(i);}};
+  // Water already inside an enclosure remains a flood source.
+  for(const i of rivers)visit(i);
+  for(let x=0;x<W;x++){visit(idx(x,0));visit(idx(x,H-1));}
+  for(let y=0;y<H;y++){visit(idx(0,y));visit(idx(W-1,y));}
+  for(let head=0;head<queue.length;head++){
+    const i=queue[head],x=i%W,y=Math.floor(i/W);
+    for(const [dx,dy]of N8)if(inb(x+dx,y+dy))visit(idx(x+dx,y+dy));
+  }
+  const mask=new Uint8Array(n);
+  for(let i=0;i<n;i++)if(!outside[i]&&!barrier[i])mask[i]=1;
+  leveeEnclosures.set(c,{key,mask});return mask;
+}
+
 export function derive(c: City): Derived {
   const t = c.t, N = W * H;
   // distance to river (Chebyshev, capped at 3)
   const rd = new Array<number>(N).fill(99);
   let q: number[] = [];
   for (let i = 0; i < N; i++) if (t[i] === R) { rd[i] = 0; q.push(i); }
+  const rivers=q.slice(),levees:number[]=[];
   for (let d = 1; d <= 3; d++) {
     const next: number[] = [];
     for (const i of q) {
@@ -560,8 +582,9 @@ export function derive(c: City): Derived {
       for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (inb(x + dx, y + dy)) fn(idx(x + dx, y + dy));
     };
     if (b.k === "canal" && wet[i]) around(1, (j) => { if (t[j] === G) fert[j] = true; });
-    if (b.k === "levee") around(2, (j) => { prot[j] = true; });
+    if (b.k === "levee" && isBuildingActive(b)) { levees.push(i);around(2, (j) => { prot[j] = true; }); }
   }
+  if(levees.length>=4){const enclosed=enclosedByLevees(c,rivers,levees);for(let i=0;i<N;i++)if(enclosed[i])prot[i]=true;}
   return { rd, wet, fert, prot };
 }
 
@@ -1676,7 +1699,7 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number): st
   if (d.need === "ore" && !near(N8, (j) => c.t[j] === O)) return "Lò đúc phải kề mỏ đồng (đốm cam trên đồi).";
   if (d.need === "water" && !near(N4, (j) => c.t[j] === R || c.b[j]?.k === "canal")) return "Kênh phải nối thẳng (không chéo) vào sông hoặc kênh khác.";
   if (d.need === "river" && !near(N4, (j) => c.t[j] === R)) return "Cối nước phải sát sông (không chéo).";
-  if (d.need === "bank" && D.rd[i] !== 1) return "Đê phải đặt sát bờ sông.";
+  if (d.need === "bank" && D.rd[i] !== 1 && !near(N4,j=>c.b[j]?.k==="levee")) return "Đê phải sát bờ sông hoặc nối thẳng vào đoạn đê khác (không chéo).";
   if (d.max && count(c, k) >= d.max) return `Đã đủ số lượng tối đa (${d.max}).`;
   if (busyBuilders(c) >= builders(c)) return "Tất cả thợ đang bận.";
   return missing(c, buildingCost(k, c.era));

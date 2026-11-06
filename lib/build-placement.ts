@@ -22,6 +22,6 @@ export function placementHint(k: BKey) {
   if (need === 'ore') return 'Đặt trên ô cỏ kề mỏ đồng có đốm cam.';
   if (need === 'water') return 'Đặt trên ô đất nối thẳng vào sông hoặc kênh; không nối chéo.';
   if (need === 'river') return 'Đặt trên ô đất sát sông; không kề chéo.';
-  if (need === 'bank') return 'Đặt trên ô đất sát bờ sông.';
+  if (need === 'bank') return 'Đặt sát bờ sông hoặc nối thẳng đoạn đê khác. Khép kín vòng đê để che lũ cho đất bên trong.';
   return 'Đặt trên ô cỏ trống đã khám phá. Chặt hết cây trước nếu muốn dùng đất rừng.';
 }
