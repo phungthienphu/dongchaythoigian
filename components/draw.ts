@@ -1,7 +1,7 @@
 import { BoundedCache } from "@/lib/bounded-cache";
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
-import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
+import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, homeSoldiers, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
 import { placementTiles } from "@/lib/build-placement";
 import type { Fx, Villager } from "./villagers";
 
@@ -1351,6 +1351,9 @@ export function pickVillager(v: View, list: Villager[], sx: number, sy: number) 
 
 /** A building remains clickable beneath an actor's generous touch hit area.
  * Shift/Ctrl/Meta explicitly picks a person when targets overlap. */
+export function pickHomeSoldier(v:View,city:City,now:number,sx:number,sy:number) {
+  return homeSoldiers(city,now).map(s=>{const [x,y]=P(v,s.x,s.y);return {s,d:Math.hypot((sx-x)/Math.max(10,10*v.s),(sy-y+10*v.s)/Math.max(14,18*v.s))};}).filter(p=>p.d<=1).sort((a,b)=>a.d-b.d)[0]?.s ?? null;
+}
 export function pickVillageTarget(v:View,city:City,list:Villager[],anim:number,sx:number,sy:number,preferPerson=false) {
   const building=pickBuilding(v,city,sx,sy);
   const person=(!building || preferPerson)?pickVillager(v,list,sx,sy):null;
@@ -1371,6 +1374,7 @@ export type DrawOpts = {
   tool: BKey | null;
   villagers: Villager[];
   picked: Set<number>;
+  pickedSoldier?: string | null;
   fx: Fx[];
   chopping: Set<number>;
 };
@@ -1552,25 +1556,16 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       if(!seen[ti]||!onScreen(fx-.5,fy-.5))continue;
       items.push({d:fx+fy,f:()=>{const [sx,sy]=P(r.v,fx,fy);drawEnvoyActor(r.c,city.era,sx,sy,r.v.s,r.anim,true,actor.face);}});
     }
-    // soldiers at home stand in rows beside the first barracks
-    const guards = city.guardPosts ?? [];
     if (troopCount(city.army)) {
       let staging=stagingCache.get(city);
       if(!staging || staging.at!==city.last){staging={at:city.last,tiles:armyStagingTiles(city)};stagingCache.set(city,staging);}
-
-
-      let n = 0;
-      for (const u of UKEYS) for (let k = 0; k < Math.min(city.army[u] ?? 0, 8) && n < 24; k++, n++) {
-        const guard = guards[n % guards.length], row = Math.floor(n / Math.max(1, guards.length));
-        const guardTile=guard?idx(guard.x,guard.y):-1,guardBuilding=city.b[guardTile];
-        const validGuard=guard && ![R,HL,O].includes(city.t[guardTile]) && (!guardBuilding||guardBuilding.burned||["farm","canal","levee","gate"].includes(guardBuilding.k));
-        const tile=staging.tiles[Math.floor(n/3)%Math.max(1,staging.tiles.length)];
-        if(!validGuard && tile===undefined)continue;
-        const fx = validGuard ? guard.x + .3 + (row % 3) * .18 : tile%W + .3 + (n%3)*.18;
-        const fy = validGuard ? guard.y + .3 + (Math.floor(row/3)%3)*.18 : Math.floor(tile/W) + .5;
-        if (!onScreen(fx - 0.5, fy - 0.5)) continue;
-        const seed = n * 0.37;
-        items.push({ d: fx + fy, f: () => drawSoldier(r, u, fx, fy, -1, false, seed) });
+      for (const [n, soldier] of homeSoldiers(city,o.now,staging.tiles).entries()) {
+        const {x:fx,y:fy}=soldier;
+        if (!onScreen(fx-.5,fy-.5)) continue;
+        items.push({d:fx+fy,f:()=>{
+          if(o.pickedSoldier===soldier.id){const [sx,sy]=P(v,fx,fy);c.strokeStyle="#f0c766";c.lineWidth=2;c.beginPath();c.ellipse(sx,sy,10*v.s,5*v.s,0,0,Math.PI*2);c.stroke();}
+          drawSoldier(r,soldier.u,fx,fy,soldier.face,soldier.moving,n*.37);
+        }});
       }
     }
     const beast=wildlifePosition(city,o.now);

@@ -210,7 +210,8 @@ export type City = {
   shieldUntil?: number;
   battleId?: string; // active defending battle
   army: Troops; // at home
-  queue: { u: UKey; doneAt: number }[];
+  queue: { u: UKey; doneAt: number; startedAt?: number }[];
+  homeOrders?: Record<string, { route: number[]; at: number; x: number; y: number }>;
   camps: Camp[];
   exps: Expedition[];
   nextExp: number;
@@ -847,8 +848,8 @@ function haulPassable(c: City, tile: number, to: number, water: boolean) {
   if (!water && c.t[tile] === R) return false;
   return !b || b.burned || b.k === "canal" || b.k === "farm" || b.k === "levee" || b.k === "gate";
 }
-function haulPath(c: City, from: number, to: number, ctx: HaulContext): number[] | null {
-  const key = `${from}:${to}`;
+function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredLand = false): number[] | null {
+  const key = `${from}:${to}:${exploredLand}`;
   if (ctx.paths.has(key)) return ctx.paths.get(key)!;
   const rockyTarget = c.t[to] === HL || c.t[to] === O;
   const arrived = (tile: number) => rockyTarget ? tile !== to && cheb(tile, to) === 1 && haulPassable(c, tile, -1, true) : tile === to;
@@ -862,6 +863,7 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext): number[]
       for (const [dx, dy] of N8) {
         if (!inb(x + dx, y + dy)) continue;
         const next = idx(x + dx, y + dy);
+        if (exploredLand && !c.seen[next]) continue;
         if (prev[next] !== -1 || !haulPassable(c, next, to, water)) continue;
         if (dx && dy && (!haulPassable(c, idx(x + dx, y), to, water) || !haulPassable(c, idx(x, y + dy), to, water))) continue;
         prev[next] = tile; queue.push(next);
@@ -871,7 +873,7 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext): number[]
     const route = [goal]; for (let tile = goal; tile !== from;) { tile = prev[tile]; route.push(tile); }
     return route.reverse();
   };
-  const land = find(false), ford = find(true);
+  const land = find(false), ford = exploredLand ? null : find(true);
   const path = land && (!ford || routeLength(land) <= routeLength(ford) * 1.6) ? land : ford;
   ctx.paths.set(key, path);
   return path;
@@ -880,8 +882,8 @@ function haulingContext(c: City, D: Derived): HaulContext {
   const active = Object.values(c.b).filter(b => built(b) && !b.flooded);
   return { paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: 1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length) };
 }
-export function armyStagingTiles(c:City,limit=24){
-  const home=buildings(c).find(([,b])=>b.k==="barracks"&&isBuildingActive(b))?.[0]??c.camp;
+export function armyStagingTiles(c:City,limit=24,source?:number){
+  const home=source??buildings(c).find(([,b])=>b.k==="barracks"&&isBuildingActive(b))?.[0]??c.camp;
   const queue=[home],seen=new Set(queue),tiles:number[]=[];
   for(let head=0;head<queue.length && tiles.length<limit;head++){const tile=queue[head],x=tile%W,y=Math.floor(tile/W);if(haulPassable(c,tile,-1,false))tiles.push(tile);
     for(const [dx,dy] of N8){const nx=x+dx,ny=y+dy,next=idx(nx,ny);if(!inb(nx,ny)||seen.has(next)||!haulPassable(c,next,-1,false))continue;
@@ -892,6 +894,48 @@ export function armyStagingTiles(c:City,limit=24){
   return tiles;
 }
 
+/** Home slots follow the aggregate army; orders never create additional troops. */
+export function pruneHomeOrders(c: City) {
+  for (const key of Object.keys(c.homeOrders ?? {})) {
+    const [u, n] = key.split(":");
+    if (!UKEYS.includes(u as UKey) || Number(n) >= (c.army[u as UKey] ?? 0)) delete c.homeOrders![key];
+  }
+}
+export function homeSoldiers(c: City, now: number, staging = armyStagingTiles(c)) {
+  const result: { id: string; u: UKey; x: number; y: number; moving: boolean; face: 1 | -1 }[] = [];
+  let n = 0;
+  for (const u of UKEYS) for (let k = 0; k < (c.army[u] ?? 0); k++, n++) {
+    const id = `${u}:${k}`, order = c.homeOrders?.[id], tile = staging[Math.floor(n / 3) % staging.length];
+    if (!order && tile === undefined) continue;
+    const guard=c.guardPosts?.[n % c.guardPosts.length], guardTile=guard?idx(guard.x,guard.y):-1;
+    const validGuard=guard && haulPassable(c,guardTile,-1,false);
+    const row=Math.floor(n/Math.max(1,c.guardPosts?.length??0));
+    let x = validGuard ? guard.x+.3+(row%3)*.18 : tile % W + .3 + (n % 3) * .18;
+    let y = validGuard ? guard.y+.3+(Math.floor(row/3)%3)*.18 : Math.floor(tile / W) + .5;
+    let moving = false, face: 1 | -1 = -1;
+    if (order) {
+      x = order.x; y = order.y;
+      let distance = Math.max(0, now - order.at) / 1000 * 1.9;
+      for (const to of order.route.slice(1)) {
+        const tx = to % W + .5, ty = Math.floor(to / W) + .5, length = Math.hypot(tx - x, ty - y);
+        face = (tx - x) - (ty - y) >= 0 ? 1 : -1;
+        if (distance < length) { const f = distance / length; x += (tx - x) * f; y += (ty - y) * f; moving = true; break; }
+        distance -= length; x = tx; y = ty;
+      }
+    }
+    result.push({ id, u, x, y, moving, face });
+  }
+  return result;
+}
+function orderHomeSoldier(c: City, id: string, to: number, now: number): boolean {
+  const actor = homeSoldiers(c, now).find(s => s.id === id);
+  if (!actor || !c.seen[to] || !haulPassable(c, to, -1, false)) return false;
+  const from = idx(Math.floor(actor.x), Math.floor(actor.y));
+  const route = haulPath(c, from, to, haulingContext(c, derive(c)), true);
+  if (!route || route.some(i => !c.seen[i] || !haulPassable(c, i, -1, false))) return false;
+  (c.homeOrders ??= {})[id] = { route, at: now, x: actor.x, y: actor.y };
+  return true;
+}
 /** Local marches leave the barracks entrance and follow the same terrain rules as villagers. */
 export function expeditionPlan(c:City,to:number){
   const home=buildings(c).find(([,b])=>b.k==="barracks"&&isBuildingActive(b))?.[0]??c.camp;
@@ -1363,11 +1407,23 @@ function finishCampCombat(c:City,e:Expedition,camp:Camp|undefined,at:number){
 }
 
 function stepArmy(c: City, nt: number) {
+  pruneHomeOrders(c);
   let changed = false;
   if (c.raid && c.raid.at <= nt) { raid(c, c.raid.at, rng(c.seed ^ Math.imul(Math.floor(c.raid.at / MIN), 3266489917))); changed = true; }
   while (c.queue.length && c.queue[0].doneAt <= nt) {
     const q = c.queue.shift()!;
-    c.army[q.u] = (c.army[q.u] ?? 0) + 1;
+    const k = c.army[q.u] ?? 0;
+    c.army[q.u] = k + 1;
+    const source = buildings(c).find(([, b]) => b.k === (UNITS[q.u].building ?? "barracks") && isBuildingActive(b))?.[0];
+    const exit = source === undefined ? undefined : armyStagingTiles(c,1,source)[0];
+    const entrance = exit === undefined ? undefined : {x:exit%W,y:Math.floor(exit/W)};
+    if (entrance) {
+      const id = `${q.u}:${k}`, tile = idx(entrance.x,entrance.y);
+      (c.homeOrders ??= {})[id] = { route:[tile], at:q.doneAt, x:entrance.x+.5, y:entrance.y+.5 };
+      const post = c.guardPosts?.[k % c.guardPosts.length];
+      const destination = post ? idx(post.x,post.y) : armyStagingTiles(c)[k % Math.max(1,armyStagingTiles(c).length)];
+      if (destination !== undefined) orderHomeSoldier(c,id,destination,q.doneAt);
+    }
     changed = true;
   }
   for (const k of c.camps) {
@@ -1533,7 +1589,7 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number): st
   if (d.era > c.era) return "Chưa tới thời đại này.";
   if (c.b[i]) return "Ô này đã có công trình.";
   if (t === R) return "Không xây được trên sông.";
-  if(!["farm","canal","levee","gate"].includes(k) && [...c.exps,...c.people.flatMap(p=>p.refuge?[p.refuge]:[])].some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân hoặc dân tránh địch đang dùng lối này. Chờ họ trở về hoặc chọn ô khác để không chặn đường.";
+  if(!["farm","canal","levee","gate"].includes(k) && [...c.exps,...(Object.keys(c.homeOrders??{}).length?homeSoldiers(c,c.last):[]).flatMap(s=>{const o=c.homeOrders?.[s.id];return o?[{route:s.moving?o.route:[idx(Math.floor(s.x),Math.floor(s.y))]}]:[];}),...c.people.flatMap(p=>p.refuge?[p.refuge]:[])].some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân hoặc dân tránh địch đang dùng lối này. Chờ họ trở về hoặc chọn ô khác để không chặn đường.";
   if (k === "quarry") { if (t !== HL) return "Bãi đá phải đặt trên đồi."; }
   else if (t === HL || t === O) return "Đồi đá chỉ đặt được bãi đá.";
   else if (t === F) return "Rừng rậm: cho người chặt hết cây trước, hoặc chọn ô cỏ.";
@@ -1572,6 +1628,7 @@ export type Action =
   | { type: "repair"; x: number; y: number }
   | { type: "tendFarm"; x: number; y: number }
   | { type: "demolish"; x: number; y: number }
+  | { type: "moveSoldier"; id: string; x: number; y: number }
   | { type: "setGuardPosts"; posts: { x: number; y: number }[] }
   | { type: "advance" }
   | { type: "assign"; ids: number[]; task: TaskInput; pos?: Record<string, number> }
@@ -1597,6 +1654,10 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     log(c,now,"Đang cải tạo đất và gieo lại ruộng, hoàn tất sau 30 giây.");
     return null;
   }
+  if (a.type === "moveSoldier") {
+    if (c.battleId) return "Hãy điều quân trong màn trận đánh.";
+    return orderHomeSoldier(c, a.id, idx(a.x,a.y), now) ? null : "Không có đường đất đã khám phá tới đó, hoặc lính đã xuất chinh.";
+  }
   if (a.type === "setGuardPosts") {
     if (!Array.isArray(a.posts) || a.posts.length > 20) return "Chỉ đặt tối đa 20 điểm gác.";
     const seen = new Set<number>();
@@ -1608,6 +1669,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
       seen.add(i);
     }
     c.guardPosts = a.posts.map(({ x, y }) => ({ x, y }));
+    for (const [n, soldier] of homeSoldiers(c, now).entries()) { const post = a.posts[n % a.posts.length]; if (post) orderHomeSoldier(c, soldier.id, idx(post.x,post.y), now); }
     return null;
   }
   if (a.type === "advance") {
@@ -1638,7 +1700,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     const lv = Object.values(c.b).reduce((a2, b) => a2 + (b.k === (u.building ?? "barracks") && isBuildingActive(b) ? b.lvl : 0), 0);
     const each = (u.sec * 1000) / (1 + 0.5 * (lv - 1));
     let start = Math.max(now, c.queue.length ? c.queue[c.queue.length - 1].doneAt : now);
-    for (let k = 0; k < n; k++) { start += each; c.queue.push({ u: a.u, doneAt: start }); }
+    for (let k = 0; k < n; k++) { const startedAt = start; start += each; c.queue.push({ u: a.u, startedAt, doneAt: start }); }
     return null;
   }
   if (a.type === "alarm") {
@@ -1689,6 +1751,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if(c.res.food<suppliesFood)return `Cần ${suppliesFood} lương thực dự trữ cho cả đi và về.`;
     c.res.food-=suppliesFood;
     for (const u of UKEYS) if (units[u]) c.army[u]! -= units[u]!;
+    pruneHomeOrders(c);
     c.exps.push({ id: c.nextExp++, units, camp: camp.id, depart: now, arrive: now + ms, back: now + 2 * ms, resolved: false, route:plan.route, suppliesFood, logisticsVersion:1, combatVersion:1 });
     log(c, now, `Xuất quân (${troopText(units)}) đánh trại man rợ, tới nơi sau ${ms < MIN ? `${Math.ceil(ms / 1000)} giây` : `${Math.ceil(ms / MIN)} phút`}.`);
     return null;

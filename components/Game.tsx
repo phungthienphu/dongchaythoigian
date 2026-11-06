@@ -8,7 +8,7 @@ import {
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
 } from "@/lib/engine";
-import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
+import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import { Crowd } from "./villagers";
 import WorldMap from "./WorldMap";
 import FriendSearch from "./FriendSearch";
@@ -322,6 +322,7 @@ export default function Game() {
   const [rows, setRows] = useState<Row[]>([]);
   const [me, setMe] = useState<Me>({ user: null, friends: [] });
   const [busy, setBusy] = useState(false);
+  const [pickedSoldier, setPickedSoldier] = useState<string | null>(null);
   const [guardEditing, setGuardEditing] = useState(false);
   const [battleOpen, setBattleOpen] = useState<string | null>(null);
   const [armDemolish, setArmDemolish] = useState(false);
@@ -350,8 +351,8 @@ export default function Game() {
   const dragRef = useRef<{ sx: number; sy: number; moved: boolean; pinch: number } | null>(null);
   const renderPausedRef = useRef(false);
   renderPausedRef.current=worldOpen || !!battleOpen || helpOpen;
-  const viewRef = useRef({ hover, selected, tool, picked });
-  viewRef.current = { hover, selected, tool, picked };
+  const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier });
+  viewRef.current = { hover, selected, tool, picked, pickedSoldier };
 
   const now = () => Date.now() + offsetRef.current;
   const bump = () => setVersion((v) => v + 1);
@@ -670,6 +671,17 @@ export default function Game() {
       }
       return;
     }
+    if (pickedSoldier) {
+      const cell=cellAt(e);if(!cell)return;
+      if(await act({type:"moveSoldier",id:pickedSoldier,...cell}))setMsg({text:"Lính đang tới vị trí đã chọn. Bấm ô khác để đổi lệnh; Esc để bỏ chọn."});
+      return;
+    }
+    const soldier = pickHomeSoldier(view(),c,now(),p.x,p.y);
+    const buildingTarget=pickVillageTarget(view(),c,[],performance.now(),p.x,p.y);
+    if(soldier && (buildingTarget?.type!=="building" || e.shiftKey || e.ctrlKey || e.metaKey)) {
+      setPickedSoldier(soldier.id);setPicked(new Set());setSelected(null);setPanel(null);
+      setMsg({text:`Đã chọn ${UNITS[soldier.u].n}. Bấm ô đất để điều quân. Esc để bỏ chọn.`});return;
+    }
     const target = pickVillageTarget(view(),c,crowdRef.current.list,performance.now(),p.x,p.y,e.shiftKey||e.ctrlKey||e.metaKey);
     const vl = target?.type==="person" ? target.person : null;
     if (vl && vl.id !== null) {
@@ -718,6 +730,7 @@ export default function Game() {
   };
 
   const pickTool = (k: BKey | null) => {
+    setPickedSoldier(null);
     setGuardEditing(false);
     setTool(k);
     setSelected(null);
@@ -729,7 +742,7 @@ export default function Game() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setGuardEditing(false); setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
+      setPickedSoldier(null); setGuardEditing(false); setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1040,6 +1053,7 @@ export default function Game() {
             <button onClick={() => setPicked(new Set())}>Bỏ chọn</button>
           </div>
         )}
+        {pickedSoldier && <div className="pickbar"><b>Đang chọn lính</b><span>Bấm ô đất để di chuyển · Shift + bấm để chọn lính đứng trước nhà.</span><button onClick={()=>setPickedSoldier(null)}>Bỏ chọn</button></div>}
         {guardEditing && <div className="pickbar"><b>Đặt điểm gác · {c.guardPosts?.length ?? 0}/20</b><span>Bấm ô trống để thêm; bấm lại để bỏ.</span><button onClick={() => setGuardEditing(false)}>Xong</button></div>}
         {tool && (
           <div className="pickbar">
@@ -1189,12 +1203,14 @@ export default function Game() {
                   })}
                 </ul>
                 {c.queue.length > 0 && (
-                  <p className="small">Đang luyện {c.queue.length} lính · người tiếp theo xong sau {fmtDur(c.queue[0].doneAt - t)} · tất cả xong sau {fmtDur(c.queue[c.queue.length - 1].doneAt - t)}</p>
+                  <div><p className="small">Đang luyện {c.queue.length} lính · tiếp theo: {UNITS[c.queue[0].u].n} · xong sau {fmtDur(c.queue[0].doneAt - t)} · tất cả xong sau {fmtDur(c.queue[c.queue.length - 1].doneAt - t)}</p>
+                    <progress aria-label={`Tiến độ luyện ${UNITS[c.queue[0].u].n}`} max={1} value={Math.max(0,Math.min(1,1-(c.queue[0].doneAt-t)/Math.max(1,c.queue[0].doneAt-(c.queue[0].startedAt ?? c.queue[0].doneAt-UNITS[c.queue[0].u].sec*1000))))} style={{width:"100%",accentColor:"var(--accent)"}} />
+                  </div>
                 )}
                 <p className="muted small">Đánh nước khác: mở Thế giới, cử sứ giả thăm rồi chọn quân. Hai nước cần đăng nhập Google.</p>
                 <h3>Phòng thủ làng</h3>
                 <p className="muted small">Đặt tối đa 20 điểm gác. Lính ở nhà tự bảo vệ các điểm này khi bạn vắng mặt.</p>
-                <button onClick={() => { setGuardEditing(true); setTool(null); setPicked(new Set()); setSelected(null); setPanel(null); }}>Đặt điểm gác ({c.guardPosts?.length ?? 0}/20)</button>
+                <button onClick={() => { setPickedSoldier(null); setGuardEditing(true); setTool(null); setPicked(new Set()); setSelected(null); setPanel(null); }}>Đặt điểm gác ({c.guardPosts?.length ?? 0}/20)</button>
                 {!!c.guardPosts?.length && <button onClick={() => act({ type: "setGuardPosts", posts: [] })}>Xóa các điểm gác</button>}
                 {(c.shieldUntil ?? 0) > t && <p className="ok small">Khiên bảo vệ còn {fmtDur(c.shieldUntil! - t)}. Xuất quân sẽ bỏ khiên.</p>}
                 <h3>Xuất quân</h3>

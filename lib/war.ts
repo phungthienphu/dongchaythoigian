@@ -2,7 +2,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { ClientSession } from "mongodb";
 import { battles, cities, mongoClient, type CityDoc } from "./db";
-import { RES, UKEYS, W, MARCH_TILES_PER_MIN, MIN, canVisit, derive, stats, score, settle, updateRefuges, troopPower, troopCount, type City, type Troops, type Res } from "./engine";
+import { pruneHomeOrders, RES, UKEYS, W, MARCH_TILES_PER_MIN, MIN, canVisit, derive, stats, score, settle, updateRefuges, troopPower, troopCount, type City, type Troops, type Res } from "./engine";
 import { createBattle, type BattleState, type BattleResult } from "./battle";
 import { knowsNation } from "./world-discovery";
 import { reserveMarchFood, marchLogistics } from "./march-supplies";
@@ -101,7 +101,7 @@ export async function launchAttack(pid: string, target: unknown, input: unknown)
     a.state.provisionedSoldiers=(a.state.provisionedSoldiers??0)+troopCount(troops);
     const w: BattleDoc = { _id: crypto.randomUUID(), attackerId: pid, defenderId: target, attackerName: a.name, defenderName: d.name,
       from: a.world, to: d.world, troops, suppliesFood, logisticsVersion:1, depart: now, arrive: now + duration, duration, status: "marching", createdAt: new Date(now) };
-    addArmy(a.state.army, troops, -1); a.state.deployedArmy ??= {}; addArmy(a.state.deployedArmy, troops);
+    addArmy(a.state.army, troops, -1); pruneHomeOrders(a.state); a.state.deployedArmy ??= {}; addArmy(a.state.deployedArmy, troops);
     a.state.log.unshift({at:now,msg:`Xuất ${troopCount(troops)} lính tới ${d.name}, mang ${suppliesFood} lương thực đủ cho đi và về.`,cls:"good"});
     // Attacking gives up your own protection.
     delete a.state.shieldUntil;

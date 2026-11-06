@@ -15,9 +15,9 @@ try {
     fs.writeFileSync(path.join(temp, `${name}.js`), output);
   }
   fs.writeFileSync(path.join(temp, 'package.json'), '{"type":"module"}');
-  const { visibleTileBounds, fitView, camView, focusOn, pickBuilding, pickVillageTarget } = await import(pathToFileURL(path.join(temp, 'draw.js')).href);
+  const { visibleTileBounds, fitView, camView, focusOn, pickBuilding, pickVillageTarget, pickHomeSoldier } = await import(pathToFileURL(path.join(temp, 'draw.js')).href);
   const { Crowd } = await import(pathToFileURL(path.join(temp, 'villagers.js')).href);
-  const { newCity, G, idx, haulPosition, updateRefuges, refugePosition } = await import(pathToFileURL(path.join(temp, 'engine.js')).href);
+  const { newCity, G, idx, homeSoldiers, applyAction, haulPosition, updateRefuges, refugePosition } = await import(pathToFileURL(path.join(temp, 'engine.js')).href);
 let checked=0,minReduction=Infinity;
 for(const [w,h] of [[390,844],[1440,900]]) for(const zoom of [1,3,8,18]) for(const [cx,cy] of [[1,1],[48,48],[95,95]]) {
  const f=fitView(w,h),cam={zoom:1,px:0,py:0};focusOn(f,cam,cx,cy,zoom);
@@ -88,6 +88,14 @@ console.log('PASS: authoritative hauling movement/cargo, response sync continuit
 // Elevated roof clicks must select their sprite, with solid-face boundaries and painter ordering.
 const pickCity = newCity(1000, 7); pickCity.t.fill(G); pickCity.seen.fill(1); pickCity.b = {};
 const pickView = { TW: 128, TH: 64, ox: 500, oy: 200, width: 1440, height: 1200, s: 2 };
+pickCity.army={club:1};
+const soldier=homeSoldiers(pickCity,pickCity.last)[0];
+const soldierScreen={x:pickView.ox+(soldier.x-soldier.y)*pickView.TW/2,y:pickView.oy+(soldier.x+soldier.y)*pickView.TH/2-10*pickView.s};
+assert.equal(pickHomeSoldier(pickView,pickCity,pickCity.last,soldierScreen.x,soldierScreen.y)?.id,soldier.id);
+assert.equal(pickHomeSoldier(pickView,pickCity,pickCity.last,-10000,-10000),null);
+pickCity.army={};
+console.log('PASS: home soldier hit testing matches the drawn actor and rejects empty space.');
+
 const project = (x, y, z = 0) => [pickView.ox + (x - y) * pickView.TW / 2, pickView.oy + (x + y) * pickView.TH / 2 - z * pickView.s];
 pickCity.b[idx(10, 10)] = { k: 'house', lvl: 1, doneAt: null };
 assert.deepEqual(pickBuilding(pickView, pickCity, ...project(10.5, 10.5, 24)), { x: 10, y: 10 }, 'roof center');
