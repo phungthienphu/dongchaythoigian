@@ -100,7 +100,7 @@ export const UNITS: Record<UKey, Unit> = {
 export const UKEYS = Object.keys(UNITS) as UKey[];
 export type Troops = Partial<Record<UKey, number>>;
 export type Camp = { id: number; at: number; power: number; loot: Partial<Res>; cleared: boolean; respawnAt: number | null };
-export type Expedition = { id: number; units: Troops; camp: number; depart: number; arrive: number; back: number; resolved: boolean; won?: boolean; loot?: Partial<Res>; recalled?: boolean; suppliesFood?: number; logisticsVersion?: number; marchLosses?: number };
+export type Expedition = { id: number; units: Troops; camp: number; depart: number; arrive: number; back: number; resolved: boolean; won?: boolean; loot?: Partial<Res>; recalled?: boolean; suppliesFood?: number; logisticsVersion?: number; marchLosses?: number; route?: number[]; recallAt?: number; returnProgress?: number };
 const SOLDIER_FOOD = 2; // per soldier per hour
 export const MARCH_TILES_PER_MIN = 4;
 export const troopPower = (t: Troops) => UKEYS.reduce((a, u) => a + (t[u] ?? 0) * (UNITS[u].atk>0 ? UNITS[u].atk + UNITS[u].hp / 4 : 0), 0);
@@ -529,7 +529,7 @@ export const soldiers = (c: City) => troopCount(c.army) + troopCount(c.deployedA
 export const armyCap = (c: City) => Object.values(c.b).reduce((a, b) => a + (b.k === "barracks" && isBuildingActive(b) ? b.lvl * 10 : 0), 0);
 export const armyUsed = (c: City) => troopSpace(c.army) + troopSpace(c.deployedArmy ?? {}) + c.queue.reduce((a, q) => a + UNITS[q.u].space, 0) + c.exps.reduce((a, e) => a + troopSpace(e.units), 0);
 export const campById = (c: City, id: number) => c.camps.find((k) => k.id === id);
-export const marchMs = (from: number, to: number) => (Math.max(1, cheb(from, to)) / MARCH_TILES_PER_MIN) * MIN;
+export const marchMs = (from: number, to: number) => (Math.max(1, cheb(from, to)) / EXPLORE_TILES_PER_MIN) * MIN;
 
 export const workersAt = (c: City, i: number) => c.people.reduce((n, p) => n + (p.task.t === "work" && p.task.at === i ? 1 : 0), 0);
 export const herdById = (c: City, id: number) => c.herds.find((h) => h.id === id);
@@ -875,6 +875,36 @@ function haulingContext(c: City, D: Derived): HaulContext {
   const active = Object.values(c.b).filter(b => built(b) && !b.flooded);
   return { paths: new Map(), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: 1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length) };
 }
+export function armyStagingTiles(c:City,limit=24){
+  const home=buildings(c).find(([,b])=>b.k==="barracks"&&isBuildingActive(b))?.[0]??c.camp;
+  const queue=[home],seen=new Set(queue),tiles:number[]=[];
+  for(let head=0;head<queue.length && tiles.length<limit;head++){const tile=queue[head],x=tile%W,y=Math.floor(tile/W);if(haulPassable(c,tile,-1,false))tiles.push(tile);
+    for(const [dx,dy] of N8){const nx=x+dx,ny=y+dy,next=idx(nx,ny);if(!inb(nx,ny)||seen.has(next)||!haulPassable(c,next,-1,false))continue;
+      if(dx&&dy&&(!haulPassable(c,idx(nx,y),-1,false)||!haulPassable(c,idx(x,ny),-1,false)))continue;
+      seen.add(next);queue.push(next);
+    }
+  }
+  return tiles;
+}
+
+/** Local marches leave the barracks entrance and follow the same terrain rules as villagers. */
+export function expeditionPlan(c:City,to:number){
+  const home=buildings(c).find(([,b])=>b.k==="barracks"&&isBuildingActive(b))?.[0]??c.camp;
+  const path=haulPath(c,home,to,haulingContext(c,derive(c)));
+  if(!path)return null;
+  const route=c.b[home] && path.length>1?path.slice(1):path;
+  return {route,duration:Math.max(1000,routeLength(route)/EXPLORE_TILES_PER_MIN*MIN)};
+}
+export function expeditionPosition(e:Expedition,at:number,lag=0){
+  if(!e.route?.length)return null;
+  const progress=e.recallAt!==undefined ? (e.returnProgress??0)*(1-(at-e.recallAt)/Math.max(1,e.back-e.recallAt)) : at<e.arrive ? (at-e.depart)/Math.max(1,e.arrive-e.depart) : 1-(at-e.arrive)/Math.max(1,e.back-e.arrive);
+  const length=routeLength(e.route),going=e.recallAt===undefined&&at<e.arrive;
+  const fraction=Math.max(0,Math.min(1,progress+(going?-lag:lag)/Math.max(1,length)));
+  const [x,y]=explorerPos({t:"explore",from:e.route[0],to:e.route[e.route.length-1],start:0,route:e.route},fraction*Math.max(1,length)/EXPLORE_TILES_PER_MIN*MIN);
+  const next=explorerPos({t:"explore",from:e.route[0],to:e.route[e.route.length-1],start:0,route:e.route},Math.max(0,Math.min(1,fraction+(going?.001:-.001)))*Math.max(1,length)/EXPLORE_TILES_PER_MIN*MIN);
+  return {x,y,going,face:((next[0]-x)-(next[1]-y)>=0?1:-1) as 1|-1};
+}
+
 function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob | null {
   const tk = p.task;
   if (tk.t === "chop" || tk.t === "mine") {
@@ -1258,6 +1288,8 @@ function stepArmy(c: City, nt: number) {
   }
   for (const e of [...c.exps]) {
     const camp = campById(c, e.camp);
+    if(!e.route && camp){e.route=expeditionPlan(c,camp.at)?.route??[];changed=true;}
+    const position=expeditionPosition(e,nt);if(position && reveal(c,idx(Math.floor(position.x),Math.floor(position.y)),1))changed=true;
     if (!e.resolved && e.arrive <= nt && !e.recalled) {
       e.resolved = true;
       if(e.logisticsVersion){const march=marchLogistics(e.units,e.arrive-e.depart);e.units=march.survivors;e.marchLosses=march.losses;if(march.losses)log(c,e.arrive,`Hành quân xa tới trại man rợ: hao ${march.losses} chiến binh do thiếu hỗ trợ.`,"warn");}
@@ -1386,6 +1418,7 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number): st
   if (d.era > c.era) return "Chưa tới thời đại này.";
   if (c.b[i]) return "Ô này đã có công trình.";
   if (t === R) return "Không xây được trên sông.";
+  if(!["farm","canal","levee","gate"].includes(k) && c.exps.some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân đang dùng lối này. Chờ quân về hoặc chọn ô khác để không chặn đường.";
   if (k === "quarry") { if (t !== HL) return "Bãi đá phải đặt trên đồi."; }
   else if (t === HL || t === O) return "Đồi đá chỉ đặt được bãi đá.";
   else if (t === F) return "Rừng rậm: cho người chặt hết cây trước, hoặc chọn ô cỏ.";
@@ -1508,6 +1541,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if (e.resolved) return "Đoàn quân đang trên đường về rồi.";
     // turn back from where they are now: same distance home as already walked
     const oneWay = e.arrive - e.depart, walked = Math.max(0, now - e.depart);
+    e.recallAt=now;e.returnProgress=Math.min(1,walked/Math.max(1,oneWay));
     e.recalled = true; e.resolved = true;
     e.arrive = now - oneWay + walked; e.back = now + walked;
     log(c, now, "Đã gọi đoàn quân quay về.");
@@ -1532,11 +1566,13 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     }
     if (!troopCount(units)) return "Chọn ít nhất một lính.";
     if(!troopPower(units))return "Cần có chiến binh đi cùng đoàn hỗ trợ.";
-    const ms = marchMs(c.camp, camp.at),suppliesFood=marchSupplies(units,ms).food;
+    const plan=expeditionPlan(c,camp.at);
+    if(!plan)return "Không có đường từ trại lính tới trại man rợ. Hãy mở lối ra, đặt cổng hoặc dỡ công trình chắn đường.";
+    const ms = plan.duration,suppliesFood=marchSupplies(units,ms).food;
     if(c.res.food<suppliesFood)return `Cần ${suppliesFood} lương thực dự trữ cho cả đi và về.`;
     c.res.food-=suppliesFood;
     for (const u of UKEYS) if (units[u]) c.army[u]! -= units[u]!;
-    c.exps.push({ id: c.nextExp++, units, camp: camp.id, depart: now, arrive: now + ms, back: now + 2 * ms, resolved: false, suppliesFood, logisticsVersion:1 });
+    c.exps.push({ id: c.nextExp++, units, camp: camp.id, depart: now, arrive: now + ms, back: now + 2 * ms, resolved: false, route:plan.route, suppliesFood, logisticsVersion:1 });
     log(c, now, `Xuất quân (${troopText(units)}) đánh trại man rợ, tới nơi sau ${Math.round(ms / MIN)} phút.`);
     return null;
   }

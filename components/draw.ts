@@ -1,6 +1,6 @@
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
-import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
+import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, armyStagingTiles, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
 import { placementTiles } from "@/lib/build-placement";
 import type { Fx, Villager } from "./villagers";
 
@@ -1374,6 +1374,7 @@ export type DrawOpts = {
   chopping: Set<number>;
 };
 
+const stagingCache=new WeakMap<City,{at:number;tiles:number[]}>();
 export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   const v = o.v;
   const r: RC = { c, v, city, D, anim: o.anim, now: o.now, season: seasonAt(city, o.now) };
@@ -1544,16 +1545,21 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       items.push({d:fx+fy,f:()=>{const [sx,sy]=P(r.v,fx,fy);drawEnvoyActor(r.c,city.era,sx,sy,r.v.s,r.anim,true,actor.face);}});
     }
     // soldiers at home stand in rows beside the first barracks
-    const bar = buildings(city).find(([, b]) => b.k === "barracks" && b.lvl >= 1 && !b.burned && !b.flooded);
     const guards = city.guardPosts ?? [];
-    if (bar || guards.length) {
-      const home = bar?.[0] ?? city.camp;
-      const bx = (home % W) + 0.5, by = Math.floor(home / W) + 0.5;
+    if (troopCount(city.army)) {
+      let staging=stagingCache.get(city);
+      if(!staging || staging.at!==city.last){staging={at:city.last,tiles:armyStagingTiles(city)};stagingCache.set(city,staging);}
+
+
       let n = 0;
       for (const u of UKEYS) for (let k = 0; k < Math.min(city.army[u] ?? 0, 8) && n < 24; k++, n++) {
         const guard = guards[n % guards.length], row = Math.floor(n / Math.max(1, guards.length));
-        const fx = guard ? guard.x + 0.4 + (row % 3) * 0.15 : bx + 0.75 + (n % 4) * 0.32;
-        const fy = guard ? guard.y + 0.4 + Math.floor(row / 3) * 0.15 : by - 0.6 + Math.floor(n / 4) * 0.32;
+        const guardTile=guard?idx(guard.x,guard.y):-1,guardBuilding=city.b[guardTile];
+        const validGuard=guard && ![R,HL,O].includes(city.t[guardTile]) && (!guardBuilding||guardBuilding.burned||["farm","canal","levee","gate"].includes(guardBuilding.k));
+        const tile=staging.tiles[Math.floor(n/3)%Math.max(1,staging.tiles.length)];
+        if(!validGuard && tile===undefined)continue;
+        const fx = validGuard ? guard.x + .3 + (row % 3) * .18 : tile%W + .3 + (n%3)*.18;
+        const fy = validGuard ? guard.y + .3 + (Math.floor(row/3)%3)*.18 : Math.floor(tile/W) + .5;
         if (!onScreen(fx - 0.5, fy - 0.5)) continue;
         const seed = n * 0.37;
         items.push({ d: fx + fy, f: () => drawSoldier(r, u, fx, fy, -1, false, seed) });
@@ -1580,7 +1586,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       const camp = campById(city, e.camp);
       if (!camp) continue;
       const hx = (city.camp % W) + 0.5, hy = Math.floor(city.camp / W) + 0.5, tx = (camp.at % W) + 0.5, ty = Math.floor(camp.at / W) + 0.5;
-      const going = o.now < e.arrive, fighting = Math.abs(o.now - e.arrive) < 8000;
+      const going = o.now < e.arrive, fighting = !e.recalled && e.resolved && o.now>=e.arrive && o.now-e.arrive<3000;
       const p = going ? (o.now - e.depart) / Math.max(1, e.arrive - e.depart) : 1 - (o.now - e.arrive) / Math.max(1, e.back - e.arrive);
       const pc = Math.max(0, Math.min(1, p));
       const cx = hx + (tx - hx) * pc, cy = hy + (ty - hy) * pc;
@@ -1590,12 +1596,14 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       for (const u of UKEYS) for (let k = 0; k < Math.min(e.units[u] ?? 0, 6) && n < 18; k++, n++) {
         const row = Math.floor(n / 3), col = (n % 3) - 1;
         const back = (going ? -1 : 1) * row * 0.35;
-        const fx = cx + ((tx - hx) / len) * back + nx * col * 0.35, fy = cy + ((ty - hy) / len) * back + ny * col * 0.35;
+        const routed=expeditionPosition(e,o.now,row*.35);
+        const fx = routed ? Math.max(Math.floor(routed.x)+.08,Math.min(Math.floor(routed.x)+.92,routed.x+col*.12)) : cx + ((tx - hx) / len) * back + nx * col * 0.35;
+        const fy = routed ? routed.y : cy + ((ty - hy) / len) * back + ny * col * 0.35;
         const ti = idx(Math.max(0, Math.min(W - 1, Math.floor(fx))), Math.max(0, Math.min(H - 1, Math.floor(fy))));
         if (!vis[ti]) continue;
         const nn = n;
         items.push({ d: fx + fy, f: () => {
-          const fn = () => drawSoldier(r, u, fx, fy, face, !fighting, nn * 0.41, fighting);
+          const fn = () => drawSoldier(r, u, fx, fy, routed?.face??face, !fighting, nn * 0.41, fighting);
           if (inWater(r, fx, fy)) wade(r, fx, fy, fn); else fn();
         } });
       }
