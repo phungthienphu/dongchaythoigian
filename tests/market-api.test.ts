@@ -3,6 +3,7 @@
 import {mock,test,expect} from 'bun:test';
 import {newCity,G,idx,troopCount} from '../lib/engine';
 let pid:string|null='seller',failWrite=false;
+let hints:string[]=[];
 const now=Date.now();
 let tables:Record<string,any[]>={cities:[],orders:[],ships:[]};
 const value=(d:any,key:string)=>key.split('.').reduce((a,k)=>a?.[k],d);
@@ -18,11 +19,11 @@ const collection=(name:string)=>({
 let queue=Promise.resolve();
 const session=()=>({withTransaction:async(fn:()=>Promise<any>)=>{let release!:()=>void;const previous=queue;queue=new Promise(r=>{release=r;});await previous;const before=structuredClone(tables);try{return await fn();}catch(e){tables=before;throw e;}finally{release();}},endSession:async()=>{}});
 mock.module('../lib/db',()=>({cities:async()=>collection('cities'),marketOrders:async()=>collection('orders'),caravans:async()=>collection('ships'),mongoClient:async()=>({startSession:session})}));
-mock.module('../lib/war',()=>({warConfigured:()=>false,workerRequest:async()=>{}}));
+mock.module('../lib/war',()=>({warConfigured:()=>true,workerRequest:async(path:string)=>{hints.push(path);},socketUrl:()=> 'wss://worker.example/market-feed'}));
 mock.module('../lib/city-store',()=>({battlePlayerId:async()=>pid}));
 const {marketAction,advanceCaravan,marketData}=await import('../lib/market');
 const api=await import('../app/api/market/route');
-function reset(){failWrite=false;pid='seller';tables={cities:['seller','buyer','raider','other'].map((id,n)=>{const c=newCity(now,1);c.t.fill(G);c.seen.fill(1);c.b={[idx(20,20)]:{k:'market',lvl:1,doneAt:null},[idx(22,20)]:{k:'barracks',lvl:3,doneAt:null}};c.era=2;c.camp=idx(19,20);c.res={food:400,wood:200,stone:200,copper:0,gold:100,diamond:20};c.army={club:20,sword:20};c.discoveries=['seller','buyer'];c.shieldUntil=now+999999;return{_id:id,name:id,owner:id,ver:0,state:c,world:{x:40+n*10,y:40}};}),orders:[],ships:[]};}
+function reset(){hints=[];failWrite=false;pid='seller';tables={cities:['seller','buyer','raider','other'].map((id,n)=>{const c=newCity(now,1);c.t.fill(G);c.seen.fill(1);c.b={[idx(20,20)]:{k:'market',lvl:1,doneAt:null},[idx(22,20)]:{k:'barracks',lvl:3,doneAt:null}};c.era=2;c.camp=idx(19,20);c.res={food:400,wood:200,stone:200,copper:0,gold:100,diamond:20};c.army={club:20,sword:20};c.discoveries=['seller','buyer'];c.shieldUntil=now+999999;return{_id:id,name:id,owner:id,ver:0,state:c,world:{x:40+n*10,y:40}};}),orders:[],ships:[]};}
 const city=(id:string)=>tables.cities.find(d=>d._id===id).state;
 const create=(requestId='create_123',escorts={})=>marketAction('seller',{type:'create',resource:'stone',amount:100,currency:'gold',price:20,escorts,requestId});
 const buy=(requestId='buy_12345',buyer='buyer')=>marketAction(buyer,{type:'buy',id:tables.orders[0]._id,requestId});
@@ -67,4 +68,24 @@ test('auth, validation, discovery, no fighter and blocked exits reject without c
  for(let y=19;y<=21;y++)for(let x=21;x<=23;x++)if(x!==22||y!==20)city('raider').b[idx(x,y)]={k:'wall',lvl:1,doneAt:null};
  await expect(marketAction('raider',{type:'raid',id:s._id,units:{club:2},requestId:'raid_12345'})).rejects.toThrow('đường');expect(city('raider').army.club).toBe(20);
  const data=await marketData('buyer');expect(data.caravans.length).toBe(1);
+});
+
+test('trade receipts identify buyer, goods, price and link to the exact convoy only once',async()=>{
+ reset();const othersLog=structuredClone(city('other').log);await create();expect(hints).toContain('/rooms/market-feed/notify');
+ expect(city('other').log).toEqual(othersLog);
+ await buy();const ship=tables.ships[0];
+ const receipt=city('seller').log.find((l:any)=>l.caravanId===ship._id);
+ expect(receipt.msg).toContain('buyer');expect(receipt.msg).toContain('100 Đá');expect(receipt.msg).toContain('20 Vàng');
+ await buy();expect(city('seller').log.filter((l:any)=>l.caravanId===ship._id).length).toBe(1);
+ await advanceCaravan(ship._id,ship.arrive);
+ expect(city('seller').log.find((l:any)=>l.msg.includes('Nhận tiền bán hàng')).caravanId).toBe(ship._id);
+ expect(city('buyer').log.find((l:any)=>l.msg.includes('Đã nhận')).caravanId).toBe(ship._id);
+});
+test('tracking can recover an older own convoy but cannot expose a strangers convoy',async()=>{
+ reset();await create();await buy();const ship=structuredClone(tables.ships[0]);ship.status='completed';ship._id='old-convoy';ship.createdAt=now-1000;
+ tables.ships=[ship,...Array.from({length:35},(_,i)=>({...ship,_id:`new-convoy-${i}`,createdAt:now+i}))];
+ expect((await marketData('seller')).caravans.some(c=>c._id===ship._id)).toBe(false);
+ expect((await marketData('seller',ship._id)).caravans.some(c=>c._id===ship._id)).toBe(true);
+ expect((await marketData('other',ship._id)).caravans.some(c=>c._id===ship._id)).toBe(false);
+ expect((await marketData('seller')).socket).toBe('wss://worker.example/market-feed');
 });

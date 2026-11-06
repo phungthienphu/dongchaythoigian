@@ -4,9 +4,9 @@ import {RN,RES,UKEYS,MIN,settle,stats,derive,normalizeResources,envoyVillageRout
 import {validMarketAction,hasMarket,fighters,interception,caravanView,CARAVAN_CELLS_PER_MIN} from './market-rules';
 import {startRoadFight,advanceRoadFight} from './road-combat';
 import type {MarketAction,Caravan,MarketData} from './market-types';
-import {workerRequest,warConfigured} from './war';
+import {workerRequest,warConfigured,socketUrl} from './war';
 async function transaction<T>(fn:(s:ClientSession)=>Promise<T>){const s=(await mongoClient()).startSession();try{return (await s.withTransaction(()=>fn(s)))!;}finally{await s.endSession();}}
-function note(c:City,at:number,msg:string,warn=false){c.log.unshift({at,msg,cls:warn?'warn':'good'});c.log=c.log.slice(0,200);}
+function note(c:City,at:number,msg:string,warn=false,caravanId?:string){c.log.unshift({at,msg,...(caravanId?{caravanId}:{}),cls:warn?'warn':'good'});c.log=c.log.slice(0,200);}
 function prepare(d:CityDoc,now:number){normalizeResources(d.state);if(!d.state.battleId)settle(d.state,now);}
 async function save(d:CityDoc,s:ClientSession){await (await cities()).updateOne({_id:d._id},{$set:{state:d.state,updatedAt:new Date()},$inc:{ver:1}},{session:s});}
 function usable(d:CityDoc|null,needsMarket=true):asserts d is CityDoc{if(!d?.owner)throw new Error('Cần đăng nhập Google và có làng.');if(d.state.battleId||d.incomingBattleId)throw new Error('Làng đang bị tấn công, chưa thể giao thương hoặc điều quân.');if(needsMarket&&!hasMarket(d.state))throw new Error('Cần có Chợ đã xây xong, không cháy/ngập.');}
@@ -51,8 +51,8 @@ export async function marketAction(pid:string,a:MarketAction){
    reserveMarchFood(seller.state,order.escorts,duration);seller.state.provisionedSoldiers=(seller.state.provisionedSoldiers??0)+troopCount(order.escorts);
    const ship:Caravan={_id:id,orderId:order._id,seller:seller._id,buyer:pid,sellerName:seller.name,buyerName:me.name,resource:order.resource,amount:order.amount,currency:order.currency,price:order.price,from:seller.world,to:me.world,depart:now,arrive:now+duration,back:now+duration*2,escorts:{...order.escorts},initialEscorts:{...order.escorts},status:'travelling',createdAt:now};
    journey(seller.state,id,route,now,ship.arrive,ship.back);journey(me.state,id,incoming,now-duration,now,ship.arrive,{incoming:true});
-   note(seller.state,now,`Đoàn xe tới ${me.name} đã xuất phát, ${troopCount(order.escorts)} quân hộ tống. Có nguy cơ bị người chơi khác cướp.`,true);
-   note(me.state,now,`Đã giữ riêng tiền mua hàng từ ${seller.name}. Đoàn xe đang tới; nếu bị cướp sẽ hoàn tiền.`,true);
+   note(seller.state,now,`Làng ${me.name} đã mua ${order.amount} ${RN[order.resource]} của bạn với giá ${order.price} ${RN[order.currency]}. Đoàn xe đã xuất phát, ${troopCount(order.escorts)} quân hộ tống. Nhận tiền khi giao hàng thành công; có nguy cơ bị cướp.`,false,id);
+   note(me.state,now,`Đã mua ${order.amount} ${RN[order.resource]} từ ${seller.name}, giữ riêng ${order.price} ${RN[order.currency]}. Đoàn xe đang tới; nếu bị cướp sẽ hoàn tiền.`,false,id);
    await ships.insertOne(ship,{session});await orders.updateOne({_id:order._id},{$set:{status:'sold'}},{session});await save(me,session);await save(seller,session);return[pid,seller._id];
   }
   // One interception per convoy; only independently discovered routes are targetable.
@@ -67,11 +67,15 @@ export async function marketAction(pid:string,a:MarketAction){
   reserveMarchFood(me.state,a.units!,meet.meetAt-now);reserveUnits(me.state,a.units!);me.state.provisionedSoldiers=(me.state.provisionedSoldiers??0)+troopCount(a.units!);delete me.state.shieldUntil;
   ship.raid={by:pid,name:me.name,requestId:a.requestId,from:me.world,to:meet.point,depart:now,meetAt:meet.meetAt,units:{...a.units},initial:{...a.units}};
   journey(me.state,ship._id,route,now,meet.meetAt,meet.meetAt+(meet.meetAt-now)+MIN,{raider:true});
-  for(const d of [seller,buyer])note(d.state,now,`CẢNH BÁO: quân ${me.name} đang hành quân cướp đoàn xe ${seller.name} → ${buyer.name}, dự kiến chạm trán lúc ${new Date(meet.meetAt).toLocaleTimeString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'})}.`,true);
-  note(me.state,now,`Đã xuất ${troopCount(a.units!)} quân chặn đoàn xe ${seller.name} → ${buyer.name}.`,true);
+  for(const d of [seller,buyer])note(d.state,now,`CẢNH BÁO: quân ${me.name} đang hành quân cướp đoàn xe ${seller.name} → ${buyer.name}, dự kiến chạm trán lúc ${new Date(meet.meetAt).toLocaleTimeString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'})}.`,true,ship._id);
+  note(me.state,now,`Đã xuất ${troopCount(a.units!)} quân chặn đoàn xe ${seller.name} → ${buyer.name}.`,true,ship._id);
   await ships.updateOne({_id:ship._id},{$set:{raid:ship.raid}},{session});for(const d of [me,seller,buyer])await save(d,session);return[pid,ship.seller,ship.buyer];
  });
- await hint(changed);return {ok:true};
+ await hint(changed);
+ if(a.type==='create'||a.type==='buy'||a.type==='cancel'){
+  if(warConfigured())await Promise.allSettled([workerRequest('/rooms/market-feed/notify',{})]);
+ }
+ return {ok:true};
 }
 
 /** Persistent convoy clock. Every transfer and unit return is transactional and
@@ -91,7 +95,7 @@ export async function advanceCaravan(id:string,now=Date.now()){
    const fight=raid.fight??=startRoadFight(raid.units,s.escorts,raid.meetAt);advanceRoadFight(fight,now);raid.units={...fight.attackers};s.escorts={...fight.defenders};s.status='fighting';dirty=!existed||fight.last!==before;
    if(fight.finished){raid.won=fight.won;raid.backAt=fight.last+(raid.meetAt-raid.depart);s.robbed=!!fight.won;
     s.arrive+=fight.last-raid.meetAt;s.back=s.robbed?fight.last+(raid.meetAt-s.depart):s.arrive+(s.arrive-s.depart);
-    for(const d of docs.values())note(d.state,fight.last,`${s.robbed?'Đoàn xe bị cướp':'Hộ tống bảo vệ được đoàn xe'} ${s.sellerName} → ${s.buyerName}. Quân cướp còn ${troopCount(raid.units)}, hộ tống còn ${troopCount(s.escorts)}. ${s.robbed?'Người mua được hoàn tiền khi có chỗ trong kho.':''}`,s.robbed);
+    for(const d of docs.values())note(d.state,fight.last,`${s.robbed?'Đoàn xe bị cướp':'Hộ tống bảo vệ được đoàn xe'} ${s.sellerName} → ${s.buyerName}. Quân cướp còn ${troopCount(raid.units)}, hộ tống còn ${troopCount(s.escorts)}. ${s.robbed?'Người mua được hoàn tiền khi có chỗ trong kho.':''}`,s.robbed,s._id);
     const raider=docs.get(raid.by)!;for(const d of [seller,buyer,raider]){if(s.robbed&&d===buyer){d.state.merchantJourneys=d.state.merchantJourneys?.filter(j=>j.id!==s._id);continue;}for(const j of d.state.merchantJourneys??[])if(j.id===s._id){j.back=d===raider?raid.backAt:d===buyer?s.arrive:s.back;if(d===seller)j.arrive=s.robbed?fight.last:s.arrive;}}
    }
   }
@@ -99,12 +103,12 @@ export async function advanceCaravan(id:string,now=Date.now()){
    const arrival=s.robbed?raid!.fight!.last:s.arrive;
    if(now>=arrival){
     const recipient=s.robbed?docs.get(raid!.by)!:buyer,deliveryAt=s.robbed?raid!.backAt!:arrival;
-    if(!s.goodsDelivered&&now>=deliveryAt&&receive(recipient.state,s.resource,s.amount)){s.goodsDelivered=true;note(recipient.state,now,`Đã nhận ${s.amount} ${RN[s.resource]} từ đoàn xe ${s.sellerName} → ${s.buyerName}.`,s.robbed);dirty=true;}
+    if(!s.goodsDelivered&&now>=deliveryAt&&receive(recipient.state,s.resource,s.amount)){s.goodsDelivered=true;note(recipient.state,now,`Đã nhận ${s.amount} ${RN[s.resource]} từ đoàn xe ${s.sellerName} → ${s.buyerName}.`,s.robbed,s._id);dirty=true;}
     const payee=s.robbed?buyer:seller;
-    if(!s.paymentDelivered&&receive(payee.state,s.currency,s.price)){s.paymentDelivered=true;note(payee.state,now,`${s.robbed?'Hoàn tiền':'Nhận tiền bán hàng'}: ${s.price} ${RN[s.currency]}.`);dirty=true;}
+    if(!s.paymentDelivered&&receive(payee.state,s.currency,s.price)){s.paymentDelivered=true;note(payee.state,now,`${s.robbed?'Hoàn tiền':'Nhận tiền bán hàng'}: ${s.price} ${RN[s.currency]} · ${s.sellerName} → ${s.buyerName}.`,false,s._id);dirty=true;}
    }
-   if(now>=s.back&&!s.escortsReturned&&!seller.state.battleId){returnUnits(seller.state,s.escorts,s.initialEscorts);seller.state.provisionedSoldiers=Math.max(0,(seller.state.provisionedSoldiers??0)-troopCount(s.initialEscorts));s.escortsReturned=true;note(seller.state,now,'Quân hộ tống đoàn xe đã về làng.');dirty=true;}
-   if(raid&&raid.backAt&&now>=raid.backAt&&!raid.returned){const d=docs.get(raid.by)!;if(!d.state.battleId){returnUnits(d.state,raid.units,raid.initial);d.state.provisionedSoldiers=Math.max(0,(d.state.provisionedSoldiers??0)-troopCount(raid.initial));raid.returned=true;note(d.state,now,'Đoàn quân chặn xe đã về làng.');dirty=true;}}
+   if(now>=s.back&&!s.escortsReturned&&!seller.state.battleId){returnUnits(seller.state,s.escorts,s.initialEscorts);seller.state.provisionedSoldiers=Math.max(0,(seller.state.provisionedSoldiers??0)-troopCount(s.initialEscorts));s.escortsReturned=true;note(seller.state,now,'Quân hộ tống đoàn xe đã về làng.',false,s._id);dirty=true;}
+   if(raid&&raid.backAt&&now>=raid.backAt&&!raid.returned){const d=docs.get(raid.by)!;if(!d.state.battleId){returnUnits(d.state,raid.units,raid.initial);d.state.provisionedSoldiers=Math.max(0,(d.state.provisionedSoldiers??0)-troopCount(raid.initial));raid.returned=true;note(d.state,now,'Đoàn quân chặn xe đã về làng.',false,s._id);dirty=true;}}
    const complete=s.goodsDelivered&&s.paymentDelivered&&s.escortsReturned&&(!raid||raid.returned);
    const status=complete?'completed':now>=arrival&&(!s.goodsDelivered||!s.paymentDelivered)?'waiting':now>=arrival?'returning':'travelling';
    if(s.status!==status){s.status=status;dirty=true;}
@@ -119,7 +123,7 @@ export async function reconcileCaravans(limit=30){
  let failed=0;for(const r of rows){try{await advanceCaravan(r._id);}catch{failed++;}finally{await col.updateOne({_id:r._id},{$set:{reconciledAt:Date.now()}});}}
  return {checked:rows.length,failed};
 }
-export async function marketData(pid:string):Promise<MarketData>{
+export async function marketData(pid:string,target?:string):Promise<MarketData>{
  const ships=await caravans(),col=await cities();
  const own=await ships.find({$or:[{seller:pid},{buyer:pid},{'raid.by':pid}],status:{$ne:'completed'}}).sort({arrive:1}).limit(30).toArray();for(const s of own)await advanceCaravan(s._id);
  const me=await col.findOne({_id:pid});if(!me)throw new Error('Không có làng.');normalizeResources(me.state);
@@ -129,6 +133,7 @@ export async function marketData(pid:string):Promise<MarketData>{
  const known=[...new Set([...(me.state.discoveries??[]),...Object.keys(me.state.visits??{})])];
  const visible=known.length?await ships.find({seller:{$in:known},buyer:{$in:known},status:{$ne:'completed'}}).sort({createdAt:-1}).limit(100).toArray():[];
  const active=await ships.find({$or:[{seller:pid},{buyer:pid},{'raid.by':pid}],status:{$ne:'completed'}}).limit(100).toArray();
- const rows=[...new Map([...ownRows,...active,...visible].map(s=>[s._id,s])).values()];
- return {orders,caravans:rows.flatMap(s=>{const v=caravanView(s,pid,me.state);return v?[v]:[];}),playerId:pid,enabled:hasMarket(me.state),serverNow:Date.now()};
+ const selected=target?await ships.findOne({_id:target,$or:[{seller:pid},{buyer:pid},{'raid.by':pid}]}):null;
+ const rows=[...new Map([...ownRows,...active,...visible,...(selected?[selected]:[])].map(s=>[s._id,s])).values()];
+ return {socket:warConfigured()?socketUrl("market-feed",pid,"defender"):null,orders,caravans:rows.flatMap(s=>{const v=caravanView(s,pid,me.state);return v?[v]:[];}),playerId:pid,enabled:hasMarket(me.state),serverNow:Date.now()};
 }

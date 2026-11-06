@@ -90,3 +90,15 @@ test('a stalled result callback times out, releases the busy flag and schedules 
   try{await h.room.tick();assert.equal(aborted,true);assert.equal(h.room.busy,false);assert.equal(h.data.get('delivered'),false);assert.ok(h.alarm>Date.now());}
   finally{clearTimeout(keepAlive);globalThis.fetch=originalFetch;AbortSignal.timeout=originalTimeout;}
 });
+
+test('market feed sends only invalidations and rejects mutations or unauthenticated publishes',async()=>{
+ const h=harness();await h.ready;
+ const good=socket({roomId:'market-feed',playerId:'buyer',side:'defender',exp:Date.now()/1000+60});
+ const expired=socket({roomId:'market-feed',playerId:'seller',side:'defender',exp:1});h.sockets.push(good,expired);
+ assert.equal((await h.room.fetch(request('market-feed/notify',{},false))).status,401);
+ assert.equal((await h.room.fetch(request('market-feed/command',{side:'defender',command:{type:'retreat'}}))).status,403);
+ assert.equal((await h.room.fetch(request('market-feed',{battle:battle()}))).status,403);
+ assert.equal((await h.room.fetch(request('market-feed/notify',{}))).status,200);
+ assert.deepEqual(good.frames,[{type:'update'}]);assert.ok(expired.closed);
+ await h.room.webSocketMessage(good,JSON.stringify({type:'retreat'}));assert.equal(h.data.get('battle'),undefined);
+});

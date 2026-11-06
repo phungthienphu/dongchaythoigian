@@ -185,7 +185,7 @@ export type Haul = {
 export type Refuge = { route: number[]; at: number; arrive: number; pausedAt: number; x: number; y: number; building?: number; returnAt?: number; back?: number; returnProgress?: number };
 export type Person = { refuge?: Refuge; id: number; name: string; task: Task; pos?: number; haul?: Haul }; // pos: tile they last headed to
 export type Herd = { id: number; at: number; kind: "deer" | "boar"; n: number; max: number };
-export type LogEntry = { at: number; msg: string; cls?: "warn" | "good" };
+export type LogEntry = { caravanId?: string; at: number; msg: string; cls?: "warn" | "good" };
 export type City = {
   ver: number;
   seed: number;

@@ -19,6 +19,7 @@ import BattleView from "./BattleView";
 import BattleReports from "./BattleReports";
 import DiplomacyMessages, { diplomacyText } from "./DiplomacyMessages";
 import { useDiplomacy } from "./useDiplomacy";
+import CaravanNoticeLink from "./CaravanNoticeLink";
 import MarketPanel from "./MarketPanel";
 import { useMarket } from "./useMarket";
 import { useWars } from "./useWars";
@@ -428,7 +429,7 @@ export default function Game() {
 
   const diplomacy = useDiplomacy(!loading && !needsName, () => { void loadCity(); void loadWorld(); });
   const [marketTarget,setMarketTarget]=useState<string>();
-  const market = useMarket(!loading && !needsName && !!me.user?.hasCity, panel === "market" || worldOpen, () => { void loadCity(); });
+  const market = useMarket(!loading && !needsName && !!me.user?.hasCity, panel === "market" || worldOpen, () => { void loadCity(); }, panel === "market",marketTarget);
   const war = useWars(!loading && !needsName && !!me.user?.hasCity, () => { void loadCity(); void diplomacy.refresh(); void market.refresh(); });
   useEffect(()=>{if(panel==="log")void diplomacy.refresh();},[panel,diplomacy.refresh]);
 
@@ -665,6 +666,7 @@ export default function Game() {
       return next;
     });
 
+  const trackCaravan = (id:string) => { setMarketTarget(id);setPanel("market");setWorldOpen(false); };
   const openPanel = (p: Panel | null) => setPanel((cur) => (cur === p ? null : p));
 
   const onClick = async (e: React.MouseEvent) => {
@@ -772,7 +774,7 @@ export default function Game() {
 
   const noticeCity=cityRef.current;
   const noticeKey=noticeCity?`dong-notices:${noticeCity.seed}:${noticeCity.t0}`:"";
-  const diplomaticNotices=diplomacy.messages.map(m=>({at:m.decidedAt??m.requestedAt??m.arrive,msg:diplomacyText(m),cls:"good"}));
+  const diplomaticNotices=diplomacy.messages.map(m=>({caravanId:undefined as string|undefined,at:m.decidedAt??m.requestedAt??m.arrive,msg:diplomacyText(m),cls:"good"}));
   const latestNoticeAt=Math.max(0,...(noticeCity?.log??[]).map(l=>l.at),...diplomaticNotices.map(l=>l.at));
   useEffect(()=>{
     if(!noticeKey)return;
@@ -860,7 +862,7 @@ export default function Game() {
     { k: "era", icon: "era", label: "Thời đại", badge: reqMet(c) ? "!" : undefined },
     { k: "log", icon: "log", label: "Thông báo", badge: readNotice.key===noticeKey ? notices.filter(l=>l.at>readNotice.at).length||undefined : undefined },
     { k: "rank", icon: "rank", label: "Xếp hạng" },
-    { k: "market", icon: "shop", label: "Chợ", badge: market.data?.caravans.filter(c=>c.mine&&c.status!=="completed").length || undefined },
+    { k: "market", icon: "shop", label: "Chợ", badge: market.newOrders ? "Có hàng mới" : market.data?.caravans.filter(c=>c.mine&&c.status!=="completed").length || undefined },
     { k: "friends", icon: "friends", label: "Bạn bè", badge: me.friends.filter((f) => f.online).length || undefined },
     ...(hallLv ? [{ k: "control" as Panel, icon: "era" as IconKey, label: "Đình làng", badge: c.raid ? "!" : undefined }] : []),
   ];
@@ -1108,7 +1110,7 @@ export default function Game() {
       {helpOpen && <HowToPlay onClose={()=>setHelpOpen(false)} />}
       {!worldOpen && !battleOpen && panel!=="log" && me.user && <BattleReports wars={war.wars} playerId={me.user.id} />}
       {battleOpen && <BattleView id={battleOpen} onClose={() => { setBattleOpen(null); void loadCity(); void war.refresh(); }} onSettled={() => { void loadCity(); void war.refresh(); }} />}
-      {!worldOpen && !battleOpen && readNotice.key===noticeKey && notices[0]?.at>readNotice.at && panel!=="log" && <div className="war-alerts" role="status"><span>{notices[0].cls==="warn"?"⚠ ":"✉ "}{notices[0].msg}</span><button onClick={()=>openPanel("log")}>Xem thông báo</button></div>}
+      {!worldOpen && !battleOpen && readNotice.key===noticeKey && notices[0]?.at>readNotice.at && panel!=="log" && <div className="war-alerts" role="status"><span>{notices[0].cls==="warn"?"⚠ ":"✉ "}{notices[0].msg}</span><button onClick={()=>openPanel("log")}>Xem thông báo</button><CaravanNoticeLink id={notices[0].caravanId} onTrack={trackCaravan}/></div>}
       {!worldOpen && !battleOpen && (war.wars.some((w) => w.status !== "completed") || war.error) && (
         <aside className="war-alerts" aria-live="polite">
           {war.error && <p className="small">{war.error}</p>}
@@ -1312,7 +1314,7 @@ export default function Game() {
             {panel === "log" && (
               <>{me.user && <BattleReports wars={war.wars} playerId={me.user.id} history />}<DiplomacyMessages messages={diplomacy.messages} busy={diplomacy.busy} error={diplomacy.error} onAction={diplomacy.act} /><ol className="log">
                 {[...c.log].sort((a,b)=>b.at-a.at).map((l, i) => (
-                  <li key={i} className={l.cls ?? ""}><span className="t">{stamp(c, l.at)}</span>{l.msg}</li>
+                  <li key={i} className={l.cls ?? ""}><span className="t">{stamp(c, l.at)}</span>{l.msg}<CaravanNoticeLink id={l.caravanId} onTrack={trackCaravan}/></li>
                 ))}
               </ol></>
             )}

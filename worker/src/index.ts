@@ -175,7 +175,7 @@ export class BattleRoom {
     let body: Record<string, unknown>;
     try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     if (!body || typeof body !== 'object') return json({ error: 'Invalid body' }, 400);
-    if (roomId.startsWith('player-')) {
+    if (roomId.startsWith('player-') || roomId === 'market-feed') {
       if (action !== 'notify') return json({ error: 'Personal hub is read only' }, 403);
       for (const socket of this.ctx.getWebSockets()) { if (!this.validSocket(socket)) continue; try { socket.send(JSON.stringify({ type: 'update' })); } catch {} }
       return json({ ok: true });
@@ -209,7 +209,7 @@ export class BattleRoom {
   async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
     const user = socket.deserializeAttachment() as Identity | null;
     if (!user || user.exp <= Date.now() / 1000) { socket.close(1008, 'Ticket expired'); return; }
-    if (user.roomId.startsWith('player-')) return;
+    if (user.roomId.startsWith('player-') || user.roomId === 'market-feed') return;
     if (typeof message !== 'string' || message.length > 4096 || !this.battle) return;
     const participantId = user.side === 'attacker' ? this.battle.attackerId : this.battle.defenderId;
     if (participantId !== user.playerId) { socket.close(1008, 'Forbidden'); return; }
