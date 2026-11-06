@@ -18,6 +18,7 @@ export const HOUR = 60 * MIN;
 export const SEASON_MS = 6 * HOUR; // 4 seasons = 1 real day
 export const MAX_SETTLE_MS = 14 * 24 * HOUR; // offline progress cap
 const BASE_STORAGE = 500;
+export const WATERMILL_WOOD_PER_HOUR = 120;
 export const POP_GROWTH_PER_HOUR = 60;
 /** Hourly engine units; food is consumed continuously at 2/4 per minute in era 1. */
 export function upkeepRates(era:number){
@@ -80,7 +81,7 @@ const DEFS = {
   stonehouse: { n: "Nhà đá", era: 3, cost: { stone: 250, copper: 30 }, sec: 1200, house: 12, up: true, d: "12 người mỗi cấp. Lũ không làm ngập." },
   builderhouse: { n: "Nhà thợ xây", era: 1, cost: { wood: 70, stone: 30 }, sec: 40, up: true, max: 2, d: "Mỗi cấp thêm 1 đội thợ, xây thêm 1 công trình đồng thời. Tối đa 2 nhà. Đội thợ chuyên trách, không lấy dân đang thu hoạch. Nhà cháy/ngập không cấp thêm đội; công trình đang xây vẫn được hoàn tất." },
   forge: { n: "Xưởng dụng cụ", era: 1, cost: { wood: 40, stone: 20 }, sec: 30, up: true, max: 2, d: "Mỗi cấp tăng 25% tốc độ chặt cây, đào đá, săn bắn và làm ruộng, trại hái lượm. Áp dụng toàn làng ngay khi xây xong, không cần giao thợ. Tối đa 2 xưởng; nâng cấp sau khi có Đình làng." },
-  wheel: { n: "Cối nước", era: 3, cost: { wood: 200, stone: 100 }, sec: 1200, jobs: 2, prod: { food: 150 }, need: "river", up: true, d: "Sát sông. Mùa đông không giảm." },
+  wheel: { n: "Cối nước", era: 3, cost: { wood: 200, stone: 100 }, sec: 1200, jobs: 2, prod: { food: 150 }, use: { wood: WATERMILL_WOOD_PER_HOUR }, need: "river", up: true, d: "Sát sông. Mùa đông không giảm. Mỗi cối dùng 2 gỗ/phút khi sản xuất, không tăng theo cấp hay số thợ. Hết gỗ tạm dừng; có gỗ tự chạy lại." },
   hall: { n: "Đình làng", era: 2, cost: { wood: 300, stone: 200, copper: 20 }, sec: 900, house: 5, storage: 500, up: true, max: 1, drop: ["food", "wood", "stone", "copper", "gold", "diamond"], d: "Nhà chính. Công trình khác chỉ nâng được tới cấp của Đình. Cấp 3 mở trung tâm điều khiển." },
   envoy: { n: "Nhà sứ giả", era: 1, cost: { wood: 80, stone: 30, food: 30 }, sec: 90, up: true, max: 1, d: "Có sứ giả để đi thăm các nước. Mỗi cấp thêm một sứ giả và đi nhanh hơn." },
   barracks: { n: "Trại lính", era: 1, cost: { wood: 120, stone: 40 }, sec: 120, up: true, max: 3, d: "Huấn luyện quân. Mỗi cấp chứa thêm 10 lính." },
@@ -194,6 +195,7 @@ export type Herd = { id: number; at: number; kind: "deer" | "boar"; n: number; m
 export type LogEntry = { caravanId?: string; at: number; msg: string; cls?: "warn" | "good" };
 export type City = {
   upkeepStartsAt?: number;
+  wheelFuelStartsAt?: number;
   ver: number;
   seed: number;
   t: number[];
@@ -509,7 +511,7 @@ export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
     ver: ENGINE_VER, seed, t, seen: new Array(W * H).fill(0), oldbed: [], xs, camp, b: {}, dep: {}, herds,
     people: [], nextId: 1,
     res: { food: 100, wood: 120, stone: 30, copper: 0, gold: 0, diamond: 0 }, pop: 0, popAcc: 0, era: 1,
-    t0: now, last: now, upkeepStartsAt:now, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
+    t0: now, last: now, upkeepStartsAt:now, wheelFuelStartsAt:now, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
   };
   enrichCopperDeposits(c);
   enrichPreciousDeposits(c);
@@ -659,6 +661,7 @@ export type Stats = {
   woodUse: number;
   stoneUse: number;
   fireWoodUse: number;
+  wheelWoodUse: number;
   copperRate: number;
   jobs: number;
   housing: number;
@@ -686,13 +689,14 @@ export function stats(c: City, D: Derived, at: number): Stats {
   const winter = seasonAt(c, at) === 3;
   const boost = at < c.boostUntil;
   const rate: Res = { food: 0, wood: 0, stone: 0, copper: 0, gold: 0, diamond: 0 };
-  let woodUse = 0,stoneUse=0,fireWoodUse=0;
+  let woodUse = 0,stoneUse=0,fireWoodUse=0,wheelWoodUse=0;
   const legacy=c.upkeepStartsAt!==undefined&&at<c.upkeepStartsAt;
   for (const [i, b] of buildings(c)) {
     if (!built(b) || b.flooded) continue;
     const d = def(b.k);
     const eff = d.jobs ? Math.min(1, (workers.get(i) ?? 0) / d.jobs) : 1;
     if(b.k==='fire'){fireWoodUse+=legacy?0:300;woodUse+=legacy?0:300;}
+    else if(b.k==='wheel'){const use=eff>0&&at>=(c.wheelFuelStartsAt??-Infinity)?WATERMILL_WOOD_PER_HOUR:0;wheelWoodUse+=use;woodUse+=use;}
     else if(d.use){woodUse+=(legacy?20:d.use.wood??0)*LVL_MULT[b.lvl]*eff;stoneUse+=(legacy?0:d.use.stone??0)*LVL_MULT[b.lvl]*eff;}
     if (!d.prod || (b.k==="farm" && (b.tendUntil || farmRemaining(b)<=0))) continue;
     for (const r of RES) {
@@ -736,7 +740,7 @@ export function stats(c: City, D: Derived, at: number): Stats {
   const upkeep={civilians,soldiers:totalSoldiers,foodSoldiers,food:civilians*costs.civilian.food+foodSoldiers*costs.soldier.food,wood:civilians*costs.civilian.wood+totalSoldiers*costs.soldier.wood};
   rate.food-=upkeep.food;
   rate.wood-=upkeep.wood;
-  return { rate, upkeep, woodUse, stoneUse, fireWoodUse, copperRate, jobs, housing, storage, fires: Math.min(2, cnt.fire ?? 0), drains };
+  return { rate, upkeep, woodUse, stoneUse, fireWoodUse, wheelWoodUse, copperRate, jobs, housing, storage, fires: Math.min(2, cnt.fire ?? 0), drains };
 }
 
 /* ---------- people & tasks ---------- */
@@ -1319,7 +1323,7 @@ function refreshHauling(c: City, at: number, ctx: HaulContext) {
 }
 /** Resource gathering runs only at persisted transition times. Cargo is credited
  * exactly once, at unload, never by the rates displayed in stats(). */
-function stepHauling(c: City, at: number, ctx: HaulContext, storage: Res, smelt: number) {
+function stepHauling(c: City, at: number, ctx: HaulContext, storage: Res, smelt: number, milling: number) {
   for (const p of c.people) {
     if(p.refuge)continue;
     if (!p.haul) { beginHaul(c, p, at, ctx); continue; }
@@ -1335,7 +1339,10 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: Res, smelt:
     if (h.phase === "work" && h.source && (h.source.kind === "tile" ? c.t[h.source.key]!==F&&!isRock(c.t[h.source.key]) : h.source.kind === "building" ? !isBuildingActive(c.b[h.source.key]) : !herdById(c, h.source.key)?.n)) {
       delete p.haul; beginHaul(c, p, at, ctx); continue;
     }
-    if (h.phase === "work" && p.task.t === "work" && def(c.b[p.task.at]?.k ?? "hut").use?.wood && smelt < 1) h.nextAt += HAUL_TILE_MS * (1 - smelt);
+    if (h.phase === "work" && p.task.t === "work") {
+      const kind=c.b[p.task.at]?.k,eff=kind==='smelter'?smelt:kind==='wheel'?milling:1;
+      if(eff<1)h.nextAt+=HAUL_TILE_MS*(1-eff);
+    }
     if (h.nextAt > at) continue;
     if (h.phase === "travel") {
       h.tile = h.route[h.route.length - 1]; p.pos = h.tile;
@@ -1786,6 +1793,8 @@ export function settle(c: City, now: number) {
   normalizeResources(c);
   // Catch up legacy saves at their old upkeep before activating the new balance.
   c.upkeepStartsAt??=now;
+  // Existing villages finish their offline catch-up before the new mill cost starts.
+  c.wheelFuelStartsAt??=now;
   if (now <= c.last) return;
   let t = c.haulAt ?? c.last;
   c.haulAt = t;
@@ -1815,6 +1824,7 @@ export function settle(c: City, now: number) {
     if (dirty) autoStaff(c);
     if (t < c.boostUntil && c.boostUntil <= nt) dirty = true;
     if(t<c.upkeepStartsAt&&c.upkeepStartsAt<=nt)dirty=true;
+    if(t<c.wheelFuelStartsAt&&c.wheelFuelStartsAt<=nt)dirty=true;
     const si = seasonIndexAt(c, nt);
     while (c.seasonIdx < si) { c.seasonIdx++; onSeason(c, c.seasonIdx); dirty = true; }
     if(stepFrontier(c,nt))dirty=true;
@@ -1839,13 +1849,25 @@ export function settle(c: City, now: number) {
       const b=p.task.t==='work'?c.b[p.task.at]:undefined,haul=p.haul;
       if(!p.refuge&&b?.k==='smelter'&&isBuildingActive(b)&&haul?.phase==='work'&&haul.source?.kind==='tile'&&c.t[haul.source.key]===O)furnaceLoad+=LVL_MULT[b.lvl]/B.smelter.jobs!;
     }
-    const need = (t<c.upkeepStartsAt?st.woodUse-st.fireWoodUse:600*furnaceLoad) * h,stoneNeed=(t<c.upkeepStartsAt?st.stoneUse:600*furnaceLoad)*h;
+    const need = (t<c.upkeepStartsAt?st.woodUse-st.fireWoodUse-st.wheelWoodUse:600*furnaceLoad) * h,stoneNeed=(t<c.upkeepStartsAt?st.stoneUse:600*furnaceLoad)*h;
     const smelt = t>=c.upkeepStartsAt&&c.res.copper>=st.storage.copper?0:Math.max(0,Math.min(1,need>0?c.res.wood/need:1,stoneNeed>0?c.res.stone/stoneNeed:1));
     c.res.wood = Math.max(0, c.res.wood - need * smelt);
     c.res.stone=Math.max(0,c.res.stone-stoneNeed*smelt);
+    // One cost per working mill, regardless of level or workers. Returning
+    // workers, full food storage and damaged mills never consume mill fuel.
+    let milling=1;
+    if(t>=c.wheelFuelStartsAt&&st.wheelWoodUse>0){
+      const mills=new Set<number>();
+      if(c.res.food<st.storage.food)for(const p of c.people){
+        if(!p.refuge&&p.task.t==='work'&&c.b[p.task.at]?.k==='wheel'&&isBuildingActive(c.b[p.task.at])&&p.haul?.phase==='work'&&p.haul.source?.kind==='building'&&p.haul.source.key===p.task.at)mills.add(p.task.at);
+      }
+      const millNeed=mills.size*WATERMILL_WOOD_PER_HOUR*h;
+      milling=c.res.food>=st.storage.food?0:millNeed>0?Math.min(1,c.res.wood/millNeed):1;
+      c.res.wood=Math.max(0,c.res.wood-millNeed*milling);
+    }
     c.res.food -= st.upkeep.food * h;
     for (const r of RES) c.res[r] = Math.min(st.storage[r], c.res[r]);
-    stepHauling(c, nt, hauling, st.storage, smelt);
+    stepHauling(c, nt, hauling, st.storage, smelt, milling);
     for (const herd of c.herds) if (herd.n < herd.max) herd.n = Math.min(herd.max, herd.n + HERD_REGROW * h);
 
     const popBefore = c.people.length;
