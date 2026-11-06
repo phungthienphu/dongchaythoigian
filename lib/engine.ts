@@ -148,7 +148,7 @@ export const MAX_LVL = 3;
 
 export const ERA_REQ: Record<number, { pop: number; cost: Partial<Res>; hall?: number }> = {
   2: { pop: 15, cost: { food: 300, wood: 300, stone: 150 } },
-  3: { pop: 50, cost: { food: 1500, wood: 500, stone: 1000, copper: 300 }, hall: 3 },
+  3: { pop: 50, cost: { food: 3000, wood: 1000, stone: 2000, copper: 600 }, hall: 3 },
 };
 const ERA_UP: Record<number, string> = {
   2: "Bước vào Thời đồ đồng: mở ruộng lúa, kênh tưới, đê đất, nhà gỗ, lò đúc đồng và chợ.",
@@ -510,15 +510,24 @@ const count = (c: City, k: BKey) => Object.values(c.b).reduce((n, b) => n + (b.k
 export const builders = (c: City) => c.era + 1;
 export const busyBuilders = (c: City) => Object.values(c.b).reduce((n, b) => n + (b.doneAt ? 1 : 0), 0);
 export const buildMs = (k: BKey, lvl: number) => def(k).sec * 1000 * 3 ** (lvl - 1);
-export const levelCost = (k: BKey, lvl: number): Partial<Res> => {
-  const m = [0, 1, 2, 4][lvl], out: Partial<Res> = {};
-  for (const r of RES) if (def(k).cost[r]) out[r] = def(k).cost[r]! * m;
+/** Prices depend on the buyer's era; base definitions remain stable for combat
+ * valuation and demolition refunds (advancing must never mint refund resources). */
+export const eraCost = (cost: Partial<Res>, era: number, ironMultiplier: number): Partial<Res> => {
+  const out: Partial<Res> = {};
+  for (const r of RES) if (cost[r]) out[r] = Math.ceil(cost[r]! * (era >= 3 ? ironMultiplier : 1));
   return out;
 };
-export const repairCost = (k: BKey, lvl = 1, burned = false): Partial<Res> => {
+export const buildingCost = (k: BKey, era: number) => eraCost(def(k).cost, era, 3);
+export const trainingCost = (u: UKey, era: number) => eraCost(UNITS[u].cost, era, 2);
+export const levelCost = (k: BKey, lvl: number, era = 1): Partial<Res> => {
+  const m = [0, 1, 2, 4][lvl], out: Partial<Res> = {};
+  for (const r of RES) if (def(k).cost[r]) out[r] = def(k).cost[r]! * m;
+  return eraCost(out, era, 3);
+};
+export const repairCost = (k: BKey, lvl = 1, burned = false, era = 1): Partial<Res> => {
   const out: Partial<Res> = {};
   for (const r of RES) if (def(k).cost[r]) out[r] = Math.ceil((levelCost(k, Math.max(1, lvl))[r] ?? 0) * (burned ? 0.5 : 0.25));
-  return out;
+  return eraCost(out, era, 2);
 };
 /** Resource value used to weigh building damage in multiplayer battles. */
 export const buildingValue = (b: Building) => RES.reduce((sum, r) => sum + (levelCost(b.k, Math.max(1, b.lvl))[r] ?? 0), 0);
@@ -1602,7 +1611,7 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number): st
   if (d.need === "bank" && D.rd[i] !== 1) return "Đê phải đặt sát bờ sông.";
   if (d.max && count(c, k) >= d.max) return `Đã đủ số lượng tối đa (${d.max}).`;
   if (busyBuilders(c) >= builders(c)) return "Tất cả thợ đang bận.";
-  return missing(c, d.cost);
+  return missing(c, buildingCost(k, c.era));
 }
 
 export function reqMet(c: City) {
@@ -1620,7 +1629,7 @@ export function score(c: City) {
 export const FARM_TEND_MS = 30_000;
 export const farmCapacity = (b: Building) => 600 * Math.max(1,b.lvl);
 export const farmRemaining = (b: Building) => Math.max(0,b.fertility ?? farmCapacity(b));
-export const farmTendCost = (b: Building): Partial<Res> => ({ food: 20*Math.max(1,b.lvl), wood: 5*Math.max(1,b.lvl) });
+export const farmTendCost = (b: Building, era = 1): Partial<Res> => eraCost({ food: 20*Math.max(1,b.lvl), wood: 5*Math.max(1,b.lvl) }, era, 2);
 
 export type Action =
   | { type: "build"; k: BKey; x: number; y: number }
@@ -1648,7 +1657,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if (!b || b.k!=="farm" || !isBuildingActive(b) || b.doneAt) return "Cần chọn ruộng đã xây xong, không bị cháy/ngập.";
     if(b.tendUntil) return "Ruộng đang được cải tạo và gieo lại.";
     if(farmRemaining(b)>=farmCapacity(b)) return "Ruộng còn đầy dinh dưỡng, chưa cần cải tạo.";
-    const cost=farmTendCost(b),err=missing(c,cost);if(err)return err;
+    const cost=farmTendCost(b,c.era),err=missing(c,cost);if(err)return err;
     pay(c,cost);b.tendUntil=now+FARM_TEND_MS;
     for(const p of c.people)if(p.task.t==="work" && p.task.at===idx(a.x,a.y) && p.haul?.phase==="work")delete p.haul;
     log(c,now,"Đang cải tạo đất và gieo lại ruộng, hoàn tất sau 30 giây.");
@@ -1693,7 +1702,8 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     const n = Math.max(1, Math.min(50, Math.floor(a.n)));
     if (armyUsed(c) + n * u.space > armyCap(c)) return `Trại lính hết chỗ (${armyUsed(c)}/${armyCap(c)}). Nâng cấp hoặc xây thêm trại.`;
     const cost: Partial<Res> = {};
-    for (const r of RES) if (u.cost[r]) cost[r] = u.cost[r]! * n;
+    const single = trainingCost(a.u, c.era);
+    for (const r of RES) if (single[r]) cost[r] = single[r]! * n;
     const err = missing(c, cost);
     if (err) return err;
     pay(c, cost);
@@ -1786,7 +1796,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if (!(a.k in B)) return "Công trình không hợp lệ.";
     const err = canPlace(c, derive(c), a.k, a.x, a.y);
     if (err) return err;
-    pay(c, def(a.k).cost);
+    pay(c, buildingCost(a.k, c.era));
     c.b[i] = { k: a.k, lvl: 0, doneAt: now + buildMs(a.k, 1) };
     return null;
   }
@@ -1801,7 +1811,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
   if (a.type === "repair") {
     if (!b.flooded && !b.burned) return "Công trình không cần sửa.";
     if (b.doneAt) return "Đang xây dở.";
-    const cost = repairCost(b.k, b.lvl, !!b.burned);
+    const cost = repairCost(b.k, b.lvl, !!b.burned, c.era);
     const err = missing(c, cost);
     if (err) return err;
     pay(c, cost);
@@ -1818,7 +1828,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if (b.lvl >= MAX_LVL) return "Đã cấp tối đa.";
     if (b.lvl >= levelCap(c, b.k)) return hallLevel(c) ? `Cần nâng Đình làng lên cấp ${b.lvl + 1} trước.` : "Cần xây Đình làng (mở ở Thời đồ đồng) để nâng cấp công trình.";
     if (busyBuilders(c) >= builders(c)) return "Tất cả thợ đang bận.";
-    const cost = levelCost(b.k, b.lvl + 1);
+    const cost = levelCost(b.k, b.lvl + 1, c.era);
     const err = missing(c, cost);
     if (err) return err;
     pay(c, cost);

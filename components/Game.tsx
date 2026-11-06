@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
   DEFAULT_MIX, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
-  armyCap, armyUsed, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
+  armyCap, armyUsed, buildingCost, trainingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
 } from "@/lib/engine";
@@ -751,7 +751,7 @@ export default function Game() {
     setSelected(null);
     setPicked(new Set());
     if (k) setPanel(null);
-    setMsg(k ? { text: `${buildingName(cityRef.current!, k)} (${costText(B[k].cost)}, ${fmtDur(buildMs(k, 1))}): ${B[k].d} Chuột phải hoặc Esc để bỏ chọn.` } : null);
+    setMsg(k ? { text: `${buildingName(cityRef.current!, k)} (${costText(buildingCost(k, cityRef.current!.era))}, ${fmtDur(buildMs(k, 1))}): ${B[k].d} Chuột phải hoặc Esc để bỏ chọn.` } : null);
   };
 
   useEffect(() => {
@@ -993,7 +993,7 @@ export default function Game() {
               {(sel.flooded || sel.burned) && <p className="err small">{sel.burned ? "Bị cháy, cần sửa để hoạt động lại." : "Bị ngập, không hoạt động."}</p>}
               {sel.k==="farm" && <>
                 <p className={farmRemaining(sel)<=0?"err small":"small"}>Dinh dưỡng: {Math.ceil(farmRemaining(sel))}/{farmCapacity(sel)} · giảm theo lượng lương thực thực sự thu hoạch.</p>
-                {sel.tendUntil ? <p className="small">Đang cải tạo & gieo lại: {fmtDur(sel.tendUntil-t)}</p> : <button disabled={busy || !!sel.doneAt || !!sel.burned || !!sel.flooded || farmRemaining(sel)>=farmCapacity(sel)} onClick={()=>act({type:"tendFarm",x:selI%W,y:Math.floor(selI/W)})}>Cải tạo & gieo lại · {costText(farmTendCost(sel))} · 30 giây</button>}
+                {sel.tendUntil ? <p className="small">Đang cải tạo & gieo lại: {fmtDur(sel.tendUntil-t)}</p> : <button disabled={busy || !!sel.doneAt || !!sel.burned || !!sel.flooded || farmRemaining(sel)>=farmCapacity(sel)} onClick={()=>act({type:"tendFarm",x:selI%W,y:Math.floor(selI/W)})}>Cải tạo & gieo lại · {costText(farmTendCost(sel,c.era))} · 30 giây</button>}
                 {farmRemaining(sel)<=0 && <p className="err small">Ruộng bạc màu. Người đã giao đang nghỉ, cần cải tạo để tiếp tục thu hoạch.</p>}
               </>}
               {sel.k==="farm" && <p className="small">Đã giao {onTarget.length}/{B.farm.jobs} người ({onTarget.filter(p=>p.refuge).length} đang tránh địch): {onTarget.filter(p=>!p.refuge && p.haul?.phase==="work").length} đang làm trên ruộng; {onTarget.filter(p=>!p.refuge && p.haul?.phase!=="work").length} đang đi hoặc chở/chờ nộp hàng. Người về kho vẫn giữ chỗ, không cần cử thêm.</p>}
@@ -1030,13 +1030,13 @@ export default function Game() {
               {sel.k==="barracks" && sel.lvl>=1 && !armyStagingTiles(c,1).length && <p className="err small">Trại lính bị bịt kín. Chừa lối đất nối ra ngoài, đặt cổng thay tường hoặc dỡ công trình chắn lối; quân không tự phá nhà mình.</p>}
               {["barracks","logistics","infirmary"].includes(sel.k) && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
               {sel.k === "hall" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("control")}>{control ? "Trung tâm điều khiển" : "Xem Đình làng"}</button>}
-              {(sel.flooded || sel.burned) && <button className="primary" disabled={busy} onClick={() => act({ type: "repair", ...selected })}>Sửa ({costText(repairCost(sel.k, sel.lvl, !!sel.burned))})</button>}
+              {(sel.flooded || sel.burned) && <button className="primary" disabled={busy} onClick={() => act({ type: "repair", ...selected })}>Sửa ({costText(repairCost(sel.k, sel.lvl, !!sel.burned, c.era))})</button>}
               {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && sel.lvl >= levelCap(c, sel.k) && (
                 <p className="muted small">{hallLv ? `Nâng Đình làng lên cấp ${sel.lvl + 1} để nâng tiếp.` : "Xây Đình làng (Thời đồ đồng) để nâng cấp công trình."}</p>
               )}
               {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && sel.lvl < levelCap(c, sel.k) && !sel.doneAt && !sel.flooded && !sel.burned && (
                 <button disabled={busy} onClick={() => act({ type: "upgrade", ...selected })}>
-                  Lên cấp {sel.lvl + 1} ({costText(levelCost(sel.k, sel.lvl + 1))}, {fmtDur(buildMs(sel.k, sel.lvl + 1))})
+                  Lên cấp {sel.lvl + 1} ({costText(levelCost(sel.k, sel.lvl + 1, c.era))}, {fmtDur(buildMs(sel.k, sel.lvl + 1))})
                 </button>
               )}
               <button disabled={busy} onClick={async () => {
@@ -1181,14 +1181,14 @@ export default function Game() {
                 <div className="shopgrid">
                   {BKEYS.filter((k) => B[k].era === shopEra).map((k) => {
                     const availability=buildAvailability(c,k),locked=availability.locked;
-                    const poor = RES.some((r) => (B[k].cost[r] ?? 0) > c.res[r]);
+                    const poor = RES.some((r) => (buildingCost(k, Math.max(B[k].era,c.era))[r] ?? 0) > c.res[r]);
                     return (
                       <button key={k} className="shopcard" aria-pressed={tool === k} disabled={locked} title={availability.reason??undefined} onClick={() => pickTool(k)}>
                         <Thumb city={c} D={D} k={k} />
                         <span className="n">{buildingName(c, k)}</span>
                         {availability.limit!==undefined && <span className={availability.capped?"err small":"small"}>Đã đặt {availability.count}/{availability.limit}{availability.capped?" · Đã đủ giới hạn":""}</span>}
                         {availability.reason && <span className="ds">{availability.reason}</span>}
-                        <span className={"c" + (poor && !locked ? " no" : "")}>{costText(B[k].cost)}</span>
+                        <span className={"c" + (poor && !locked ? " no" : "")}>{costText(buildingCost(k, Math.max(B[k].era,c.era)))}</span>
                         <span className="tm">⏱ {fmtDur(buildMs(k, 1))}</span>
                         <span className="ds">{B[k].d}</span>
                       </button>
@@ -1212,7 +1212,7 @@ export default function Game() {
                       <li key={u} className={locked ? "locked" : ""}>
                         <div>
                           <b>{U.n}</b> <span className="muted small">· {c.army[u] ?? 0} ở nhà</span>
-                          <div className="muted small">⚔ {U.atk} · ❤ {U.hp}{U.space > 1 ? ` · ${U.space} chỗ` : ""} · {costText(U.cost)} · {fmtDur(U.sec * 1000)}</div>
+                          <div className="muted small">⚔ {U.atk} · ❤ {U.hp}{U.space > 1 ? ` · ${U.space} chỗ` : ""} · {costText(trainingCost(u, Math.max(U.era,c.era)))} · {fmtDur(U.sec * 1000)}</div>
                           <div className="muted small">{U.era>c.era ? `Mở ở ${ERA_NAMES[U.era]}` : needsBuilding ? `Cần xây ${B[U.building!].n}` : U.d}</div>
                         </div>
                         <div className="tb">
@@ -1287,7 +1287,7 @@ export default function Game() {
             ) : (
               <>
                 <h3>{c.templeAt ? "Kỳ quan đã đứng" : "Xây Đền Sông Mẹ"}</h3>
-                <p className="muted small">{c.templeAt ? `Đền hoàn thành ${stamp(c, c.templeAt).toLowerCase()}.` : `Cần ${costText(B.temple.cost)}, xây ${fmtDur(buildMs("temple", 1))}. Nhớ xây thêm Kho để đủ sức chứa.`}</p>
+                <p className="muted small">{c.templeAt ? `Đền hoàn thành ${stamp(c, c.templeAt).toLowerCase()}.` : `Cần ${costText(buildingCost("temple", Math.max(3,c.era)))}, xây ${fmtDur(buildMs("temple", 1))}. Nhớ xây thêm Kho để đủ sức chứa.`}</p>
               </>
             ))}
 
