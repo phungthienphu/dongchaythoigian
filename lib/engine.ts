@@ -99,8 +99,9 @@ export const UNITS: Record<UKey, Unit> = {
 };
 export const UKEYS = Object.keys(UNITS) as UKey[];
 export type Troops = Partial<Record<UKey, number>>;
-export type Camp = { id: number; at: number; power: number; loot: Partial<Res>; cleared: boolean; respawnAt: number | null };
-export type Expedition = { id: number; units: Troops; camp: number; depart: number; arrive: number; back: number; resolved: boolean; won?: boolean; loot?: Partial<Res>; recalled?: boolean; suppliesFood?: number; logisticsVersion?: number; marchLosses?: number; route?: number[]; recallAt?: number; returnProgress?: number };
+export type Camp = { id: number; at: number; power: number; loot: Partial<Res>; cleared: boolean; respawnAt: number | null; garrison?: Troops };
+export type CampCombat = { last: number; rounds: number; hp: Partial<Record<UKey, number>>; defenders: Troops; defenderHp: Partial<Record<UKey, number>>; initial: Troops };
+export type Expedition = { combatVersion?: 1; combat?: CampCombat; returnAt?: number; id: number; units: Troops; camp: number; depart: number; arrive: number; back: number; resolved: boolean; won?: boolean; loot?: Partial<Res>; recalled?: boolean; suppliesFood?: number; logisticsVersion?: number; marchLosses?: number; route?: number[]; recallAt?: number; returnProgress?: number };
 const SOLDIER_FOOD = 2; // per soldier per hour
 export const MARCH_TILES_PER_MIN = 4;
 export const troopPower = (t: Troops) => UKEYS.reduce((a, u) => a + (t[u] ?? 0) * (UNITS[u].atk>0 ? UNITS[u].atk + UNITS[u].hp / 4 : 0), 0);
@@ -897,7 +898,7 @@ export function expeditionPlan(c:City,to:number){
 }
 export function expeditionPosition(e:Expedition,at:number,lag=0){
   if(!e.route?.length)return null;
-  const progress=e.recallAt!==undefined ? (e.returnProgress??0)*(1-(at-e.recallAt)/Math.max(1,e.back-e.recallAt)) : at<e.arrive ? (at-e.depart)/Math.max(1,e.arrive-e.depart) : 1-(at-e.arrive)/Math.max(1,e.back-e.arrive);
+  const progress=e.recallAt!==undefined ? (e.returnProgress??0)*(1-(at-e.recallAt)/Math.max(1,e.back-e.recallAt)) : at<e.arrive ? (at-e.depart)/Math.max(1,e.arrive-e.depart) : e.combatVersion && !e.resolved ? 1 : 1-(at-(e.returnAt??e.arrive))/Math.max(1,e.back-(e.returnAt??e.arrive));
   const length=routeLength(e.route),going=e.recallAt===undefined&&at<e.arrive;
   const fraction=Math.max(0,Math.min(1,progress+(going?-lag:lag)/Math.max(1,length)));
   const [x,y]=explorerPos({t:"explore",from:e.route[0],to:e.route[e.route.length-1],start:0,route:e.route},fraction*Math.max(1,length)/EXPLORE_TILES_PER_MIN*MIN);
@@ -1270,6 +1271,38 @@ export function sendEnvoy(c: City, target: string, targetName: string, cells: nu
   return null;
 }
 
+/** Deterministic local combat, one simultaneous exchange per persisted second. */
+export function campDefenders(power: number): Troops {
+  if (power<=0) return {};
+  const total=Math.max(1,Math.round(power/9));
+  const sling=Math.floor(total/4);
+  return {club:total-sling,...(sling?{sling}:{})};
+}
+const combatHealth=(units:Troops)=>Object.fromEntries(UKEYS.filter(u=>units[u]).map(u=>[u,units[u]!*UNITS[u].hp])) as Partial<Record<UKey,number>>;
+const combatDamage=(units:Troops)=>UKEYS.reduce((n,u)=>n+(units[u]??0)*UNITS[u].atk,0);
+function combatHit(units:Troops,hp:Partial<Record<UKey,number>>,damage:number){
+  // Front line shields ranged units and noncombatants, who never attack.
+  for(const u of ["elephant","sword","spear","club","bow","sling","wagon","medic"] as UKey[]){
+    if(!units[u] || damage<=0)continue;
+    const health=hp[u]??units[u]!*UNITS[u].hp,hit=Math.min(health,damage);
+    hp[u]=Math.max(0,health-hit);units[u]=Math.ceil(hp[u]!/UNITS[u].hp);damage-=hit;
+  }
+}
+function combatHeal(units:Troops,hp:Partial<Record<UKey,number>>){
+  let healing=(units.medic??0)*3;
+  for(const u of UKEYS){if(!units[u]||!healing)continue;const max=units[u]!*UNITS[u].hp,add=Math.min(healing,Math.max(0,max-(hp[u]??max)));hp[u]=(hp[u]??max)+add;healing-=add;}
+}
+function finishCampCombat(c:City,e:Expedition,camp:Camp|undefined,at:number){
+  e.resolved=true;e.won=troopPower(e.units)>0 && !troopPower(e.combat!.defenders);
+  e.returnAt=at;e.back=at+(e.arrive-e.depart);
+  const lost:Troops={};for(const u of UKEYS){const n=(e.combat!.initial[u]??0)-(e.units[u]??0);if(n>0)lost[u]=n;}
+  if(camp && !camp.cleared){
+    camp.garrison={...e.combat!.defenders};
+    if(e.won){camp.cleared=true;camp.respawnAt=at+2*24*HOUR;e.loot={...camp.loot};c.wins++;reveal(c,camp.at,4);}
+  }
+  log(c,at,e.won ? `Quân ta phá trại man rợ!${troopCount(lost)?` Hy sinh: ${troopText(lost)}.`:""} Đang mang về ${costText(e.loot??{})}.` : `Quân ta phải rút khỏi trại man rợ.${troopCount(lost)?` Hy sinh: ${troopText(lost)}.`:""} Quân địch còn ${troopCount(e.combat!.defenders)} người.`,e.won?"good":"warn");
+}
+
 function stepArmy(c: City, nt: number) {
   let changed = false;
   if (c.raid && c.raid.at <= nt) { raid(c, c.raid.at, rng(c.seed ^ Math.imul(Math.floor(c.raid.at / MIN), 3266489917))); changed = true; }
@@ -1281,6 +1314,7 @@ function stepArmy(c: City, nt: number) {
   for (const k of c.camps) {
     if (k.cleared && k.respawnAt && k.respawnAt <= nt) {
       k.cleared = false; k.respawnAt = null;
+      delete k.garrison;
       k.power = Math.round(k.power * 1.25);
       for (const res of RES) if (k.loot[res]) k.loot[res] = Math.round(k.loot[res]! * 1.2);
       changed = true;
@@ -1290,7 +1324,26 @@ function stepArmy(c: City, nt: number) {
     const camp = campById(c, e.camp);
     if(!e.route && camp){e.route=expeditionPlan(c,camp.at)?.route??[];changed=true;}
     const position=expeditionPosition(e,nt);if(position && reveal(c,idx(Math.floor(position.x),Math.floor(position.y)),1))changed=true;
-    if (!e.resolved && e.arrive <= nt && !e.recalled) {
+    if (e.combatVersion && !e.resolved && e.arrive <= nt && !e.recalled) {
+      if (!e.combat) {
+        if(e.logisticsVersion){const march=marchLogistics(e.units,e.arrive-e.depart);e.units=march.survivors;e.marchLosses=march.losses;if(march.losses)log(c,e.arrive,`Hành quân xa tới trại man rợ: hao ${march.losses} chiến binh do thiếu hỗ trợ.`,"warn");}
+        const defenders = camp && !camp.cleared ? structuredClone(camp.garrison ?? campDefenders(camp.power)) : {};
+        e.combat = { last: e.arrive, rounds: 0, hp: combatHealth(e.units), defenders, defenderHp: combatHealth(defenders), initial: { ...e.units } };
+        if (troopCount(defenders)) log(c,e.arrive,`Man rợ ra tiếp chiến: ${troopText(defenders)}. Quân ta đang giao chiến.`,"warn");
+      }
+      const fight = e.combat;
+      while (troopPower(e.units)>0 && troopPower(fight.defenders)>0 && fight.rounds<60 && fight.last+1000<=nt) {
+        const attack = combatDamage(e.units), defense = combatDamage(fight.defenders);
+        // Simultaneous blows: even a defeated garrison can inflict a final wound.
+        combatHit(e.units,fight.hp,defense);
+        combatHit(fight.defenders,fight.defenderHp,attack);
+        combatHeal(e.units,fight.hp);
+        fight.rounds++; fight.last+=1000;
+      }
+      if (!troopPower(e.units) || !troopPower(fight.defenders) || fight.rounds>=60) finishCampCombat(c,e,camp,fight.last);
+      changed = true;
+    }
+    if (!e.combatVersion && !e.resolved && e.arrive <= nt && !e.recalled) {
       e.resolved = true;
       if(e.logisticsVersion){const march=marchLogistics(e.units,e.arrive-e.depart);e.units=march.survivors;e.marchLosses=march.losses;if(march.losses)log(c,e.arrive,`Hành quân xa tới trại man rợ: hao ${march.losses} chiến binh do thiếu hỗ trợ.`,"warn");}
       const r = rng(c.seed ^ Math.imul(e.id + 7, 2246822519));
@@ -1540,7 +1593,8 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if (!e) return "Không thấy đoàn quân này.";
     if (e.resolved) return "Đoàn quân đang trên đường về rồi.";
     // turn back from where they are now: same distance home as already walked
-    const oneWay = e.arrive - e.depart, walked = Math.max(0, now - e.depart);
+    const oneWay = e.arrive - e.depart, walked = Math.min(oneWay, Math.max(0, now - e.depart));
+    if (e.combat) { const camp = campById(c,e.camp); if(camp && !camp.cleared) camp.garrison={...e.combat.defenders}; }
     e.recallAt=now;e.returnProgress=Math.min(1,walked/Math.max(1,oneWay));
     e.recalled = true; e.resolved = true;
     e.arrive = now - oneWay + walked; e.back = now + walked;
@@ -1558,6 +1612,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     const camp = campById(c, a.camp);
     if (!camp || !c.seen[camp.at]) return "Không thấy trại này.";
     if (camp.cleared) return "Trại này đã bị phá, chờ chúng dựng lại.";
+    if(c.exps.some(e=>e.camp===camp.id && !e.resolved))return "Đã có đoàn quân đang tiến đánh trại này. Chờ giao chiến kết thúc.";
     const units: Troops = {};
     for (const u of UKEYS) {
       const n = Math.max(0, Math.floor(a.units?.[u] ?? 0));
@@ -1572,7 +1627,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if(c.res.food<suppliesFood)return `Cần ${suppliesFood} lương thực dự trữ cho cả đi và về.`;
     c.res.food-=suppliesFood;
     for (const u of UKEYS) if (units[u]) c.army[u]! -= units[u]!;
-    c.exps.push({ id: c.nextExp++, units, camp: camp.id, depart: now, arrive: now + ms, back: now + 2 * ms, resolved: false, route:plan.route, suppliesFood, logisticsVersion:1 });
+    c.exps.push({ id: c.nextExp++, units, camp: camp.id, depart: now, arrive: now + ms, back: now + 2 * ms, resolved: false, route:plan.route, suppliesFood, logisticsVersion:1, combatVersion:1 });
     log(c, now, `Xuất quân (${troopText(units)}) đánh trại man rợ, tới nơi sau ${Math.round(ms / MIN)} phút.`);
     return null;
   }

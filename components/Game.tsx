@@ -288,7 +288,7 @@ function ControlPanel(props: {
             <ul className="units train">
               {c.exps.map((e) => (
                 <li key={e.id}>
-                  <div><b>{troopCount(e.units)} lính</b> <span className="muted small">· {e.recalled ? `đang quay về, còn ${fmtDur(e.back - t)}` : t < e.arrive ? `tới trại ⚔ ${campById(c, e.camp)?.power ?? "?"} sau ${fmtDur(e.arrive - t)}` : `${e.won ? "thắng" : "thua"}, về sau ${fmtDur(e.back - t)}`}</span></div>
+                  <div><b>{troopCount(e.units)} lính</b> <span className="muted small">· {e.recalled ? `đang quay về, còn ${fmtDur(e.back - t)}` : t < e.arrive ? `tới trại ⚔ ${campById(c, e.camp)?.power ?? "?"} sau ${fmtDur(e.arrive - t)}` : !e.resolved ? `đang giao chiến · địch còn ${troopCount(e.combat?.defenders ?? {})} quân` : `${e.won ? "thắng" : "thua"}, về sau ${fmtDur(e.back - t)}`}</span></div>
                   <div className="tb">{!e.resolved && <button disabled={busy} onClick={() => act({ type: "recall", exp: e.id })}>Gọi về</button>}</div>
                 </li>
               ))}
@@ -1198,7 +1198,7 @@ export default function Game() {
                   <ul className="exps">
                     {c.exps.map((e) => (
                       <li key={e.id}>
-                        <b>{troopCount(e.units)} lính</b> · {t < e.arrive ? `đang hành quân, tới sau ${fmtDur(e.arrive - t)}` : `${e.won ? "thắng" : "thua"}, về làng sau ${fmtDur(e.back - t)}`}
+                        <b>{troopCount(e.units)} lính</b> · {t < e.arrive ? `đang hành quân, tới sau ${fmtDur(e.arrive - t)}` : !e.resolved ? `đang giao chiến · địch còn ${troopCount(e.combat?.defenders ?? {})} quân` : `${e.won ? "thắng" : "thua"}, về làng sau ${fmtDur(e.back - t)}`}
                       </li>
                     ))}
                   </ul>

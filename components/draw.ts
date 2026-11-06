@@ -1,6 +1,6 @@
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
-import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, armyStagingTiles, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
+import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, armyStagingTiles, campDefenders, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
 import { placementTiles } from "@/lib/build-placement";
 import type { Fx, Villager } from "./villagers";
 
@@ -1126,7 +1126,7 @@ export function drawSoldier(r: Pick<RC, "c" | "v" | "anim">, u: UKey, fx: number
     c.fillStyle = "#e2b240"; c.beginPath(); c.arc(sx - 1 * e, sy - 18 * e, 2 * e, 0, Math.PI * 2); c.fill();
     return;
   }
-  const look = barbarian ? { shirt: "#4a1f1a", weapon: "club" as const } : UNIT_LOOK[u];
+  const look = barbarian ? { shirt: "#4a1f1a", weapon: UNIT_LOOK[u].weapon } : UNIT_LOOK[u];
   const bob = walking ? Math.abs(Math.sin(ph)) * 1.2 * s : 0;
   c.fillStyle = "rgba(20,30,10,.3)"; c.beginPath(); c.ellipse(sx, sy, 4 * s, 1.8 * s, 0, 0, Math.PI * 2); c.fill();
   c.strokeStyle = "#3b2a1e"; c.lineWidth = Math.max(1.2, 1.6 * s); c.lineCap = "round";
@@ -1529,6 +1529,13 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   for (const k of city.camps) {
     if (!seen[k.at] || !vis[k.at] || city.b[k.at]) continue;
     items.push({ d: (k.at % W) + Math.floor(k.at / W) + 1, f: () => drawCampSite(r, k) });
+    if(!lod && !k.cleared && !city.exps.some(e=>e.camp===k.id && !e.recalled && !e.resolved && o.now>=e.arrive)){
+      const defenders=k.garrison??campDefenders(k.power);let n=0;
+      for(const u of UKEYS)for(let j=0;j<Math.min(defenders[u]??0,2)&&n<4;j++,n++){
+        const fx=k.at%W+.18+n*.18,fy=Math.floor(k.at/W)+.85,seed=k.id+n*.5;
+        items.push({d:fx+fy,f:()=>drawSoldier(r,u,fx,fy,-1,false,seed,false,true)});
+      }
+    }
   }
   if (!lod) {
     const embassy=buildings(city).find(([,b])=>b.k==="envoy"&&b.lvl>=1&&!b.burned&&!b.flooded);
@@ -1586,7 +1593,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       const camp = campById(city, e.camp);
       if (!camp) continue;
       const hx = (city.camp % W) + 0.5, hy = Math.floor(city.camp / W) + 0.5, tx = (camp.at % W) + 0.5, ty = Math.floor(camp.at / W) + 0.5;
-      const going = o.now < e.arrive, fighting = !e.recalled && e.resolved && o.now>=e.arrive && o.now-e.arrive<3000;
+      const going = o.now < e.arrive, fighting = !e.recalled && (e.combatVersion ? !e.resolved && o.now>=e.arrive : e.resolved && o.now>=e.arrive && o.now-e.arrive<3000);
       const p = going ? (o.now - e.depart) / Math.max(1, e.arrive - e.depart) : 1 - (o.now - e.arrive) / Math.max(1, e.back - e.arrive);
       const pc = Math.max(0, Math.min(1, p));
       const cx = hx + (tx - hx) * pc, cy = hy + (ty - hy) * pc;
@@ -1597,15 +1604,36 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
         const row = Math.floor(n / 3), col = (n % 3) - 1;
         const back = (going ? -1 : 1) * row * 0.35;
         const routed=expeditionPosition(e,o.now,row*.35);
-        const fx = routed ? Math.max(Math.floor(routed.x)+.08,Math.min(Math.floor(routed.x)+.92,routed.x+col*.12)) : cx + ((tx - hx) / len) * back + nx * col * 0.35;
-        const fy = routed ? routed.y : cy + ((ty - hy) / len) * back + ny * col * 0.35;
+        const fx = fighting && e.combatVersion ? tx-.3+(n%2)*.12 : routed ? Math.max(Math.floor(routed.x)+.08,Math.min(Math.floor(routed.x)+.92,routed.x+col*.12)) : cx + ((tx - hx) / len) * back + nx * col * 0.35;
+        const fy = fighting && e.combatVersion ? ty-.22+Math.floor(n/2)*.06 : routed ? routed.y : cy + ((ty - hy) / len) * back + ny * col * 0.35;
         const ti = idx(Math.max(0, Math.min(W - 1, Math.floor(fx))), Math.max(0, Math.min(H - 1, Math.floor(fy))));
         if (!vis[ti]) continue;
         const nn = n;
         items.push({ d: fx + fy, f: () => {
-          const fn = () => drawSoldier(r, u, fx, fy, routed?.face??face, !fighting, nn * 0.41, fighting);
+          const fn = () => drawSoldier(r, u, fx, fy, (fighting&&e.combatVersion?1:routed?.face??face), !fighting, nn * 0.41, fighting);
           if (inWater(r, fx, fy)) wade(r, fx, fy, fn); else fn();
         } });
+      }
+      if (fighting && e.combat) {
+        let defender=0;
+        for(const u of UKEYS)for(let k=0;k<Math.min(e.combat.defenders[u]??0,6)&&defender<12;k++,defender++){
+          const dx=tx+.18+(defender%2)*.12,dy=ty-.12+Math.floor(defender/2)*.06,seed=defender*.61;
+          if(vis[camp.at])items.push({d:dx+dy,f:()=>drawSoldier(r,u,dx,dy,-1,false,seed,true,true)});
+        }
+        if(vis[camp.at])items.push({d:tx+ty+2,f:()=>{
+          const [sx,sy]=P(r.v,tx,ty),scale=r.v.s;
+          r.c.font=`bold ${Math.max(10,11*scale)}px sans-serif`;r.c.textAlign="center";
+          r.c.fillStyle="#ffe2b0";r.c.fillText(`⚔ ${troopCount(e.units)} / ${troopCount(e.combat!.defenders)}`,sx,sy-40*scale);
+          // Ranged projectiles travel between the two engaged lines.
+          for(const [units,from,to] of [[e.units,tx-.25,tx+.25],[e.combat!.defenders,tx+.25,tx-.25]] as const){
+            for(const u of ["bow","sling"] as const){if(!units[u])continue;
+              const p=((o.now-e.arrive)%1000)/1000,[ax,ay]=P(r.v,from+(to-from)*p,ty-.05);
+              r.c.strokeStyle="#e9d2a0";r.c.lineWidth=Math.max(1,scale);
+              if(u==="bow"){r.c.beginPath();r.c.moveTo(ax-4*scale,ay-12*scale);r.c.lineTo(ax+4*scale,ay-12*scale);r.c.stroke();}
+              else{r.c.fillStyle="#d6d2c2";r.c.beginPath();r.c.arc(ax,ay-12*scale-Math.sin(p*Math.PI)*8*scale,Math.max(1.5,2*scale),0,Math.PI*2);r.c.fill();}
+            }
+          }
+        }});
       }
       if (troopCount(e.units) === 0 && going) continue;
     }
