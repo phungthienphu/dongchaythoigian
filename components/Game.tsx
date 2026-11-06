@@ -10,6 +10,8 @@ import {
 } from "@/lib/engine";
 import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import { Crowd } from "./villagers";
+import { expeditionReadiness } from "@/lib/expedition-readiness";
+import ExpeditionReadiness from "./ExpeditionReadiness";
 import WorldMap from "./WorldMap";
 import FriendSearch from "./FriendSearch";
 import HowToPlay from "./HowToPlay";
@@ -830,7 +832,8 @@ export default function Game() {
   const selI = selected ? idx(selected.x, selected.y) : -1;
   const sel = selected ? c.b[selI] : undefined;
   const selCamp = selected ? campAt(c, selI) : undefined;
-  const campPlan=selCamp?expeditionPlan(c,selCamp.at,send):null;
+  const campReadiness=selCamp?expeditionReadiness(c,selCamp.at,send):null;
+  const campPlan=campReadiness?.plan??null;
   const campSupply=campPlan?marchSupplies(send,campPlan.duration,c.era):null;
   const campLogistics=campPlan?marchLogistics(send,campPlan.duration):null;
   const selTask: { task: TaskInput; label: string } | null = !selected || selCamp ? null
@@ -968,7 +971,8 @@ export default function Game() {
               ) : (
                 <>
                   <p className="small">Sức mạnh: <b className="danger">⚔ {campStrength(selCamp)}</b> · Chiến lợi phẩm: {costText(selCamp.loot)}</p>
-                  <p className="muted small">{campPlan?`Hành quân ${fmtDur(campPlan.duration)} mỗi chiều theo lối đi thực tế${campPlan.ships?`, cần ${campPlan.ships} thuyền (giữ tới khi quân về)`:""}.`:"Chưa có đường hoặc chưa đủ thuyền cho quân đã chọn. Mở lối trại lính; xây Bến cảng sát sông, khám phá tuyến và đóng đủ thuyền."}</p>
+                  {campReadiness&&<ExpeditionReadiness city={c} units={send} readiness={campReadiness} onDock={()=>{setSelected(null);setShopEra(2);setPanel("shop");}}/>}
+                  {campPlan&&<p className="muted small">Hành quân {fmtDur(campPlan.duration)} mỗi chiều theo lối đi thực tế.</p>}
                   {troopCount(c.army) ? (
                     <>
                       <ul className="units">
@@ -978,7 +982,7 @@ export default function Game() {
                         ))}
                       </ul>
                       <p className="small">Quân gửi đi: <b className={sendPower >= campStrength(selCamp) ? "ok" : "danger"}>⚔ {fmt(sendPower)}</b> {sendPower >= campStrength(selCamp) * 1.2 ? "· nhiều khả năng thắng" : sendPower >= campStrength(selCamp) * 0.8 ? "· ngang sức, có thể hao quân" : "· yếu hơn, dễ thua"}</p>
-                      <p className="small">Dự trữ cả đi và về: {campSupply?.food} lương thực. {campLogistics?.long?`Đường xa, hiểm trở: dự kiến hao ${campLogistics.losses} chiến binh. Vận tải ${Math.round(campLogistics.transport*100)}%, quân y ${Math.round(campLogistics.medical*100)}%.`:"Chuyến ngắn, không hao quân do đường xa."}</p>
+                      {campLogistics&&<p className="small">{campLogistics.long?`Đường xa, hiểm trở: dự kiến hao ${campLogistics.losses} chiến binh. Vận tải ${Math.round(campLogistics.transport*100)}%, quân y ${Math.round(campLogistics.medical*100)}%.`:"Chuyến ngắn, không hao quân do đường xa."}</p>}
                       <button className="primary wide" disabled={busy || !campPlan || !troopPower(send) || c.res.food<(campSupply?.food??0)} onClick={async () => { if(campLogistics?.long && (campLogistics.transport<1||campLogistics.medical<1) && !window.confirm(`Chuyến hành quân dài và hiểm trở. Thiếu hậu cần/quân y có thể tổn hại lực lượng; dự kiến hao ${campLogistics.losses} chiến binh. Vẫn xuất quân?`))return;if (await act({ type: "attack", camp: selCamp.id, units: send })) setSelected(null); }}>Xuất quân</button>
                     </>
                   ) : <p className="muted small">Chưa có quân ở nhà. Xây Trại lính trong Cửa hàng rồi luyện quân.</p>}
