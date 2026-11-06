@@ -103,6 +103,25 @@ console.log('PASS: farmers wait without hoeing at warehouses, including stale wo
 console.log('PASS: authoritative hauling movement/cargo, response sync continuity, reassignment cargo retention, and no renderer deposits.');
 
 
+// Builders leave their office, walk to construction and wait when enclosed.
+const construction = newCity(0, 123); construction.t.fill(G); construction.seen.fill(1); construction.b = {}; construction.people = [];
+const office = idx(20,20), site = idx(24,20);
+construction.camp = idx(15,20); construction.b[office] = { k:'builderhouse', lvl:1, doneAt:null };
+construction.b[site] = { k:'hut', lvl:0, doneAt:100000 };
+const buildersCrowd = new Crowd(); buildersCrowd.sync(construction);
+const builder = buildersCrowd.list[0];
+assert.equal(builder.home,office); assert.equal(builder.state,'toWork');
+assert.equal(Math.floor(builder.fx),20);
+for(let step=0;step<120;step++)buildersCrowd.update(construction,.1,step*100);
+assert.equal(builder.state,'work'); assert.equal(Math.floor(builder.fx),24);
+const enclosed = structuredClone(construction);
+for(let y=19;y<=21;y++)for(let x=19;x<=21;x++)if(x!==20||y!==20)enclosed.b[idx(x,y)]={k:'wall',lvl:1,doneAt:null};
+const blockedBuilders = new Crowd();blockedBuilders.sync(enclosed);blockedBuilders.update(enclosed,10,10000);
+assert.equal(blockedBuilders.list[0].state,'rest');assert.equal(Math.floor(blockedBuilders.list[0].fx),20,'enclosed builder cannot teleport');
+delete enclosed.b[idx(21,20)];blockedBuilders.sync(enclosed);assert.equal(blockedBuilders.list[0].state,'toWork','opening a path resumes the trip');
+construction.b[site].doneAt=null;construction.b[site].lvl=1;buildersCrowd.sync(construction);assert.equal(buildersCrowd.list.length,0);
+console.log('PASS: builders walk from their house, work on arrival, wait without teleporting and resume after an exit opens.');
+
 // Elevated roof clicks must select their sprite, with solid-face boundaries and painter ordering.
 const pickCity = newCity(1000, 7); pickCity.t.fill(G); pickCity.seen.fill(1); pickCity.b = {};
 const pickView = { TW: 128, TH: 64, ox: 500, oy: 200, width: 1440, height: 1200, s: 2 };

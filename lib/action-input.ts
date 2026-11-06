@@ -3,7 +3,7 @@ import type { Action, BKey, UKey } from './engine';
 // Exhaustive typed tables keep the JSON boundary in sync with engine keys,
 // without a runtime engine import (the engine itself invokes this guard).
 const BUILDINGS: Record<BKey, true> = {
-  hut: true, gather: true, wood: true, quarry: true, storehouse: true,
+  builderhouse: true, hut: true, gather: true, wood: true, quarry: true, storehouse: true,
   fire: true, farm: true, canal: true, levee: true, house: true,
   smelter: true, market: true, stonehouse: true, forge: true, wheel: true,
   hall: true, envoy: true, barracks: true, wall: true, gate: true,

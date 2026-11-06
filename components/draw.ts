@@ -753,6 +753,19 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       smoke(r, x, y, 0.12, -0.08, 36, i);
       break;
     }
+    case "builderhouse": {
+      const era = r.city.era, height = (era === 1 ? 9 : era === 2 ? 14 : 19) * hs;
+      shadow(r, x, y, .43);
+      box(r,x,y,-.36,-.34,.25,.16,0,height,era===3?"#c6c1ad":"#b28b58",era===3?"#a7a591":"#947044",era===3?"#858977":"#745334");
+      gable(r,x,y,-.4,-.38,.29,.2,height,era===1?8:11,era===1?"#c5a15e":era===2?"#89613b":"#a95238",era===1?"#a98b4d":era===2?"#704c30":"#89412d",era===1?"#b79855":era===2?"#7d5634":"#974830");
+      // Open workbench with a mallet, spare planks and stone blocks.
+      box(r,x,y,-.25,.26,.3,.4,0,7,"#bc955b","#987443","#745435");
+      line(r,q(.03,.32,7),q(.14,.32,13),"#5e4029",1.8);
+      box(r,x,y,.07,.28,.22,.37,12,15,"#b3b8b1","#8c938e","#676f6b");
+      for(let n=0;n<3;n++)box(r,x,y,.29,-.26+n*.1,.45,-.2+n*.1,0,3+n,"#c5a06b","#a68452","#84683e");
+      if(era===3)box(r,x,y,-.43,.1,-.3,.23,0,5,"#c5c4b8","#a6aa9a","#858d7e");
+      break;
+    }
     case "market": {
       if(r.city.era===3){box(r,x,y,-.4,-.3,.4,.3,0,4,"#bcc5b5","#99ac98","#768f7b");for(const u of [-.35,.3])box(r,x,y,u,-.23,u+.05,.23,4,17,"#c6d0c3","#a3b6a4","#7c9a86");}
       shadow(r, x, y, 0.42);
@@ -1276,6 +1289,7 @@ function buildingHitShapes(k: BKey, lvl: number, era: number): HitShape[] {
     case "canal": return [shape(-.25, -.25, .25, .25, 1)];
     case "levee": return [shape(-.48, -.48, .48, .48, 6)];
     case "smelter": return [shape(-.3, -.3, .3, .3, 12, 8, true), shape(.05, -.15, .2, 0, 34)];
+    case "builderhouse": return [shape(-.4,-.38,.29,.2,(era===1?9:era===2?14:19)*hs,era===1?8:11),shape(-.25,.26,.3,.4,7)];
     case "market": return [shape(-.38, -.26, .38, .31, 18, 6)];
     case "forge": return [shape(-.39, -.33, .37, .31, 16*hs, 9)];
     case "wheel": return [shape(-.34, -.34, .16, .24, 13 * hs, 9), shape(.14, -.2, .46, .12, 22)];

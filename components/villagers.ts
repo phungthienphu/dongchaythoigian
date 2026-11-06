@@ -227,14 +227,21 @@ export class Crowd {
     for (const [i, b] of buildings(city)) {
       if (!b.doneAt) continue;
       const key = `b${i}`, prev = old.get(key);
-      if (prev) { next.push(prev); continue; }
+      if (prev) {
+        if (topologyChanged && (prev.state === "toWork" || prev.state === "rest")) this.go(prev, city, tileOf(prev.fx,prev.fy), i, "toWork", false);
+        next.push(prev); continue;
+      }
       const seed = ((i * 0.618) % 1 + 1) % 1;
-      const [fx, fy] = this.spot(i, seed, "build");
-      next.push({
-        key, id: null, name: "Thợ xây", job: "build", sig: key, home: i, work: i, state: "work", path: [], pi: 0, fx, fy, t: 1e9,
+      const offices = buildings(city).filter(([,office])=>office.k==="builderhouse"&&office.lvl>=1&&!office.burned&&!office.flooded).map(([tile])=>tile);
+      const origin = offices.sort((a,b)=>cheb(a,i)-cheb(b,i))[0] ?? city.camp;
+      const [fx, fy] = center(origin);
+      const actor: Villager = {
+        key, id: null, name: "Thợ xây", job: "build", sig: key, home: origin, work: i, state: "rest", path: [], pi: 0, fx, fy, t: 1e9,
         carry: null, carrying: false, shirt: SHIRT.build, skin: SKINS[i % 3], band: BANDS[0], seed, visible: true, moving: false, run: false,
         tx: fx, ty: fy, face: -1, hits: 0, cool: 0, swing: 0,
-      });
+      };
+      this.go(actor, city, origin, i, "toWork", false);
+      next.push(actor);
     }
     this.list = next;
   }
@@ -263,6 +270,7 @@ export class Crowd {
   private go(v: Villager, city: City, from: number, to: number, next: Villager["state"], run: boolean) {
     const p = this.path(city, from, to);
     v.run = run;
+    if (!p && v.job === "build") { v.state = "rest"; v.path = []; v.moving = false; v.swing = 0; return; }
     if (!p) { v.state = next === "toWork" ? "work" : "rest"; v.t = 6; [v.fx, v.fy] = this.spot(to, v.seed, v.job); return; }
     v.path = p.length > 1 ? p.slice(1) : p.slice(); // start from where they stand, not the tile centre
     v.path[v.path.length - 1] = next === "toWork" ? this.spot(to, v.seed, v.job) : center(to);
@@ -326,6 +334,7 @@ export class Crowd {
           break;
         }
         case "rest":
+          if (v.job === "build") break; // A blocked builder waits for topology to change.
           v.visible = v.job === "idle" || v.id === null;
           v.t -= dt;
           if (v.t <= 0) {

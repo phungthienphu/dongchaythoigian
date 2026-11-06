@@ -71,6 +71,7 @@ const DEFS = {
   smelter: { n: "Lò đúc đồng", era: 2, cost: { wood: 100, stone: 120 }, sec: 600, jobs: 3, prod: { copper: 20 }, use: { wood: 20 }, need: "ore", up: true, drop: ["copper"], d: "Kề mỏ đồng. Đốt gỗ ra đồng." },
   market: { n: "Chợ", era: 2, cost: { wood: 200, stone: 100 }, sec: 900, jobs: 2, max: 3, d: "+10% mọi sản lượng. Tối đa 3 chợ." },
   stonehouse: { n: "Nhà đá", era: 3, cost: { stone: 250, copper: 30 }, sec: 1200, house: 12, up: true, d: "12 người mỗi cấp. Lũ không làm ngập." },
+  builderhouse: { n: "Nhà thợ xây", era: 1, cost: { wood: 70, stone: 30 }, sec: 40, up: true, max: 2, d: "Mỗi cấp thêm 1 đội thợ, xây thêm 1 công trình đồng thời. Tối đa 2 nhà. Đội thợ chuyên trách, không lấy dân đang thu hoạch. Nhà cháy/ngập không cấp thêm đội; công trình đang xây vẫn được hoàn tất." },
   forge: { n: "Xưởng dụng cụ", era: 1, cost: { wood: 40, stone: 20 }, sec: 30, up: true, max: 2, d: "Mỗi cấp tăng 25% tốc độ chặt cây, đào đá, săn bắn và làm ruộng, trại hái lượm. Áp dụng toàn làng ngay khi xây xong, không cần giao thợ. Tối đa 2 xưởng; nâng cấp sau khi có Đình làng." },
   wheel: { n: "Cối nước", era: 3, cost: { wood: 200, stone: 100 }, sec: 1200, jobs: 2, prod: { food: 150 }, need: "river", up: true, d: "Sát sông. Mùa đông không giảm." },
   hall: { n: "Đình làng", era: 2, cost: { wood: 300, stone: 200, copper: 20 }, sec: 900, house: 5, storage: 500, up: true, max: 1, drop: ["food", "wood", "stone", "copper", "gold", "diamond"], d: "Nhà chính. Công trình khác chỉ nâng được tới cấp của Đình. Cấp 3 mở trung tâm điều khiển." },
@@ -285,6 +286,7 @@ export const BUILDING_ERA_NAMES: Partial<Record<BKey, string[]>> = {
   wood: ["", "Trại đốn gỗ", "Xưởng gỗ", "Xưởng cưa"],
   quarry: ["", "Bãi đá", "Trạm khai thác đá", "Công trường đá"],
   storehouse: ["", "Kho tranh", "Kho gỗ", "Kho kiên cố"],
+  builderhouse: ["", "Lều thợ xây", "Nhà thợ mộc", "Xưởng kiến trúc"],
   forge: ["", "Xưởng dụng cụ", "Lò rèn đồng", "Lò rèn sắt"],
   barracks: ["", "Trại chiến binh", "Doanh trại", "Doanh trại kiên cố"],
   fire: ["", "Bếp lửa chung", "Bếp làng", "Bếp xây"],
@@ -561,7 +563,7 @@ export function derive(c: City): Derived {
 }
 
 const count = (c: City, k: BKey) => Object.values(c.b).reduce((n, b) => n + (b.k === k ? 1 : 0), 0);
-export const builders = (c: City) => c.era + 1;
+export const builders = (c: City) => c.era + 1 + Object.values(c.b).reduce((n,b) => n + (b.k === "builderhouse" && isBuildingActive(b) ? b.lvl : 0), 0);
 export const busyBuilders = (c: City) => Object.values(c.b).reduce((n, b) => n + (b.doneAt ? 1 : 0), 0);
 export const buildMs = (k: BKey, lvl: number) => def(k).sec * 1000 * 3 ** (lvl - 1);
 /** Prices depend on the buyer's era; base definitions remain stable for combat
