@@ -1,6 +1,10 @@
 "use client";
 
 // World map: every nation is a fortress on a WORLD × WORLD board. Envoys travel between them.
+import {caravanMapPosition} from "@/lib/market-rules";
+import type {CaravanView} from "@/lib/market-types";
+import {drawCaravanActor,drawRaiderActor} from "./trade-actors";
+import {caravanStatus} from "./MarketPanel";
 import { envoyWorldRoutes } from "@/lib/envoy-world";
 import { worldWarMessage, type WarLoadStatus } from "@/lib/world-service-status";
 import FriendSearch, { addFriend } from "./FriendSearch";
@@ -13,6 +17,8 @@ import { MARCH_TILES_PER_MIN, MIN } from "@/lib/engine";
 import type { Nation } from "@/lib/world";
 
 type Props = {
+  caravans?: CaravanView[];
+  onMarket?:(id?:string)=>void;
   signedIn: boolean;
   onFriendsChanged: () => Promise<void>;
   wars: WarSummary[];
@@ -43,12 +49,13 @@ function hash(n: number) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled, warStatus="ready", warError, onRetryWar, feedback, onAttack, nations, city, now, busy, onEnvoy, onVisit, onClose }: Props) {
+export default function WorldMap({ caravans=[], onMarket, signedIn, onFriendsChanged, wars, warEnabled, warStatus="ready", warError, onRetryWar, feedback, onAttack, nations, city, now, busy, onEnvoy, onVisit, onClose }: Props) {
   const cv = useRef<HTMLCanvasElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const me = nations.find((n) => n.me);
   const cam = useRef({ x: me?.x ?? WORLD / 2, y: me?.y ?? WORLD / 2, z: 7 }); // z = pixels per cell
   const [sel, setSel] = useState<Nation | null>(null);
+  const [selectedCaravan,setSelectedCaravan]=useState<string|null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [friendBusy, setFriendBusy] = useState(false);
   const [friendNote, setFriendNote] = useState("");
@@ -57,8 +64,8 @@ export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled,
   const [army, setArmy] = useState<Troops>({});
   useEffect(() => { setArmy({}); }, [sel?.id]);
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
-  const state = useRef({ nations, city, now, wars });
-  state.current = { nations, city, now, wars };
+  const state = useRef({ nations, city, now, wars, caravans });
+  state.current = { nations, city, now, wars, caravans };
 
   useEffect(() => {
     const c = cv.current, w = wrap.current;
@@ -154,6 +161,17 @@ export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled,
         ctx.fillStyle="rgba(12,20,18,.9)";ctx.fillRect(ex-width/2,ey-40,width,17);
         ctx.fillStyle="#bdefff";ctx.fillText(label,ex,ey-28);
       }
+      for(const convoy of state.current.caravans){
+        if(!convoy.from||!convoy.to||convoy.status==='completed')continue;
+        const tn=now(),position=caravanMapPosition(convoy,tn),raid=convoy.raid;if(!position)continue;
+        const [ax,ay]=S(convoy.from.x,convoy.from.y),[bx,by]=S(convoy.to.x,convoy.to.y),[cx,cy]=S(position.x,position.y);
+        ctx.setLineDash([8,5]);ctx.strokeStyle=raid?'#ec985d':'#dfc46e';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke();ctx.setLineDash([]);
+        drawCaravanActor(ctx,cx,cy,.8,t,convoy.status!=='fighting'&&convoy.status!=='waiting',convoy.to.x>=convoy.from.x?1:-1);
+        if(troopCount(convoy.escorts))drawRaiderActor(ctx,cx-22,cy+5,t,convoy.status==='fighting',troopCount(convoy.escorts),'#629ab1');
+        ctx.font='600 11px system-ui';ctx.textAlign='center';const label=convoy.status==='fighting'?`Giao chiến · ${troopCount(convoy.escorts)} hộ tống`:convoy.robbed?'Đã bị cướp':`Xe: ${convoy.sellerName} → ${convoy.buyerName}`;ctx.fillStyle='#16251feb';ctx.fillRect(cx-100,cy-45,200,16);ctx.fillStyle='#ffe0a3';ctx.fillText(label,cx,cy-33);
+        if(raid?.from&&raid.to&&!raid.returned){let f=Math.max(0,Math.min(1,(tn-raid.depart)/Math.max(1,raid.meetAt-raid.depart))),from=raid.from,to=raid.to;if(raid.backAt&&raid.fight?.finished){from=raid.to;to=raid.from;f=Math.max(0,Math.min(1,(tn-raid.fight.last)/Math.max(1,raid.backAt-raid.fight.last)));}const [rx,ry]=S(from.x+(to.x-from.x)*f,from.y+(to.y-from.y)*f),[ox,oy]=S(from.x,from.y),[tx,ty]=S(to.x,to.y);ctx.setLineDash([4,4]);ctx.strokeStyle='#e67565';ctx.beginPath();ctx.moveTo(ox,oy);ctx.lineTo(tx,ty);ctx.stroke();ctx.setLineDash([]);drawRaiderActor(ctx,rx,ry,t,convoy.status==='fighting',troopCount(raid.units));}
+        if(convoy.status==='fighting'){ctx.strokeStyle='#fff1a1';ctx.lineWidth=2;const pulse=8+Math.sin(t/100)*4;ctx.beginPath();ctx.moveTo(cx-pulse,cy-pulse);ctx.lineTo(cx+pulse,cy+pulse);ctx.moveTo(cx+pulse,cy-pulse);ctx.lineTo(cx-pulse,cy+pulse);ctx.stroke();}
+      }
       raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
@@ -163,6 +181,8 @@ export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled,
   const pick = (e: React.MouseEvent) => {
     const r = cv.current!.getBoundingClientRect(), k = cam.current;
     const wx = k.x + (e.clientX - r.left - r.width / 2) / k.z, wy = k.y + (e.clientY - r.top - r.height / 2) / k.z;
+    const convoy=caravans.find(c=>{const p=caravanMapPosition(c,now());return p&&Math.hypot(p.x-wx,p.y-wy)<Math.max(2,22/k.z);});
+    setSelectedCaravan(convoy?._id??null);if(convoy){setSel(null);return;}
     let best: Nation | null = null, bd = Math.max(2.5, 18 / k.z);
     for (const n of nations) { const d = Math.hypot(n.x - wx, n.y - wy + 0.3); if (d < bd) { bd = d; best = n; } }
     setSel(best);
@@ -213,6 +233,7 @@ export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled,
         <button onClick={() => setSearchOpen(value => !value)} aria-expanded={searchOpen}>Tìm bạn bè</button>
         <button onClick={onClose}>Về làng</button>
       </header>
+      {onMarket&&<aside className="wm-trade" aria-label="Đoàn xe trên thế giới"><button onClick={()=>onMarket()}>Mở Chợ / Chọn quân cướp xe</button>{caravans.filter(c=>c.status!=='completed').slice(0,8).map(c=><p key={c._id}><button aria-pressed={selectedCaravan===c._id} onClick={()=>setSelectedCaravan(c._id)}>{c.sellerName} → {c.buyerName}</button>{caravanStatus(c)}{!c.from?' · Chưa rõ tuyến':''}</p>)}{caravans.filter(c=>c._id===selectedCaravan).map(c=><p key={c._id}>{c.amount} hàng · {troopCount(c.escorts)} hộ tống <button onClick={()=>onMarket(c.canRaid?c._id:undefined)}>{c.canRaid?'Chọn quân chặn xe':'Xem giao dịch'}</button></p>)}</aside>}
       <aside className="wm-discovery" aria-label="Khám phá thế giới">
         <p>Nét đứt xanh và chấm di chuyển: sứ giả của bạn, đang đi hoặc đang về.</p>
         {feedback && <p role={feedback.err?"alert":"status"} className={feedback.err?"err":"ok"}>{feedback.text}</p>}

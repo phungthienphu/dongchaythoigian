@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { reconcileCaravans } from "@/lib/market";
 import { battles } from "@/lib/db";
 import { returnArmy, startBattle, workerAuthorized, workerRequest } from "@/lib/war";
 // Durable recovery for the cross-service handoff: database reservation and Worker
@@ -16,5 +17,6 @@ export async function POST(req: Request) {
     await (await battles()).updateOne({ _id: w._id }, { $set: { updatedRecoveryAt: new Date() } });
   }));
   const failed = results.filter((r) => r.status === "rejected").length;
-  return NextResponse.json({ checked: rows.length, failed }, { status: failed ? 503 : 200 });
+  const market = await reconcileCaravans().catch(() => ({checked:0,failed:1}));
+  return NextResponse.json({ checked: rows.length, failed, market }, { status: failed || market.failed ? 503 : 200 });
 }

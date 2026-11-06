@@ -69,7 +69,7 @@ const DEFS = {
   levee: { n: "Đê đất", era: 2, cost: { stone: 30, wood: 20 }, sec: 60, need: "bank", d: "Sát bờ sông. Che lũ cho công trình trong 2 ô." },
   house: { n: "Nhà gỗ", era: 2, cost: { wood: 120, stone: 40 }, sec: 300, house: 7, up: true, d: "Chỗ ở cho 7 người mỗi cấp." },
   smelter: { n: "Lò đúc đồng", era: 2, cost: { wood: 100, stone: 120 }, sec: 600, jobs: 3, prod: { copper: 20 }, use: { wood: 20 }, need: "ore", up: true, drop: ["copper"], d: "Kề mỏ đồng. Đốt gỗ ra đồng." },
-  market: { n: "Chợ", era: 2, cost: { wood: 200, stone: 100 }, sec: 900, jobs: 2, max: 3, d: "+10% mọi sản lượng. Tối đa 3 chợ." },
+  market: { n: "Chợ", era: 2, cost: { wood: 200, stone: 100 }, sec: 900, jobs: 2, max: 3, d: "+10% mọi sản lượng. Đăng bán hàng, tự chọn giá và tài nguyên thanh toán; vận chuyển bằng đoàn xe có thể bị người chơi khác cướp. Tối đa 3 chợ." },
   stonehouse: { n: "Nhà đá", era: 3, cost: { stone: 250, copper: 30 }, sec: 1200, house: 12, up: true, d: "12 người mỗi cấp. Lũ không làm ngập." },
   builderhouse: { n: "Nhà thợ xây", era: 1, cost: { wood: 70, stone: 30 }, sec: 40, up: true, max: 2, d: "Mỗi cấp thêm 1 đội thợ, xây thêm 1 công trình đồng thời. Tối đa 2 nhà. Đội thợ chuyên trách, không lấy dân đang thu hoạch. Nhà cháy/ngập không cấp thêm đội; công trình đang xây vẫn được hoàn tất." },
   forge: { n: "Xưởng dụng cụ", era: 1, cost: { wood: 40, stone: 20 }, sec: 30, up: true, max: 2, d: "Mỗi cấp tăng 25% tốc độ chặt cây, đào đá, săn bắn và làm ruộng, trại hái lượm. Áp dụng toàn làng ngay khi xây xong, không cần giao thợ. Tối đa 2 xưởng; nâng cấp sau khi có Đình làng." },
@@ -229,14 +229,15 @@ export type City = {
   cropDamage?: { tile: number; until: number };
   discoveries?: string[]; // permanent nation IDs discovered by envoys
   visits?: Record<string, number>; // city id -> visit valid until (ms)
+  merchantJourneys?: {id:string;depart:number;arrive:number;back:number;villageRoute:number[];incoming?:boolean;raider?:boolean}[];
   guardPosts?: { x: number; y: number }[]; // home army guard positions
   alarm?: boolean; // bell rung for the incoming raid
 };
 
 export type EnvoyTrip = { id: number; target: string; targetName: string; depart: number; arrive: number; back: number; arrived?: boolean; scouting?: boolean; villageRoute?: number[] };
 /** Village leg of a diplomatic journey uses the same walkable terrain as villagers. */
-export function envoyVillageRoute(c: City): number[] {
-  const house=buildings(c).find(([,b])=>b.k==="envoy"&&isBuildingActive(b));
+export function envoyVillageRoute(c: City, kind:BKey="envoy"): number[] {
+  const house=buildings(c).find(([,b])=>b.k===kind&&isBuildingActive(b));
   if(!house)return [];
   const from=house[0],prev=new Int32Array(W*H).fill(-1),queue=[from];prev[from]=from;
   for(let head=0;head<queue.length;head++){
@@ -253,7 +254,7 @@ export function envoyVillageRoute(c: City): number[] {
   }
   return [];
 }
-export function envoyVillagePosition(tr: EnvoyTrip, at: number) {
+export function envoyVillagePosition(tr: Pick<EnvoyTrip,"depart"|"arrive"|"back"|"villageRoute">, at: number) {
   const route=tr.villageRoute;if(!route?.length || at<tr.depart || at>=tr.back)return null;
   const length=routeLength(route),leg=Math.max(1,Math.min(length*HAUL_TILE_MS,(tr.arrive-tr.depart)*.8,(tr.back-tr.arrive)*.8));
   let distance:number,returning=false;
@@ -1578,6 +1579,7 @@ function completeBuilding(c:City,b:Building,at:number){
 /** Advance the city to `now`: finish construction, run seasons, produce, grow. Mutates `c`. */
 export function settle(c: City, now: number) {
   normalizeResources(c);
+  if(c.merchantJourneys)c.merchantJourneys=c.merchantJourneys.filter(j=>j.back>now);
   if (now <= c.last) return;
   let t = c.haulAt ?? c.last;
   c.haulAt = t;
@@ -1654,7 +1656,7 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number): st
   if (d.era > c.era) return "Chưa tới thời đại này.";
   if (c.b[i]) return "Ô này đã có công trình.";
   if (t === R) return "Không xây được trên sông.";
-  if(!["farm","canal","levee","gate"].includes(k) && [...c.exps,...(Object.keys(c.homeOrders??{}).length?homeSoldiers(c,c.last):[]).flatMap(s=>{const o=c.homeOrders?.[s.id];return o?[{route:s.moving?o.route:[idx(Math.floor(s.x),Math.floor(s.y))]}]:[];}),...c.people.flatMap(p=>p.refuge?[p.refuge]:[])].some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân hoặc dân tránh địch đang dùng lối này. Chờ họ trở về hoặc chọn ô khác để không chặn đường.";
+  if(!["farm","canal","levee","gate"].includes(k) && [...c.exps,...(c.merchantJourneys??[]).filter(j=>j.back>c.last).map(j=>({route:j.villageRoute})),...(Object.keys(c.homeOrders??{}).length?homeSoldiers(c,c.last):[]).flatMap(s=>{const o=c.homeOrders?.[s.id];return o?[{route:s.moving?o.route:[idx(Math.floor(s.x),Math.floor(s.y))]}]:[];}),...c.people.flatMap(p=>p.refuge?[p.refuge]:[])].some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân hoặc dân tránh địch đang dùng lối này. Chờ họ trở về hoặc chọn ô khác để không chặn đường.";
   if (k === "quarry") { if (t !== HL) return "Bãi đá phải đặt trên đồi."; }
   else if (isRock(t)) return "Đồi đá chỉ đặt được bãi đá.";
   else if (t === F) return "Rừng rậm: cho người chặt hết cây trước, hoặc chọn ô cỏ.";

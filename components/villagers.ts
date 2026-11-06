@@ -1,7 +1,7 @@
 import { BoundedCache } from "@/lib/bounded-cache";
 // Client-side animation of the people stored on the server. Positions are visual only;
 // what each person does (their task) comes from the server.
-import { B, H, isRock, HL, O, R, W, buildings, refugePosition, cheb, explorerPos, haulPosition, herdById, idx, inb, type City, type Haul, type Person, type ResKey } from "@/lib/engine";
+import { B, H, isRock, mineralResource, HL, O, R, W, buildings, refugePosition, cheb, explorerPos, haulPosition, herdById, idx, inb, type City, type Haul, type Person, type ResKey } from "@/lib/engine";
 import { herdAnimals } from "./draw";
 
 export type Job = "wood" | "quarry" | "gather" | "farm" | "build" | "smith" | "trade" | "hunt" | "explore" | "idle" | "other";
@@ -146,7 +146,7 @@ function describe(city: City, p: Person): { job: Job; work: number; carry: ResKe
       return { job: JOB_OF[k] ?? "other", work: tk.at, carry: res, sig: `w${tk.at}` };
     }
     case "chop": return { job: "wood", work: tk.at, carry: "wood", sig: `c${tk.at}` };
-    case "mine": return { job: "quarry", work: tk.at, carry: city.t[tk.at] === 4 ? "copper" : "stone", sig: `m${tk.at}` };
+    case "mine": return { job: "quarry", work: tk.at, carry: mineralResource(city.t[tk.at]), sig: `m${tk.at}` };
     case "hunt": return { job: "hunt", work: herdById(city, tk.herd)?.at ?? city.camp, carry: "food", sig: `h${tk.herd}` };
     case "explore": return { job: "explore", work: tk.to, carry: null, sig: `e${tk.to}:${tk.start}` };
     default: return { job: "idle", work: tk.at ?? -1, carry: null, sig: `i${tk.at ?? ""}` };

@@ -366,3 +366,5 @@ a.google.small { padding: 4px 10px; font-size: 12.5px; }
 @media(max-width:700px) { .wm-friends { top: 150px; } }
 
 .battle-reports { top: auto; bottom: 96px; max-height: 30vh; overflow-y: auto; }
+
+.trade-card{padding:12px;margin:10px 0;border:1px solid #576555;border-radius:10px;background:#19241f}.trade-card p{margin:6px 0}.trade-panel label,.trade-troops label{display:flex;gap:8px;align-items:center;justify-content:space-between;margin:10px 0}.trade-panel input[type=number],.trade-troops input{width:100px;max-width:40%}.trade-panel select{max-width:65%}.trade-panel button{margin:4px}.trade-panel input,.trade-panel select,.trade-troops input{padding:6px;background:#243129;color:#eee6d0;border:1px solid #62705e;border-radius:5px}.wm-trade{position:absolute;left:12px;bottom:12px;z-index:3;max-width:calc(100% - 24px);max-height:28vh;overflow:auto;background:#17241fed;padding:10px;border:1px solid #b49b59;border-radius:10px}.wm-trade p{margin:4px 0}.wm-trade button{margin-right:6px}

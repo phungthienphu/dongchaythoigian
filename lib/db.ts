@@ -40,6 +40,13 @@ export async function mongoClient() {
   if (!uri) throw new Error("Thiếu MONGODB_URI trong .env.local");
   g._mongo ??= new MongoClient(uri).connect().then(async (client) => {
     const d = client.db(dbName());
+    await d.collection("market_orders").createIndex({status:1,createdAt:-1});
+    await d.collection("market_orders").createIndex({seller:1,status:1});
+    await d.collection("caravans").createIndex({status:1,arrive:1});
+    await d.collection("caravans").createIndex({status:1,reconciledAt:1,createdAt:1});
+    await d.collection("caravans").createIndex({seller:1,createdAt:-1});
+    await d.collection("caravans").createIndex({buyer:1,createdAt:-1});
+    await d.collection("caravans").createIndex({"raid.by":1,createdAt:-1});
     await d.collection("cities").createIndex({ score: -1 });
     await d.collection("envoy_visits").createIndex({ to: 1, arrive: -1 });
     await d.collection("envoy_visits").createIndex({ from: 1, eventAt: -1 });
@@ -71,3 +78,6 @@ export async function battles() {
 export async function envoyVisits() {
   return (await db()).collection<import("./diplomacy-types").EnvoyVisit>("envoy_visits");
 }
+
+export async function marketOrders(){return (await db()).collection<import('./market-types').MarketOrder>('market_orders');}
+export async function caravans(){return (await db()).collection<import('./market-types').Caravan>('caravans');}

@@ -19,6 +19,8 @@ import BattleView from "./BattleView";
 import BattleReports from "./BattleReports";
 import DiplomacyMessages, { diplomacyText } from "./DiplomacyMessages";
 import { useDiplomacy } from "./useDiplomacy";
+import MarketPanel from "./MarketPanel";
+import { useMarket } from "./useMarket";
 import { useWars } from "./useWars";
 import { OptimisticCityQueue } from "@/lib/optimistic-city";
 import type { Nation } from "@/lib/world";
@@ -27,7 +29,7 @@ const VISIT_VIEW = { hover: null, selected: null, tool: null, picked: new Set<nu
 
 type Cell = { x: number; y: number };
 type Row = { name: string; score: number; era: number; pop: number; temple: boolean; me: boolean };
-type Panel = "shop" | "army" | "people" | "era" | "log" | "rank" | "control" | "friends";
+type Panel = "market" | "shop" | "army" | "people" | "era" | "log" | "rank" | "control" | "friends";
 type Me = { user: { id: string; name: string; picture?: string; email: string; friendCode: string; hasCity: boolean } | null; friends: { id: string; name: string; picture?: string; online: boolean; city: { id: string; name: string; era: number; pop: number; score: number } | null }[] };
 
 function fmtDur(ms: number) {
@@ -425,7 +427,9 @@ export default function Game() {
   }, []);
 
   const diplomacy = useDiplomacy(!loading && !needsName, () => { void loadCity(); void loadWorld(); });
-  const war = useWars(!loading && !needsName && !!me.user?.hasCity, () => { void loadCity(); void diplomacy.refresh(); });
+  const [marketTarget,setMarketTarget]=useState<string>();
+  const market = useMarket(!loading && !needsName && !!me.user?.hasCity, panel === "market" || worldOpen, () => { void loadCity(); });
+  const war = useWars(!loading && !needsName && !!me.user?.hasCity, () => { void loadCity(); void diplomacy.refresh(); void market.refresh(); });
   useEffect(()=>{if(panel==="log")void diplomacy.refresh();},[panel,diplomacy.refresh]);
 
   const sharedLocations=diplomacy.messages.filter(m=>m.side==="host"&&m.decision==="accepted").map(m=>m.id).join("|");
@@ -742,6 +746,7 @@ export default function Game() {
     setArmDemolish(false);
     setMsg(null);
     if (campAt(c, i)) setSend({ ...c.army });
+    if (c.b[i]?.k === "market") setPanel("market");
     if (c.b[i]?.k === "barracks") setPanel("army");
     if (c.b[i]?.k === "hall") setPanel("control");
   };
@@ -855,6 +860,7 @@ export default function Game() {
     { k: "era", icon: "era", label: "Thời đại", badge: reqMet(c) ? "!" : undefined },
     { k: "log", icon: "log", label: "Thông báo", badge: readNotice.key===noticeKey ? notices.filter(l=>l.at>readNotice.at).length||undefined : undefined },
     { k: "rank", icon: "rank", label: "Xếp hạng" },
+    { k: "market", icon: "shop", label: "Chợ", badge: market.data?.caravans.filter(c=>c.mine&&c.status!=="completed").length || undefined },
     { k: "friends", icon: "friends", label: "Bạn bè", badge: me.friends.filter((f) => f.online).length || undefined },
     ...(hallLv ? [{ k: "control" as Panel, icon: "era" as IconKey, label: "Đình làng", badge: c.raid ? "!" : undefined }] : []),
   ];
@@ -1032,6 +1038,7 @@ export default function Game() {
               </>}
               {sel.k==="barracks" && sel.lvl>=1 && !armyStagingTiles(c,1).length && <p className="err small">Trại lính bị bịt kín. Chừa lối đất nối ra ngoài, đặt cổng thay tường hoặc dỡ công trình chắn lối; quân không tự phá nhà mình.</p>}
               {["barracks","logistics","infirmary"].includes(sel.k) && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
+              {sel.k === "market" && sel.lvl >= 1 && <button className="primary" onClick={()=>setPanel("market")}>Giao thương bằng đoàn xe</button>}
               {sel.k === "hall" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("control")}>{control ? "Trung tâm điều khiển" : "Xem Đình làng"}</button>}
               {sel.doneAt && <button disabled={busy||c.res.diamond<speedBuildCost(sel,t)} onClick={()=>act({type:"speedBuild",...selected})}>Hoàn tất ngay · {speedBuildCost(sel,t)} kim cương (30 giây / viên)</button>}
               {(sel.flooded || sel.burned) && <button className="primary" disabled={busy} onClick={() => act({ type: "repair", ...selected })}>Sửa ({costText(repairCost(sel.k, sel.lvl, !!sel.burned, c.era))})</button>}
@@ -1120,6 +1127,8 @@ export default function Game() {
 
       {worldOpen && (
         <WorldMap
+          caravans={market.data?.caravans ?? []}
+          onMarket={id=>{setMarketTarget(id);setWorldOpen(false);setPanel("market");}}
           nations={nations}
           signedIn={!!me.user}
           onFriendsChanged={async () => { await Promise.all([loadMe(), loadWorld()]); }}
@@ -1313,6 +1322,7 @@ export default function Game() {
               />
             )}
 
+            {panel === "market" && <MarketPanel initialTarget={marketTarget} market={market} city={c} now={t} onWorld={()=>{setWorldOpen(true);setPanel(null);}} />}
             {panel === "friends" && <FriendsPanel me={me} reload={loadMe} onVisit={(id) => { setPanel(null);setWorldOpen(false);setSelected(null);setPicked(new Set());setTool(null);void loadVisit(id,true); }} />}
 
             {panel === "rank" && (

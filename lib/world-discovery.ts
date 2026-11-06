@@ -23,7 +23,7 @@ export function beginDiscovery(c: City, now: number): string | null {
 /** Village visitors get the village itself, never its owner's world intelligence. */
 export function villageView(c: City): City {
   const copy = structuredClone(c);
-  delete copy.trips; delete copy.visits; delete copy.discoveries;
+  delete copy.merchantJourneys; delete copy.trips; delete copy.visits; delete copy.discoveries;
   if(copy.battleId) copy.battleId="active";
   delete copy.guardPosts;
   copy.log = [];
