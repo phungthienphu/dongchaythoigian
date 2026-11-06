@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  DEFAULT_MIX, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
+  storageLevel, DEFAULT_MIX, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
   armyCap, armyUsed, buildingCost, trainingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -79,14 +79,14 @@ function taskLabel(c: City, p: Person) {
     default: return "Rảnh";
   }
 }
-function haulDetail(p: Person, at: number, storage: number, stock: City["res"]) {
+function haulDetail(p: Person, at: number, storage: City["res"], stock: City["res"]) {
   const h = p.haul;
   if (!h) return p.task.t === "idle" ? "Chưa có việc — chọn dân rồi bấm nơi làm việc." : p.task.t === "explore" ? "Đang dò đường trong làng." : "Chưa làm được: kiểm tra tài nguyên gần trại và đường đi; có thể giao việc khác.";
   const left = fmtDur(h.nextAt - at), name = h.resource ? RN[h.resource].toLowerCase() : "hàng";
   if (h.resting) return `${h.phase === "travel" ? "Đang đi theo lệnh" : "Đã nghỉ"} · vẫn giữ ${fmt(h.carried)} ${name} vì kho đầy. Dùng bớt tài nguyên hoặc xây Kho.`;
   if (h.phase === "travel") return `Đang tới chỗ làm · còn ${left}`;
   if (h.phase === "return") return `Đang mang ${fmt(h.carried)} ${name} về · tới nơi sau ${left}`;
-  if (h.phase === "unload") return h.resource && stock[h.resource] >= storage
+  if (h.phase === "unload") return h.resource && stock[h.resource] >= storage[h.resource]
     ? `Kho đầy · còn giữ ${fmt(h.carried)} ${name}. Xây thêm Kho hoặc dùng bớt tài nguyên.`
     : `Đang nộp ${fmt(h.carried)} ${name} · còn ${left}`;
   return `Đang gom ${name} · đủ ${h.capacity} sau ${left}, rồi mang về nộp`;
@@ -918,13 +918,13 @@ export default function Game() {
           </div>
           {RES.map((r) => {
             const rate = r === "copper" ? st.copperRate : r === "wood" ? st.rate.wood - st.woodUse : st.rate[r];
-            const pct = Math.min(100, (c.res[r] / st.storage) * 100);
-            const waiting = c.people.some(p => p.haul?.resource === r && p.haul.carried > 0 && st.storage-c.res[r] < p.haul.carried);
+            const pct = Math.min(100, (c.res[r] / st.storage[r]) * 100);
+            const waiting = c.people.some(p => p.haul?.resource === r && p.haul.carried > 0 && st.storage[r]-c.res[r] < p.haul.carried);
             return (
-              <div className="chip" key={r} tabIndex={0} title={`${RN[r]} trong kho: ${fmt(c.res[r])} / ${fmt(st.storage)} sức chứa. Thanh ngang biểu thị mức đầy kho. Dòng /giờ* là thu nhập ròng ước tính, không phải cộng tài nguyên tự động; dân phải mang hàng về nộp.${r === "food" ? " Lương thực bị tiêu hao liên tục để nuôi dân và quân." : r === "wood" ? " Gỗ bị tiêu hao liên tục khi lò đúc hoạt động, hoặc trừ ngay khi xây, nâng cấp và luyện quân." : " Xây dựng, nâng cấp và luyện quân có thể tiêu tốn tài nguyên."}` }>
+              <div className="chip" key={r} tabIndex={0} title={`${RN[r]} trong kho: ${fmt(c.res[r])} / ${fmt(st.storage[r])} sức chứa. Thanh ngang biểu thị mức đầy kho. Dòng /giờ* là thu nhập ròng ước tính, không phải cộng tài nguyên tự động; dân phải mang hàng về nộp.${r === "food" ? " Lương thực bị tiêu hao liên tục để nuôi dân và quân." : r === "wood" ? " Gỗ bị tiêu hao liên tục khi lò đúc hoạt động, hoặc trừ ngay khi xây, nâng cấp và luyện quân." : " Xây dựng, nâng cấp và luyện quân có thể tiêu tốn tài nguyên."}` }>
                 <Icon k={r} />
                 <div className="cv">
-                  <span className={"v" + (pct >= 100 ? " full" : "")}>{fmt(c.res[r])}<small>/{fmt(st.storage)}</small></span>
+                  <span className={"v" + (pct >= 100 ? " full" : "")}>{fmt(c.res[r])}<small>/{fmt(st.storage[r])}</small></span>
                   <span className="bar"><i style={{ width: pct + "%" }} /></span>
                   <span title="Năng suất ước tính; hàng chỉ vào kho khi dân mang về nộp." className={"d" + (rate > 0.05 ? " up" : rate < -0.05 ? " down" : "")}>{waiting ? "Kho chật · dân chờ nộp" : `${rate >= 0 ? "+" : ""}${fmt(rate)}/giờ*`}</span>
                 </div>
@@ -996,7 +996,7 @@ export default function Game() {
               <h2>{buildingName(c, sel.k)}{sel.lvl ? ` · cấp ${sel.lvl}` : ""}</h2>
               <p className="muted small">Kiến trúc {ERA_NAMES[c.era].toLowerCase()} · Lên thời đại tự đổi kiến trúc, không tự tăng cấp. Bấm nâng cấp để tăng công năng và trang bị; cấp tối đa theo Đình làng.</p>
               <p className="muted small">{B[sel.k].d}</p>
-              {sel.doneAt && <p className="small">{sel.lvl === 0 ? "Đang xây" : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
+              {sel.doneAt && <p className="small">{sel.lvl === 0 ? "Đang xây" : sel.storageUpgrade ? `Đang nâng ngăn ${RN[sel.storageUpgrade]}` : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
               {c.cropDamage?.tile===selI && c.cropDamage.until>t && <p className="err small">Ruộng bị thú rừng giẫm: năng suất còn 50%, phục hồi sau {fmtDur(c.cropDamage.until-t)}.</p>}
               {sel.doneAt && <button disabled={busy||c.res.diamond<speedBuildCost(sel,t)} onClick={()=>act({type:"speedBuild",...selected})}>Hoàn tất ngay · {speedBuildCost(sel,t)} kim cương (30 giây / viên)</button>}
               {(sel.flooded || sel.burned) && <p className="err small">{sel.burned ? "Bị cháy, cần sửa để hoạt động lại." : "Bị ngập, không hoạt động."}</p>}
@@ -1040,12 +1040,17 @@ export default function Game() {
               {["barracks","logistics","infirmary"].includes(sel.k) && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
               {sel.k === "market" && sel.lvl >= 1 && <button className="primary" onClick={()=>setPanel("market")}>Giao thương bằng đoàn xe</button>}
               {sel.k === "hall" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("control")}>{control ? "Trung tâm điều khiển" : "Xem Đình làng"}</button>}
+              {sel.k === "storehouse" && sel.lvl >= 1 && <div><p className="small">Nâng riêng từng ngăn +1.000 sức chứa. Mỗi Kho nâng một ngăn mỗi lần.</p>{RES.map(r=>{
+                const lv=storageLevel(sel,r), cap=levelCap(c,"storehouse"), locked=lv>=cap;
+                const reason=lv>=MAX_LVL?"Đã tối đa":locked?"Cần xây/nâng Đình làng":sel.doneAt?"Kho đang nâng cấp":sel.flooded||sel.burned?"Cần sửa Kho":"";
+                return <div key={r}><p>{RN[r]} · cấp {lv} · {fmt(lv*1000)} chỗ{sel.storageUpgrade===r?` · đang nâng (${fmtDur((sel.doneAt??t)-t)})`:""}</p><button disabled={busy||!!reason} onClick={()=>act({type:"upgradeStorage",...selected,resource:r})}>{reason||`Nâng ${RN[r]} lên cấp ${lv+1} (+1.000) · ${costText(levelCost("storehouse",lv+1,c.era))} · ${fmtDur(buildMs("storehouse",lv+1))}`}</button></div>;
+              })}</div>}
               {sel.doneAt && <button disabled={busy||c.res.diamond<speedBuildCost(sel,t)} onClick={()=>act({type:"speedBuild",...selected})}>Hoàn tất ngay · {speedBuildCost(sel,t)} kim cương (30 giây / viên)</button>}
               {(sel.flooded || sel.burned) && <button className="primary" disabled={busy} onClick={() => act({ type: "repair", ...selected })}>Sửa ({costText(repairCost(sel.k, sel.lvl, !!sel.burned, c.era))})</button>}
-              {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && sel.lvl >= levelCap(c, sel.k) && (
+              {sel.k !== "storehouse" && B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && sel.lvl >= levelCap(c, sel.k) && (
                 <p className="muted small">{hallLv ? `Nâng Đình làng lên cấp ${sel.lvl + 1} để nâng tiếp.` : "Xây Đình làng (Thời đồ đồng) để nâng cấp công trình."}</p>
               )}
-              {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && sel.lvl < levelCap(c, sel.k) && !sel.doneAt && !sel.flooded && !sel.burned && (
+              {sel.k !== "storehouse" && B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && sel.lvl < levelCap(c, sel.k) && !sel.doneAt && !sel.flooded && !sel.burned && (
                 <button disabled={busy} onClick={() => act({ type: "upgrade", ...selected })}>
                   Lên cấp {sel.lvl + 1} ({costText(levelCost(sel.k, sel.lvl + 1, c.era))}, {fmtDur(buildMs(sel.k, sel.lvl + 1))})
                 </button>

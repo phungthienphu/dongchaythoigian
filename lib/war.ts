@@ -125,7 +125,7 @@ async function cancelMarch(id: string) {
     if(w.suppliesFood!==undefined){
       a.state.provisionedSoldiers=Math.max(0,(a.state.provisionedSoldiers??0)-troopCount(w.troops));
       const cap=stats(a.state,derive(a.state),Date.now()).storage;
-      const refund=Math.min(w.suppliesFood,Math.max(0,cap-a.state.res.food));a.state.res.food+=refund;
+      const refund=Math.min(w.suppliesFood,Math.max(0,cap.food-a.state.res.food));a.state.res.food+=refund;
       a.state.log.unshift({at:Date.now(),msg:`Hủy xuất quân vì máy chủ trận chưa sẵn sàng; quân đã về, hoàn ${refund} lương thực vào kho.`,cls:"warn"});
     }
     addArmy(a.state.army, w.troops); addArmy(a.state.deployedArmy ??= {}, w.troops, -1);
@@ -232,7 +232,7 @@ export async function returnArmy(id: string) {
     if(w.suppliesFood!==undefined)c.provisionedSoldiers=Math.max(0,(c.provisionedSoldiers??0)-troopCount(w.troops));
     addArmy(c.army, w.result?.attackerSurvivors ?? w.marchSurvivors ?? w.troops); addArmy(c.deployedArmy ??= {}, w.troops, -1);
     const cap = stats(c, derive(c), now).storage;
-    for (const k of RES) c.res[k] = Math.min(cap, c.res[k] + (w.result?.loot[k] ?? 0));
+    for (const k of RES) c.res[k] = Math.min(cap[k], c.res[k] + (w.result?.loot[k] ?? 0));
     c.log.unshift({ at: now, msg: `Đoàn quân từ ${w.defenderName} đã trở về.`, cls: "good" });
     await col.updateOne({ _id: a._id }, { $set: cityUpdate(c, now), $unset: { outboundBattleId: "" }, $inc: { ver: 1 } }, { session });
     await wars.updateOne({ _id: id }, { $set: { status: "completed" } }, { session });

@@ -51,6 +51,7 @@ export function isActionInput(value: unknown): value is Action {
   switch (value.type) {
     case 'advance': case 'alarm': return true;
     case 'build': return known(BUILDINGS, value.k) && point(value);
+    case 'upgradeStorage': return point(value) && RESOURCES.includes(value.resource as typeof RESOURCES[number]);
     case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'speedBuild': return point(value);
     case 'moveSoldier': return typeof value.id === 'string' && /^(club|sling|spear|bow|sword|elephant|wagon|medic):\d{1,3}$/.test(value.id) && point(value);
     case 'train': return known(UNITS, value.u) && integer(value.n, 1, 50);

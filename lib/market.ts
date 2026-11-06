@@ -12,7 +12,7 @@ async function save(d:CityDoc,s:ClientSession){await (await cities()).updateOne(
 function usable(d:CityDoc|null,needsMarket=true):asserts d is CityDoc{if(!d?.owner)throw new Error('Cần đăng nhập Google và có làng.');if(d.state.battleId||d.incomingBattleId)throw new Error('Làng đang bị tấn công, chưa thể giao thương hoặc điều quân.');if(needsMarket&&!hasMarket(d.state))throw new Error('Cần có Chợ đã xây xong, không cháy/ngập.');}
 function reserveUnits(c:City,t:Troops){for(const u of UKEYS)if((t[u]??0)>(c.army[u]??0))throw new Error('Không đủ quân đang ở nhà.');for(const u of UKEYS){const n=t[u]??0;c.army[u]=(c.army[u]??0)-n;(c.deployedArmy??={})[u]=(c.deployedArmy?.[u]??0)+n;}pruneHomeOrders(c);}
 function returnUnits(c:City,t:Troops,initial:Troops){for(const u of UKEYS){c.army[u]=(c.army[u]??0)+(t[u]??0);(c.deployedArmy??={})[u]=Math.max(0,(c.deployedArmy?.[u]??0)-(initial[u]??0));}}
-function receive(c:City,r:ResKey,n:number){if(c.battleId||c.res[r]+n>stats(c,derive(c),c.last).storage)return false;c.res[r]+=n;return true;}
+function receive(c:City,r:ResKey,n:number){if(c.battleId||c.res[r]+n>stats(c,derive(c),c.last).storage[r])return false;c.res[r]+=n;return true;}
 async function hint(ids:string[]){if(warConfigured())await Promise.allSettled([...new Set(ids)].map(id=>workerRequest(`/rooms/player-${id}/notify`,{})));}
 const journey=(c:City,id:string,route:number[],depart:number,arrive:number,back:number,extra={})=>{c.merchantJourneys=[...(c.merchantJourneys??[]).filter(j=>j.back>depart),{id,depart,arrive,back,villageRoute:route,...extra}];};
 
@@ -24,7 +24,7 @@ export async function marketAction(pid:string,a:MarketAction){
   if(a.type==='create'){
    const id=`${pid}:${a.requestId}`;if(await orders.findOne({_id:id},{session}))return[pid];usable(me);
    if(await orders.countDocuments({seller:pid,status:'open'},{session})>=10)throw new Error('Tối đa 10 lô hàng đang bán.');
-   if(a.price>stats(me.state,derive(me.state),now).storage)throw new Error('Giá lớn hơn sức chứa Kho: nâng Kho trước khi đăng bán.');
+   if(a.price>stats(me.state,derive(me.state),now).storage[a.currency])throw new Error('Giá lớn hơn sức chứa Kho: nâng Kho trước khi đăng bán.');
    if(me.state.res[a.resource]<a.amount)throw new Error('Không đủ hàng trong kho.');
    if(envoyVillageRoute(me.state,'market').length<2)throw new Error('Chợ chưa có đường đất ra ngoài làng.');
    reserveUnits(me.state,a.escorts);me.state.res[a.resource]-=a.amount;
@@ -43,7 +43,7 @@ export async function marketAction(pid:string,a:MarketAction){
    if(!seller.world||!me.world)throw new Error('Mở Thế giới để xác lập vị trí làng trước.');
    const route=envoyVillageRoute(seller.state,'market'),incoming=envoyVillageRoute(me.state,'market');if(route.length<2||incoming.length<2)throw new Error('Chợ của một bên đang bị bịt lối ra.');
    if(me.state.res[order.currency]<order.price)throw new Error('Không đủ tài nguyên thanh toán.');
-   if(order.amount>stats(me.state,derive(me.state),now).storage)throw new Error('Lô hàng lớn hơn sức chứa Kho của bạn.');
+   if(order.amount>stats(me.state,derive(me.state),now).storage[order.resource])throw new Error('Lô hàng lớn hơn sức chứa Kho của bạn.');
    if(await ships.countDocuments({$or:[{seller:pid},{buyer:pid},{seller:order.seller},{buyer:order.seller}],status:{$ne:'completed'}},{session})>=30)throw new Error('Một bên đang có quá nhiều đoàn xe chưa hoàn tất.');
    me.state.res[order.currency]-=order.price;
    const duration=Math.max(2*MIN,Math.ceil(Math.hypot(seller.world.x-me.world.x,seller.world.y-me.world.y)/CARAVAN_CELLS_PER_MIN*MIN));

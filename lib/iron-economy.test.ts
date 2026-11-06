@@ -20,7 +20,7 @@ test('placement rejects base-price budgets and construction pays the displayed i
 test('iron upgrades, repairs and farm renewal charge the UI quote',()=>{
  const c=city();c.b[0]={k:'hall',lvl:3,doneAt:null};c.b[1]={k:'storehouse',lvl:1,doneAt:null};
  let before={...c.res},quote=levelCost('storehouse',2,c.era);
- assert.equal(applyAction(c,{type:'upgrade',x:1,y:0},now),null);assert.equal(c.res.wood,before.wood-quote.wood!);assert.equal(c.res.stone,before.stone-quote.stone!);
+ assert.equal(applyAction(c,{type:'upgradeStorage',resource:'wood',x:1,y:0},now),null);assert.equal(c.res.wood,before.wood-quote.wood!);assert.equal(c.res.stone,before.stone-quote.stone!);
  c.b[2]={k:'watchtower',lvl:2,doneAt:null,burned:true};before={...c.res};quote=repairCost('watchtower',2,true,c.era);
  assert.equal(applyAction(c,{type:'repair',x:2,y:0},now),null);assert.equal(c.res.wood,before.wood-quote.wood!);
  c.b[3]={k:'farm',lvl:2,doneAt:null,fertility:0};before={...c.res};quote=farmTendCost(c.b[3],c.era);
