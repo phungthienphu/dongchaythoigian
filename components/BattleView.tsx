@@ -5,6 +5,7 @@ import type { BattleCommand, BattleSide, BattleState } from "@/lib/battle";
 import type { WarView } from "@/lib/war-view";
 import { derive, UNITS, W, type City, type Derived } from "@/lib/engine";
 import { camView, clampCam, drawCity, fitView, focusOn, screenToCell, zoomAt, type Cam, type View } from "./draw";
+import { drawBattleStrikes, drawSoldier } from "./battle-actors";
 import styles from "./BattleView.module.css";
 
 type Packet = { war: WarView; battle: BattleState | null; village: City | null; side: BattleSide; socket: string | null };
@@ -125,7 +126,8 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
     if (!cv) return;
     const ctx = cv.getContext("2d");
     if (!ctx) return;
-    let frame = 0, previousPaint = 0;
+    let frame = 0, previousPaint = 0, snapshotTime = 0;
+    let snapshot: BattleState | null = null;
     let original: City | null = null, burnedKey = "", rendered: City | null = null, derived: Derived | null = null;
     const resize = () => {
       const rect = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -159,11 +161,17 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
       drawCity(ctx, rendered, derived, { v, now: Date.now(), anim: time, hover: null, selected: null, tool: null, villagers: [], picked: EMPTY_PICKED, fx: [], chopping: EMPTY_CHOPPING });
       const project = (x: number, y: number) => ({ x: v.ox + (x - y) * v.TW / 2, y: v.oy + (x + y) * v.TH / 2 });
       for (const building of b?.buildings ?? []) {
+        if (building.k === "watchtower" && !building.burned && !building.inactive) {
+          const at = project(building.tile % W + .5, Math.floor(building.tile / W) + .5);
+          drawSoldier(ctx, { id: building.id, side: 'defender', u: 'bow', count: 1, initial: 1, hp: 1, x: 0, y: 0, order: {type:'guard',x:0,y:0} },at.x,at.y-32*v.s,v.s*.65,time,(b?.strikes??[]).some(e=>e.source===building.id&&b!.lastTick-e.at<650));
+        }
         if (building.burned || building.hp >= building.maxHp) continue;
         const at = project(building.tile % W + .5, Math.floor(building.tile / W) + .5);
         ctx.fillStyle = "#302c25"; ctx.fillRect(at.x - 16, at.y - 35 * v.s, 32, 4);
         ctx.fillStyle = "#eda95d"; ctx.fillRect(at.x - 16, at.y - 35 * v.s, 32 * building.hp / building.maxHp, 4);
       }
+      if (b !== snapshot) { snapshot = b; snapshotTime = time; }
+      if(b) drawBattleStrikes(ctx,b,project,v.s,b.lastTick+time-snapshotTime);
       for (const g of [...(b?.groups ?? [])].sort((a, z) => a.x + a.y - z.x - z.y)) {
         if (!g.count || g.escaped) continue;
         const at = project(g.x, g.y), own = g.side === p.side;
@@ -172,9 +180,10 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
         ctx.fillStyle = own ? "#398aa6" : "#ba5547";
         ctx.beginPath(); ctx.ellipse(at.x, at.y, radius, radius * .68, 0, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = g.id === chosen ? "#ffe08a" : "#f1e4bf"; ctx.lineWidth = g.id === chosen ? 3 : 1; ctx.stroke();
-        ctx.font = "bold 12px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff"; ctx.fillText(String(g.count), at.x, at.y);
-        ctx.fillStyle = "#302c25"; ctx.fillRect(at.x - 15, at.y - 22, 30, 4);
-        ctx.fillStyle = own ? "#80d8b3" : "#f4987e"; ctx.fillRect(at.x - 15, at.y - 22, 30 * Math.max(0, Math.min(1, g.hp / (g.initial * UNITS[g.u].hp))), 4);
+        drawSoldier(ctx,g,at.x,at.y-6,v.s,time,(b?.strikes??[]).some(e=>e.source===g.id&&b!.lastTick-e.at<650));
+        ctx.font = "bold 12px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff"; ctx.fillText(String(g.count), at.x, at.y+9);
+        ctx.fillStyle = "#302c25"; ctx.fillRect(at.x - 15, at.y - 44, 30, 4);
+        ctx.fillStyle = own ? "#80d8b3" : "#f4987e"; ctx.fillRect(at.x - 15, at.y - 44, 30 * Math.max(0, Math.min(1, g.hp / (g.initial * UNITS[g.u].hp))), 4);
         if (g.id === chosen && g.order.type === "move") {
           const to = project(g.order.x, g.order.y);
           ctx.strokeStyle = "#ffe08a"; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(at.x, at.y); ctx.lineTo(to.x, to.y); ctx.stroke(); ctx.setLineDash([]);

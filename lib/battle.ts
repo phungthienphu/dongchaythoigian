@@ -7,9 +7,10 @@ export const BATTLE_TIMEOUT_MS = 180_000;
 export type BattleSide = 'attacker' | 'defender';
 export type BattleOrder = { type: 'move'; x: number; y: number } | { type: 'attack'; targetId: string } | { type: 'guard'; x: number; y: number } | { type: 'retreat' };
 export type BattleGroup = { id: string; side: BattleSide; u: UKey; count: number; initial: number; hp: number; x: number; y: number; order: BattleOrder; escaped?: boolean; path?: number[] | null; pathGoal?: number; pathVersion?: number };
-export type BattleBuilding = { id: string; tile: number; k: string; lvl: number; hp: number; maxHp: number; burned: boolean; initiallyBurned: boolean; value: number };
+export type BattleBuilding = { id: string; tile: number; k: string; lvl: number; hp: number; maxHp: number; inactive?: boolean; burned: boolean; initiallyBurned: boolean; value: number };
 export type BattleCommand = { type: 'move'; groupId: string; x: number; y: number } | { type: 'attack'; groupId: string; targetId: string } | { type: 'retreat' } | { type: 'presence'; online: boolean };
-export type BattleState = { id: string; attackerId: string; defenderId: string; startedAt: number; lastTick: number; terrain: number[]; groups: BattleGroup[]; buildings: BattleBuilding[]; status: 'fighting' | 'retreating' | 'finished'; winner?: BattleSide; defenderOnline: boolean; initialPopulation: number; populationLoss: number; startingResources: Res; loot: Res; devastation: number };
+export type BattleStrike = { id: string; at: number; source: string; kind: 'arrow' | 'stone' | 'melee'; from: {x:number;y:number}; to: {x:number;y:number} };
+export type BattleState = { strikes?: BattleStrike[]; id: string; attackerId: string; defenderId: string; startedAt: number; lastTick: number; terrain: number[]; groups: BattleGroup[]; buildings: BattleBuilding[]; status: 'fighting' | 'retreating' | 'finished'; winner?: BattleSide; defenderOnline: boolean; initialPopulation: number; populationLoss: number; startingResources: Res; loot: Res; devastation: number };
 export type BattleResult = { winner: BattleSide; attackerSurvivors: Troops; defenderSurvivors: Troops; attackerCasualties: number; defenderCasualties: number; populationLoss: number; burnedTiles: number[]; loot: Res; devastation: number };
 const emptyRes = (): Res => ({ food: 0, wood: 0, stone: 0, copper: 0 });
 const dist = (a: {x:number;y:number}, b: {x:number;y:number}) => Math.hypot(a.x-b.x,a.y-b.y);
@@ -20,7 +21,7 @@ export function createBattle(o: { id: string; attackerId: string; defenderId: st
   const buildings: BattleBuilding[] = Object.entries(o.defender.b).filter(([,b]) => b.lvl > 0).map(([tile,b]) => {
     const value = Object.values(B[b.k].cost).reduce((s,n)=>s+(n??0),0)*b.lvl;
     const maxHp = Math.max(60,value*2);
-    return {id:`b:${tile}`,tile:Number(tile),k:b.k,lvl:b.lvl,hp:(b as typeof b & {burned?:boolean}).burned?0:maxHp,maxHp,burned:!!(b as typeof b & {burned?:boolean}).burned,initiallyBurned:!!(b as typeof b & {burned?:boolean}).burned,value};
+    return {id:`b:${tile}`,tile:Number(tile),k:b.k,lvl:b.lvl,hp:(b as typeof b & {burned?:boolean}).burned?0:maxHp,maxHp,burned:!!(b as typeof b & {burned?:boolean}).burned,initiallyBurned:!!(b as typeof b & {burned?:boolean}).burned,inactive:!!b.flooded,value};
   });
   const guards = (o.defender as City & {guardPosts?:{x:number;y:number}[]}).guardPosts ?? [];
   const center = xy(Number(Object.keys(o.defender.b).find(k=>o.defender.b[k].k==='hall') ?? o.defender.camp));
@@ -72,12 +73,19 @@ function move(s:BattleState,g:BattleGroup,target:{x:number;y:number}):boolean {
   const speed=g.u==='elephant'?.15:.25;g.x+=(p.x-g.x)/d*Math.min(speed,d);g.y+=(p.y-g.y)/d*Math.min(speed,d);return true;
 }
 function damage(g:BattleGroup,amount:number){g.hp=Math.max(0,g.hp-amount);g.count=Math.ceil(g.hp/UNITS[g.u].hp);}
+function strike(s:BattleState,source:string,kind:BattleStrike['kind'],from:{x:number;y:number},to:{x:number;y:number}) {
+  // One visual volley per second; damage remains on the authoritative 100 ms clock.
+  if ((s.lastTick-s.startedAt-BATTLE_TICK_MS)%1000!==0) return;
+  (s.strikes ??= []).push({id:`${source}:${s.lastTick}`,at:s.lastTick,source,kind,from:{x:from.x,y:from.y},to:{x:to.x,y:to.y}});
+}
 function tick(s:BattleState){
+  s.strikes=(s.strikes??[]).filter(e=>s.lastTick-e.at<1200);
+
   if(s.status==='fighting'&&s.lastTick-s.startedAt>=BATTLE_TIMEOUT_MS)commandBattle(s,'attacker',{type:'retreat'});
   for(const g of s.groups){if(!living(g))continue;
     const enemy=s.groups.filter(e=>e.side!==g.side&&living(e)).sort((a,b)=>dist(g,a)-dist(g,b)||a.id.localeCompare(b.id))[0];
     if(g.order.type==='retreat'){move(s,g,{x:0,y:g.y});if(g.x<=.3)g.escaped=true;continue;}
-    if(enemy&&dist(g,enemy)<=range(g.u)){damage(enemy,UNITS[g.u].atk*g.count/10);continue;}
+    if(enemy&&dist(g,enemy)<=range(g.u)){strike(s,g.id,g.u==='bow'?'arrow':g.u==='sling'?'stone':'melee',g,enemy);damage(enemy,UNITS[g.u].atk*g.count/10);continue;}
     if(g.side==='defender'){
       if(enemy&&(s.status==='retreating'||dist(g,enemy)<10)){move(s,g,enemy);continue;}
       if(!s.defenderOnline&&g.order.type!=='guard'){g.order={type:'guard',x:g.x,y:g.y};}
@@ -85,11 +93,11 @@ function tick(s:BattleState){
     if(g.order.type==='move'||g.order.type==='guard')move(s,g,g.order);
     else if(g.order.type==='attack'){
       const target=s.groups.find(e=>e.id===(g.order as {targetId:string}).targetId&&living(e))??s.buildings.find(b=>b.id===(g.order as {targetId:string}).targetId&&!b.burned);
-      if(target){const p='tile'in target?xy(target.tile):target;if(dist(g,p)<=range(g.u)){if('tile'in target){target.hp=Math.max(0,target.hp-UNITS[g.u].atk*g.count/10);if(!target.hp)target.burned=true;}else damage(target,UNITS[g.u].atk*g.count/10);}else if(!move(s,g,p)&&g.side==='attacker'){const obstacle=s.buildings.filter(b=>!b.burned&&(b.k==='wall'||b.k==='gate'||b.k==='watchtower')).sort((a,b)=>dist(g,xy(a.tile))-dist(g,xy(b.tile)))[0];if(obstacle)g.order={type:'attack',targetId:obstacle.id};}}
+      if(target){const p='tile'in target?xy(target.tile):target;if(dist(g,p)<=range(g.u)){strike(s,g.id,g.u==='bow'?'arrow':g.u==='sling'?'stone':'melee',g,p);if('tile'in target){target.hp=Math.max(0,target.hp-UNITS[g.u].atk*g.count/10);if(!target.hp)target.burned=true;}else damage(target,UNITS[g.u].atk*g.count/10);}else if(!move(s,g,p)&&g.side==='attacker'){const obstacle=s.buildings.filter(b=>!b.burned&&(b.k==='wall'||b.k==='gate'||b.k==='watchtower')).sort((a,b)=>dist(g,xy(a.tile))-dist(g,xy(b.tile)))[0];if(obstacle)g.order={type:'attack',targetId:obstacle.id};}}
       else if(g.side==='attacker'){const next=s.buildings.filter(b=>!b.burned).sort((a,b)=>dist(g,xy(a.tile))-dist(g,xy(b.tile)))[0];if(next)g.order={type:'attack',targetId:next.id};else if(enemy)g.order={type:'attack',targetId:enemy.id};}
     }
   }
-  for(const b of s.buildings)if(b.k==='watchtower'&&!b.burned){const target=s.groups.find(g=>g.side==='attacker'&&living(g)&&dist(g,xy(b.tile))<=7);if(target)damage(target,2*b.lvl);}
+  for(const b of s.buildings)if(b.k==='watchtower'&&!b.burned&&!b.inactive){const target=s.groups.find(g=>g.side==='attacker'&&living(g)&&dist(g,xy(b.tile))<=7);if(target){strike(s,b.id,'arrow',xy(b.tile),target);damage(target,2*b.lvl);}}
   const total=s.buildings.reduce((n,b)=>n+(b.initiallyBurned?0:b.value),0),burned=s.buildings.reduce((n,b)=>n+(b.burned&&!b.initiallyBurned?b.value:0),0),fraction=total?burned/total:0;
   s.populationLoss=Math.min(Math.floor(s.initialPopulation/2),Math.floor(fraction*s.initialPopulation/2));
   if(s.status==='fighting')for(const r of RES)s.loot[r]=Math.floor(s.startingResources[r]*.25*fraction);

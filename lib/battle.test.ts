@@ -13,3 +13,20 @@ test('intact walls block movement and attackers attack obstructions',()=>{const 
 test('already burned buildings do not count as fresh damage',()=>{const s=battle();s.buildings[0].burned=true;s.buildings[0].initiallyBurned=true;advanceBattle(s,100);assert.equal(s.devastation,0);assert.equal(s.populationLoss,0);});
 
 test('watchtowers damage attackers and stop firing after burning',()=>{const s=battle();s.groups[0].x=5;s.groups[0].y=5;s.groups[0].order={type:'guard',x:5,y:5};s.buildings.push({id:'tower',tile:5*96+8,k:'watchtower',lvl:1,hp:100,maxHp:100,burned:false,initiallyBurned:false,value:20});const hp=s.groups[0].hp;advanceBattle(s,100);assert.ok(s.groups[0].hp<hp);s.buildings[1].burned=true;const after=s.groups[0].hp;advanceBattle(s,200);assert.equal(s.groups[0].hp,after);});
+
+test('tower emits authoritative arrows only in range and retains a bounded recent history',()=>{
+  const s=battle();const g=s.groups[0];g.x=5;g.y=5;g.order={type:'guard',x:5,y:5};
+  s.buildings.push({id:'tower',tile:5*96+8,k:'watchtower',lvl:1,hp:100,maxHp:100,burned:false,initiallyBurned:false,value:20});
+  advanceBattle(s,100);assert.equal(s.strikes?.filter(e=>e.source==='tower').length,1);assert.equal(s.strikes?.find(e=>e.source==='tower')?.kind,'arrow');
+  g.x=30;g.y=30;g.order={type:'guard',x:30,y:30};
+  advanceBattle(s,1500);assert.equal(s.strikes?.filter(e=>e.source==='tower').length,0);
+});
+
+test('flooded towers never fire and combat events contain positions without leaking full group state',()=>{
+ const defender=city();defender.b[5*96+8]={k:'watchtower',lvl:1,doneAt:null,flooded:true};
+ const s=createBattle({id:'flood',attackerId:'a',defenderId:'d',attacker:city(),defender,troops:{club:10},now:0});
+ s.groups[0].x=5;s.groups[0].y=5;s.groups[0].order={type:'guard',x:5,y:5};
+ const hp=s.groups[0].hp;advanceBattle(s,100);assert.equal(s.groups[0].hp,hp);assert.equal(s.strikes?.length,0);
+ s.buildings.find(b=>b.k==='watchtower')!.inactive=false;advanceBattle(s,1100);
+ const e=s.strikes!.find(e=>e.source.startsWith('b:'))!;assert.ok(e);assert.deepEqual(Object.keys(e.to).sort(),['x','y']);assert.deepEqual(Object.keys(e.from).sort(),['x','y']);
+});

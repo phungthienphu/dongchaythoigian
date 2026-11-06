@@ -1,6 +1,7 @@
 "use client";
 
 // World map: every nation is a fortress on a WORLD × WORLD board. Envoys travel between them.
+import { drawEnvoyActor } from "./draw";
 import { useEffect, useRef, useState } from "react";
 import { ENVOY_NAMES, ERA_NAMES, WORLD, canVisit, envoyCount, envoyMs, envoysAway, UKEYS, UNITS, troopCount, type Troops, type City } from "@/lib/engine";
 import type { WarSummary } from "./useWars";
@@ -99,7 +100,7 @@ export default function WorldMap({ wars, warEnabled, onAttack, nations, city, no
         const q = Math.max(0, Math.min(1, p)), ex = ax + (bx - ax) * q, ey = ay + (by - ay) * q;
         ctx.fillStyle = "#7fe0ff"; ctx.beginPath(); ctx.arc(ex, ey, 5 + Math.sin(t / 200) * 1, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = "#0b2a33"; ctx.font = "600 11px system-ui, sans-serif"; ctx.textAlign = "center";
-        ctx.fillText(going ? "→" : "←", ex, ey + 4);
+        drawEnvoyActor(ctx,my.era,ex,ey-3,.7,t,true,going?1:-1);
       }
       // Outgoing and incoming armies follow authoritative departure/return times.
       for (const march of state.current.wars) {

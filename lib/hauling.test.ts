@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyAction, CAP, F, G, HL, O, HAUL_CAPACITY, HOUR, idx, newCity, settle, type City } from './engine';
+import { applyAction, CAP, F, G, HL, O, HAUL_CAPACITY, HOUR, idx, newCity, settle, explorerPos, type City } from './engine';
 function fixture():City {
  const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.camp=idx(20,20);c.b={};c.herds=[];c.camps=[];c.exps=[];c.res={food:100000,wood:0,stone:0,copper:0};c.people=c.people.slice(0,3);c.pop=3;c.popAcc=0;for(const p of c.people){p.task={t:'idle'};p.pos=c.camp;}return c;
 }
@@ -103,4 +103,16 @@ test('rest stays responsive when a nearly full food stockpile only frees tiny am
  assert.equal(p.haul?.resting,true);
  const to=idx(18,20);applyAction(c,{type:'assign',ids:[p.id],task:{t:'move',to}},0);
  settle(c,5000);assert.equal(p.pos,to);assert.equal(p.haul?.resting,true);assert.equal(p.haul?.carried,10);
+});
+
+test('loaded scout can explore around stone while stock is full without discarding cargo',()=>{
+ const c=fixture();c.res.wood=500;assign(c);settle(c,31_000);const p=c.people[0],to=idx(34,20);c.seen[to]=0;
+ c.t[idx(32,20)]=HL;c.t[idx(32,19)]=HL;c.t[idx(32,21)]=HL;
+ assert.equal(applyAction(c,{type:'assign',ids:[p.id],task:{t:'explore',to}},31_000),null);
+ assert.equal(p.haul?.resting,true);assert.equal(p.task.t,'explore');
+ if(p.task.t!=='explore')throw new Error('missing explore');
+ assert.ok(p.task.route?.length);assert.ok(p.task.route!.every(i=>c.t[i]!==HL));
+ const initial=explorerPos(p.task,31_000);assert.ok(Number.isFinite(initial[0]));
+ settle(c,10*60_000);assert.equal(c.seen[to],1);assert.equal(p.task.t,'idle');assert.equal(p.pos,to);assert.equal(p.haul?.carried,10);assert.equal(c.res.wood,500);
+ c.res.wood-=10;settle(c,11*60_000);assert.equal(p.haul,undefined);assert.equal(c.res.wood,500);
 });

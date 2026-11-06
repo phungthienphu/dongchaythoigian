@@ -1,6 +1,6 @@
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
-import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
+import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
 import type { Fx, Villager } from "./villagers";
 
 export type View = { TW: number; TH: number; ox: number; oy: number; width: number; height: number; s: number };
@@ -1063,13 +1063,28 @@ function drawAnimal(r: RC, kind: "deer" | "boar", fx: number, fy: number, face: 
   }
 }
 
+/** Envoy identity: blue-green cloak, travel staff, scroll and era-specific headwear. */
+export function drawEnvoyActor(c: CanvasRenderingContext2D, era: number, x: number, y: number, scale: number, anim: number, walking: boolean, face: 1|-1=1) {
+  const s=Math.max(.65,Math.min(1.7,scale)),step=walking?Math.sin(anim/130)*2*s:0,bob=walking?Math.abs(Math.sin(anim/130))*s:0;
+  c.save();c.translate(x,y-bob);c.scale(face,1);
+  c.fillStyle="rgba(10,25,25,.25)";c.beginPath();c.ellipse(0,0,5*s,2*s,0,0,Math.PI*2);c.fill();
+  c.strokeStyle="#4e3528";c.lineWidth=2*s;c.beginPath();c.moveTo(-2*s,-5*s);c.lineTo(-2*s+step,0);c.moveTo(2*s,-5*s);c.lineTo(2*s-step,0);c.stroke();
+  c.fillStyle=era>=3?"#216d78":era===2?"#2d898b":"#3a9388";c.beginPath();c.moveTo(-3*s,-13*s);c.lineTo(3*s,-13*s);c.lineTo(5*s,-4*s);c.lineTo(-5*s,-4*s);c.closePath();c.fill();
+  c.fillStyle="#dbb28c";c.beginPath();c.arc(0,-16*s,2.5*s,0,Math.PI*2);c.fill();
+  c.fillStyle=era>=3?"#deb856":"#426660";c.fillRect(-3*s,-20*s,6*s,2*s);
+  if(era>=2){c.strokeStyle="#e4c774";c.lineWidth=s;c.beginPath();c.moveTo(0,-20*s);c.lineTo(3*s,-24*s);c.stroke();}
+  c.fillStyle="#efe0b3";c.fillRect(-5*s,-12*s,3*s,6*s);
+  c.strokeStyle="#956d41";c.lineWidth=s;c.beginPath();c.moveTo(6*s,0);c.lineTo(6*s,-29*s);c.stroke();
+  c.fillStyle="#5cbed0";c.beginPath();c.moveTo(6*s,-28*s);c.lineTo(15*s,-26*s+Math.sin(anim/220)*s);c.lineTo(11*s,-23*s);c.lineTo(6*s,-23*s);c.closePath();c.fill();c.restore();
+}
+
 const UNIT_LOOK: Record<UKey, { shirt: string; weapon: "club" | "sling" | "spear" | "bow" | "sword" }> = {
   club: { shirt: "#8a5a2b", weapon: "club" }, sling: { shirt: "#a37a4a", weapon: "sling" },
   spear: { shirt: "#b07a2e", weapon: "spear" }, bow: { shirt: "#4f7a3a", weapon: "bow" },
   sword: { shirt: "#5a6672", weapon: "sword" }, elephant: { shirt: "#8f8f8f", weapon: "spear" },
 };
 
-export function drawSoldier(r: RC, u: UKey, fx: number, fy: number, face: 1 | -1, walking: boolean, seed: number, fighting = false, barbarian = false) {
+export function drawSoldier(r: Pick<RC, "c" | "v" | "anim">, u: UKey, fx: number, fy: number, face: 1 | -1, walking: boolean, seed: number, fighting = false, barbarian = false) {
   const c = r.c, s = Math.max(r.v.s * 1.45, 0.7);
   const [sx, sy] = P(r.v, fx, fy);
   const ph = r.anim / 140 + seed * 10;
@@ -1459,6 +1474,13 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     items.push({ d: (k.at % W) + Math.floor(k.at / W) + 1, f: () => drawCampSite(r, k) });
   }
   if (!lod) {
+    const embassy=buildings(city).find(([,b])=>b.k==="envoy"&&b.lvl>=1&&!b.burned&&!b.flooded);
+    if(embassy){
+      const count=Math.min(4,Math.max(0,envoyCount(city)-envoysAway(city)));
+      for(let n=0;n<count;n++){const fx=embassy[0]%W+1.1+n*.3,fy=Math.floor(embassy[0]/W)+.8;
+        if(onScreen(fx-.5,fy-.5))items.push({d:fx+fy,f:()=>{const [sx,sy]=P(r.v,fx,fy);drawEnvoyActor(r.c,city.era,sx,sy,r.v.s,r.anim,false);}});
+      }
+    }
     // soldiers at home stand in rows beside the first barracks
     const bar = buildings(city).find(([, b]) => b.k === "barracks" && b.lvl >= 1 && !b.burned && !b.flooded);
     const guards = city.guardPosts ?? [];
@@ -1475,6 +1497,8 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
         items.push({ d: fx + fy, f: () => drawSoldier(r, u, fx, fy, -1, false, seed) });
       }
     }
+    const beast=wildlifePosition(city,o.now);
+    if(beast){const [fx,fy]=beast,ti=idx(Math.floor(fx),Math.floor(fy));if(seen[ti]&&onScreen(fx-.5,fy-.5))items.push({d:fx+fy,f:()=>drawAnimal(r,"boar",fx,fy,1,false,false,.73)});}
     // incoming barbarian raid
     if (city.raid) {
       const rd = city.raid, p = Math.max(0, Math.min(1, (o.now - rd.warn) / Math.max(1, rd.at - rd.warn)));

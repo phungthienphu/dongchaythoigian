@@ -171,7 +171,7 @@ export async function finishBattle(id: string, result: BattleResult) {
     }
     c.haulAt = now;
     c.last = now; // battle simulation owns the frozen interval
-    c.log.push({ at: now, msg: result.winner === "attacker" ? "Làng bị đánh bại. Khiên bảo vệ có hiệu lực trong 6 giờ." : "Đã bảo vệ được làng. Khiên bảo vệ có hiệu lực trong 6 giờ.", cls: result.winner === "attacker" ? "warn" : "good" });
+    c.log.unshift({ at: now, msg: result.winner === "attacker" ? "Làng bị đánh bại. Khiên bảo vệ có hiệu lực trong 6 giờ." : "Đã bảo vệ được làng. Khiên bảo vệ có hiệu lực trong 6 giờ.", cls: result.winner === "attacker" ? "warn" : "good" });
     await col.updateOne({ _id: d._id }, { $set: cityUpdate(c, now), $unset: { incomingBattleId: "" }, $inc: { ver: 1 } }, { session });
     const back = now + w.duration;
     await wars.updateOne({ _id: id }, { $set: { status: "returning", result, endedAt: now, back }, $unset: { snapshot: "" } }, { session });
@@ -202,7 +202,7 @@ export async function returnArmy(id: string) {
     addArmy(c.army, w.result?.attackerSurvivors ?? w.troops); addArmy(c.deployedArmy ??= {}, w.troops, -1);
     const cap = stats(c, derive(c), now).storage;
     for (const k of RES) c.res[k] = Math.min(cap, c.res[k] + (w.result?.loot[k] ?? 0));
-    c.log.push({ at: now, msg: `Đoàn quân từ ${w.defenderName} đã trở về.`, cls: "good" });
+    c.log.unshift({ at: now, msg: `Đoàn quân từ ${w.defenderName} đã trở về.`, cls: "good" });
     await col.updateOne({ _id: a._id }, { $set: cityUpdate(c, now), $unset: { outboundBattleId: "" }, $inc: { ver: 1 } }, { session });
     await wars.updateOne({ _id: id }, { $set: { status: "completed" } }, { session });
     return { ...w, status: "completed" as const };

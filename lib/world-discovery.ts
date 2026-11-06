@@ -15,7 +15,7 @@ export function beginDiscovery(c: City, now: number): string | null {
   // No hidden target ID, name, coordinate or distance is sent to the browser.
   const trip: EnvoyTrip = { id, target:'', targetName:'Vùng chưa biết', scouting:true, depart:now, arrive:now+SCOUT_MS, back:now+2*SCOUT_MS };
   c.trips = [...(c.trips ?? []),trip];
-  c.log = [...c.log,{at:now,msg:`${ENVOY_NAMES[c.era]} lên đường dò tìm nước mới. Có tin sau 2 phút, trở về sau 4 phút.`}].slice(-100);
+  c.log = [{at:now,msg:`${ENVOY_NAMES[c.era]} lên đường dò tìm nước mới. Có tin sau 2 phút, trở về sau 4 phút.`},...c.log].slice(0,60);
   return null;
 }
 /** Village visitors get the village itself, never its owner's world intelligence. */
@@ -39,6 +39,6 @@ export function completeDiscoveries(c: City, pid: string, origin: {x:number;y:nu
       .sort((a,b)=>distance(a)-distance(b)||a._id.localeCompare(b._id))[0];
     if(target){trip.target=target._id;trip.targetName=target.name;reserved.add(target._id);}
     else {trip.scouting=false;trip.arrived=true;trip.targetName='chuyến dò tìm';
-      c.log=[...c.log,{at:trip.arrive,msg:'Sứ giả chưa tìm thấy nước mới trong chuyến này. Đang trở về.'}].slice(-100);}
+      c.log=[{at:trip.arrive,msg:'Sứ giả chưa tìm thấy nước mới trong chuyến này. Đang trở về.'},...c.log].sort((a,b)=>b.at-a.at).slice(0,60);}
   }
 }

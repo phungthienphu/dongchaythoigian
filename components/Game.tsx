@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  DEFAULT_MIX, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
+  DEFAULT_MIX, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
   armyCap, armyUsed, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -297,6 +297,7 @@ function ControlPanel(props: {
 
 export default function Game() {
   const [loading, setLoading] = useState(true);
+  const [readNotice, setReadNotice] = useState({ key: "", at: 0 });
   const [needsName, setNeedsName] = useState(false);
   const [name, setName] = useState("");
   const [nameInput, setNameInput] = useState("");
@@ -534,6 +535,30 @@ export default function Game() {
     return result.finally(() => setSaving(actionQueue.current?.isPending ?? false));
   };
 
+  const sendEnvoy = async (id?: string) => {
+    const city = cityRef.current;
+    if (!city || busy) return;
+    if (actionQueue.current?.isPending) {
+      setMsg({ text: "Đang lưu thao tác, hãy cử sứ giả sau giây lát." });
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/world/envoy", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(id ? { target: id } : { explore: true }),
+      });
+      const data = await res.json();
+      if (data.state) accept(data);
+      void loadWorld();
+      setMsg(data.error ? { text: data.error, err: true } : {
+        text: id ? `${ENVOY_NAMES[city.era]} đã lên đường.` : "Sứ giả đang dò tìm nước mới. Có tin sau 2 phút; trở về sau 4 phút.",
+      });
+    } catch {
+      setMsg({ text: "Mất kết nối khi cử sứ giả. Thử lại sau.", err: true });
+    } finally { setBusy(false); }
+  };
+
   const createCity = async (e: React.FormEvent) => {
     e.preventDefault();
     const res = await fetch("/api/city", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: nameInput }) });
@@ -695,8 +720,22 @@ export default function Game() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const noticeCity=cityRef.current;
+  const noticeKey=noticeCity?`dong-notices:${noticeCity.seed}:${noticeCity.t0}`:"";
+  const latestNoticeAt=Math.max(0,...(noticeCity?.log??[]).map(l=>l.at));
+  useEffect(()=>{
+    if(!noticeKey)return;
+    let at=0;try{at=Number(localStorage.getItem(noticeKey))||0;}catch{}
+    setReadNotice({key:noticeKey,at});
+  },[noticeKey]);
+  useEffect(()=>{
+    if(panel!=="log"||!noticeKey)return;
+    setReadNotice({key:noticeKey,at:latestNoticeAt});
+    try{localStorage.setItem(noticeKey,String(latestNoticeAt));}catch{}
+  },[panel,noticeKey,latestNoticeAt]);
   const c = cityRef.current, D = dRef.current;
   const t = now();
+  const notices=[...(c?.log??[])].sort((a,b)=>b.at-a.at);
 
   if (loading) return <main className="wrap"><p className="muted">Đang tải thành phố…</p></main>;
 
@@ -765,7 +804,7 @@ export default function Game() {
     { k: "army", icon: "army", label: "Quân đội", badge: troopCount(c.army) || undefined },
     { k: "people", icon: "pop", label: "Dân làng", badge: idle.length ? `${idle.length} rảnh` : undefined },
     { k: "era", icon: "era", label: "Thời đại", badge: reqMet(c) ? "!" : undefined },
-    { k: "log", icon: "log", label: "Biên niên" },
+    { k: "log", icon: "log", label: "Thông báo", badge: readNotice.key===noticeKey ? c.log.filter(l=>l.at>readNotice.at).length||undefined : undefined },
     { k: "rank", icon: "rank", label: "Xếp hạng" },
     { k: "friends", icon: "friends", label: "Bạn bè", badge: me.friends.filter((f) => f.online).length || undefined },
     ...(hallLv ? [{ k: "control" as Panel, icon: "era" as IconKey, label: "Đình làng", badge: c.raid ? "!" : undefined }] : []),
@@ -898,9 +937,10 @@ export default function Game() {
           ) : sel ? (
             <>
               <h2>{buildingName(c, sel.k)}{sel.lvl ? ` · cấp ${sel.lvl}` : ""}</h2>
-              <p className="muted small">Kiến trúc {ERA_NAMES[c.era].toLowerCase()} · Lên thời đại đổi kiến trúc; nâng cấp tăng công năng và trang bị.</p>
+              <p className="muted small">Kiến trúc {ERA_NAMES[c.era].toLowerCase()} · Lên thời đại tự đổi kiến trúc, không tự tăng cấp. Bấm nâng cấp để tăng công năng và trang bị; cấp tối đa theo Đình làng.</p>
               <p className="muted small">{B[sel.k].d}</p>
               {sel.doneAt && <p className="small">{sel.lvl === 0 ? "Đang xây" : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
+              {c.cropDamage?.tile===selI && c.cropDamage.until>t && <p className="err small">Ruộng bị thú rừng giẫm: năng suất còn 50%, phục hồi sau {fmtDur(c.cropDamage.until-t)}.</p>}
               {(sel.flooded || sel.burned) && <p className="err small">{sel.burned ? "Bị cháy, cần sửa để hoạt động lại." : "Bị ngập, không hoạt động."}</p>}
               {B[sel.k].jobs ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{B[sel.k].jobs}</b>. {workersAt(c,selI) ? "Gom đủ một chuyến rồi mang về nộp; chỉ khi nộp xong kho mới tăng." : "Chưa có người làm nên chưa tạo tài nguyên. Bấm Giao người rảnh bên dưới."}</p> : null}
             </>
@@ -927,6 +967,11 @@ export default function Game() {
           )}
           {sel && selected && (
             <div className="actions">
+              {sel.k === "envoy" && sel.lvl >= 1 && <>
+                <p className="small">Sứ giả riêng: {Math.max(0,envoyCount(c)-envoysAway(c))}/{envoyCount(c)} đang rảnh. Dân làng chỉ dò địa hình trong làng; tìm nước khác cần cử sứ giả.</p>
+                <button className="primary" disabled={busy || saving || !envoyCount(c) || envoysAway(c)>=envoyCount(c)} onClick={()=>sendEnvoy()}>Cử sứ giả rảnh đi do thám · 2 phút</button>
+                <button onClick={()=>{setWorldOpen(true);setPanel(null);}}>Xem hành trình trên bản đồ thế giới</button>
+              </>}
               {sel.k === "barracks" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
               {sel.k === "hall" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("control")}>{control ? "Trung tâm điều khiển" : "Xem Đình làng"}</button>}
               {(sel.flooded || sel.burned) && <button className="primary" disabled={busy} onClick={() => act({ type: "repair", ...selected })}>Sửa ({costText(repairCost(sel.k, sel.lvl, !!sel.burned))})</button>}
@@ -980,6 +1025,7 @@ export default function Game() {
       </div>
 
       {battleOpen && <BattleView id={battleOpen} onClose={() => { setBattleOpen(null); void loadCity(); void war.refresh(); }} onSettled={() => { void loadCity(); void war.refresh(); }} />}
+      {!worldOpen && !battleOpen && readNotice.key===noticeKey && notices[0]?.at>readNotice.at && panel!=="log" && <div className="war-alerts" role="status"><span>{notices[0].cls==="warn"?"⚠ ":"✉ "}{notices[0].msg}</span><button onClick={()=>openPanel("log")}>Xem thông báo</button></div>}
       {!worldOpen && !battleOpen && (war.wars.some((w) => w.status !== "completed") || war.error) && (
         <aside className="war-alerts" aria-live="polite">
           {war.error && <p className="small">{war.error}</p>}
@@ -1022,19 +1068,7 @@ export default function Game() {
           now={now}
           busy={busy}
           onClose={() => setWorldOpen(false)}
-          onEnvoy={async (id) => {
-            if (actionQueue.current?.isPending) { setMsg({ text: "Đang lưu thao tác, hãy cử sứ giả sau giây lát." }); return; }
-            setBusy(true);
-            try {
-              const res = await fetch("/api/world/envoy", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(id ? { target: id } : { explore: true }) });
-              const data = await res.json();
-              if (data.state) accept(data);
-              void loadWorld();
-              setMsg(data.error ? { text: data.error, err: true } : { text: id ? `${ENVOY_NAMES[c.era]} đã lên đường.` : "Sứ giả đang dò tìm nước mới. Có tin sau 2 phút; trở về sau 4 phút." });
-            } catch {
-              setMsg({ text: "Mất kết nối khi cử sứ giả. Thử lại sau.", err: true });
-            } finally { setBusy(false); }
-          }}
+          onEnvoy={sendEnvoy}
           onVisit={(id) => { setWorldOpen(false); setPanel(null); setSelected(null); setPicked(new Set()); setTool(null); loadVisit(id, true); }}
         />
       )}
@@ -1161,6 +1195,7 @@ export default function Game() {
             {panel === "era" && (next ? (
               <>
                 <h3>Lên {ERA_NAMES[c.era + 1]}</h3>
+                <p className="small muted">Lên đời tự đổi kiến trúc và mở công trình. Cấp công trình vẫn nâng riêng bằng tài nguyên. Đời sau cần dân số, kho và hạ tầng lớn hơn.</p>
                 <ul className="goal">
                   {next.hall ? <li><span>Đình làng</span><span className="gbar"><i style={{ width: Math.min(100, (hallLv / next.hall) * 100) + "%" }} /></span><span>cấp {hallLv}/{next.hall}</span></li> : null}
                   <li><span>Dân số</span><span className="gbar"><i style={{ width: Math.min(100, (c.people.length / next.pop) * 100) + "%" }} /></span><span>{Math.min(c.people.length, next.pop)}/{next.pop}</span></li>
@@ -1181,7 +1216,7 @@ export default function Game() {
 
             {panel === "log" && (
               <ol className="log">
-                {c.log.map((l, i) => (
+                {notices.map((l, i) => (
                   <li key={i} className={l.cls ?? ""}><span className="t">{stamp(c, l.at)}</span>{l.msg}</li>
                 ))}
               </ol>

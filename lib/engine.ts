@@ -110,7 +110,7 @@ export const MAX_LVL = 3;
 
 export const ERA_REQ: Record<number, { pop: number; cost: Partial<Res>; hall?: number }> = {
   2: { pop: 15, cost: { food: 300, wood: 300, stone: 150 } },
-  3: { pop: 40, cost: { food: 1000, stone: 700, copper: 200 }, hall: 3 },
+  3: { pop: 50, cost: { food: 1500, wood: 500, stone: 1000, copper: 300 }, hall: 3 },
 };
 const ERA_UP: Record<number, string> = {
   2: "Bước vào Thời đồ đồng: mở ruộng lúa, kênh tưới, đê đất, nhà gỗ, lò đúc đồng và chợ.",
@@ -124,7 +124,7 @@ export type Task =
   | { t: "chop"; at: number }
   | { t: "mine"; at: number }
   | { t: "hunt"; herd: number }
-  | { t: "explore"; from: number; to: number; start: number; seenTo?: number }; // seenTo: progress (0..1) already revealed
+  | { t: "explore"; from: number; to: number; start: number; route?: number[]; seenTo?: number }; // seenTo: progress (0..1) already revealed
 export type TaskInput =
   | { t: "idle" }
   | { t: "move"; to: number }
@@ -178,6 +178,8 @@ export type City = {
   auto?: { on: boolean; mix: Record<ResKey, number> }; // auto-assign shares (control centre)
   raid?: { at: number; warn: number; power: number; from: number } | null; // incoming barbarians
   trips?: EnvoyTrip[]; // envoys travelling on the world map
+  wildlife?: { route: number[]; start: number; arrive: number; end: number; resolved?: boolean };
+  cropDamage?: { tile: number; until: number };
   discoveries?: string[]; // permanent nation IDs discovered by envoys
   visits?: Record<string, number>; // city id -> visit valid until (ms)
   guardPosts?: { x: number; y: number }[]; // home army guard positions
@@ -513,6 +515,7 @@ export function stats(c: City, D: Derived, at: number): Stats {
       if (crop && D.fert[i]) v *= b.k === "farm" ? 2 : 1.5;
       if (crop && D.fert[i] && boost) v *= 1.5;
       if (crop && winter) v *= 0.4;
+      if (c.cropDamage?.tile===i && at<c.cropDamage.until) v *= .5;
       if (crop || b.k === "wood" || b.k === "quarry") v *= tools;
       rate[r] += v * eff * mult;
     }
@@ -644,7 +647,7 @@ function setTask(c: City, p: Person, tk: TaskInput, now: number) {
   const point = haulPosition(p, now) ?? (exploring ? { x: exploring[0], y: exploring[1] } : null);
   const from = point ? idx(Math.min(W - 1, Math.max(0, Math.floor(point.x))), Math.min(H - 1, Math.max(0, Math.floor(point.y)))) : p.pos ?? c.camp;
   p.pos = from;
-  const restLoaded = !!p.haul?.carried && (tk.t === "idle" || tk.t === "move") && !!p.haul.resource && c.res[p.haul.resource] + p.haul.carried > stats(c,derive(c),now).storage;
+  const restLoaded = !!p.haul?.carried && (tk.t === "idle" || tk.t === "move" || tk.t === "explore") && !!p.haul.resource && c.res[p.haul.resource] + p.haul.carried > stats(c,derive(c),now).storage;
   if (p.haul?.carried) {
     p.haul.tile = from;
     p.haul.phase = "unload"; // reroute the existing cargo before beginning the new task
@@ -654,13 +657,19 @@ function setTask(c: City, p: Person, tk: TaskInput, now: number) {
     delete p.haul.drop;
     p.haul.resting = restLoaded;
     if (restLoaded) {
-      const destination = tk.t === "move" ? tk.to : from;
+      const destination = tk.t === "move" || tk.t === "explore" ? tk.to : from;
       const route = haulPath(c,from,destination,haulingContext(c,derive(c))) ?? [from];
       p.haul.route=route;p.haul.phase=route.length>1?"travel":"unload";
       p.haul.nextAt=now+Math.max(HAUL_TILE_MS,Math.ceil(routeLength(route))*HAUL_TILE_MS);
     }
   } else delete p.haul;
-  if (tk.t === "explore") { p.task = { t: "explore", from, to: tk.to, start: now }; return; }
+  if (tk.t === "explore") {
+    const route=haulPath(c,from,tk.to,haulingContext(c,derive(c)));
+    if(!route){p.task={t:"idle",at:from};log(c,now,`${p.name} không tìm được đường do thám; hãy chọn hướng khác.`,"warn");return;}
+    p.task = { t: "explore", from, to: tk.to, start: now, route };
+    if(p.haul?.resting){p.haul.route=route;p.haul.phase="travel";p.haul.nextAt=now+Math.max(1,routeLength(route))/EXPLORE_TILES_PER_MIN*MIN;}
+    return;
+  }
   if (tk.t === "move") { p.task = { t: "idle", at: tk.to }; if (!p.haul) beginHaul(c, p, now, haulingContext(c, derive(c))); return; }
   p.task = tk as Task;
   if (!p.haul) beginHaul(c, p, now, haulingContext(c, derive(c)));
@@ -669,8 +678,16 @@ function setTask(c: City, p: Person, tk: TaskInput, now: number) {
 /** Where an explorer is along their straight-line walk at time `at` (fractional tile coords). */
 export function explorerPos(tk: Extract<Task, { t: "explore" }>, at: number): [number, number, number] {
   const fx = tk.from % W, fy = (tk.from / W) | 0, tx = tk.to % W, ty = (tk.to / W) | 0;
-  const dist = Math.max(1, Math.max(Math.abs(tx - fx), Math.abs(ty - fy)));
+  const dist = Math.max(1, tk.route ? routeLength(tk.route) : Math.max(Math.abs(tx - fx), Math.abs(ty - fy)));
   const p = Math.max(0, Math.min(1, (at - tk.start) / ((dist / EXPLORE_TILES_PER_MIN) * MIN)));
+  if(tk.route?.length){
+    let distance=p*routeLength(tk.route);
+    for(let i=1;i<tk.route.length;i++){
+      const a=tk.route[i-1],b=tk.route[i],d=Math.hypot(b%W-a%W,Math.floor(b/W)-Math.floor(a/W));
+      if(distance<=d){const f=d?distance/d:1;return [a%W+.5+(b%W-a%W)*f,Math.floor(a/W)+.5+(Math.floor(b/W)-Math.floor(a/W))*f,p];}distance-=d;
+    }
+    const last=tk.route[tk.route.length-1];return [last%W+.5,Math.floor(last/W)+.5,p];
+  }
   return [fx + (tx - fx) * p + 0.5, fy + (ty - fy) * p + 0.5, p];
 }
 
@@ -678,15 +695,15 @@ function stepExplorers(c: City, at: number) {
   let changed = false;
   for (const p of c.people) {
     const tk = p.task;
-    if (tk.t !== "explore" || p.haul?.carried) continue;
+    if (tk.t !== "explore" || p.haul?.carried && !p.haul.resting) continue;
     const [, , prog] = explorerPos(tk, at);
     // reveal every tile along the stretch walked since the last step, not just the end point
     const fx = tk.from % W, fy = (tk.from / W) | 0, tx = tk.to % W, ty = (tk.to / W) | 0;
-    const dist = Math.max(1, Math.max(Math.abs(tx - fx), Math.abs(ty - fy)));
+    const dist = Math.max(1, tk.route ? routeLength(tk.route) : Math.max(Math.abs(tx - fx), Math.abs(ty - fy)));
     const p0 = tk.seenTo ?? 0, n = Math.max(1, Math.ceil((prog - p0) * dist));
     for (let k = 0; k <= n; k++) {
       const pp = p0 + ((prog - p0) * k) / n;
-      const px = fx + (tx - fx) * pp + 0.5, py = fy + (ty - fy) * pp + 0.5;
+      const [px,py]=explorerPos(tk,tk.start+pp*dist/EXPLORE_TILES_PER_MIN*MIN);
       if (reveal(c, idx(Math.min(W - 1, Math.floor(px)), Math.min(H - 1, Math.floor(py))), SCOUT_SIGHT)) changed = true;
     }
     tk.seenTo = prog;
@@ -701,8 +718,9 @@ function stepExplorers(c: City, at: number) {
         near(5, (i) => c.t[i] === F && !!c.seen[i]) && "rừng",
       ].filter(Boolean);
       log(c, at, `${p.name} thám hiểm xong${found ? `, mở thêm ${found} ô` : ""}${notes.length ? `, thấy ${notes.join(", ")}` : ""}.`, "good");
-      p.task = { t: "idle", at: tk.to };
-      p.pos = tk.to;
+      const end=tk.route?.[tk.route.length-1]??tk.to;
+      p.task = { t: "idle", at: end };
+      p.pos = end;
       changed = true;
     }
   }
@@ -807,6 +825,7 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   if (crop && ctx.D.fert[tk.at]) rate *= b.k === "farm" ? 2 : 1.5;
   if (crop && ctx.D.fert[tk.at] && at < c.boostUntil) rate *= 1.5;
   if (crop && seasonAt(c, at) === 3) rate *= 0.4;
+  if (c.cropDamage?.tile===tk.at && at<c.cropDamage.until) rate *= .5;
   if (crop || b.k === "wood" || b.k === "quarry") rate *= ctx.tools;
   let source: HaulJob["source"] = { kind: "building", key: tk.at };
   let tile = tk.at;
@@ -959,7 +978,7 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: number, sme
       c.res[h.resource!] += amount; h.carried -= amount;
       if (h.carried > 1e-9) { h.nextAt = at + HAUL_TILE_MS; continue; }
       p.pos = h.tile; delete p.haul;
-      if (p.task.t === "explore") { p.task.from = p.pos; p.task.start = at; }
+      if (p.task.t === "explore") { p.task.from = p.pos; p.task.start = at; p.task.seenTo=0; p.task.route=haulPath(c,p.pos,p.task.to,ctx)??[p.pos]; }
       beginHaul(c, p, at, ctx);
     }
   }
@@ -1064,6 +1083,44 @@ function raid(c: City, at: number, r: () => number) {
     const lost = casualties(c.army, bell ? 0.4 : 0.6, r);
     log(c, at, `Man rợ cướp làng! Mất ${costText(stolen)}.${troopCount(lost) ? ` Hy sinh: ${troopText(lost)}.` : ""}${bell ? " Kẻng đã giúp dân kịp trú ẩn." : " Hãy luyện thêm quân để thủ."}`, "warn");
   }
+}
+
+/** Forest boars follow a real passable route. No threat during the first 30 minutes. */
+export function wildlifePosition(c: City, at: number): [number,number] | null {
+  const w=c.wildlife;if(!w || at>=w.end)return null;
+  const progress=Math.max(0,Math.min(1,(at-w.start)/(w.arrive-w.start)))*(w.route.length-1);
+  const i=Math.floor(progress),a=w.route[i],b=w.route[Math.min(i+1,w.route.length-1)],f=progress-i;
+  return [a%W+.5+(b%W-a%W)*f,Math.floor(a/W)+.5+(Math.floor(b/W)-Math.floor(a/W))*f];
+}
+function stepWildlife(c: City, at: number): boolean {
+  let changed=false;
+  if(c.cropDamage && at>=c.cropDamage.until){delete c.cropDamage;log(c,at,"Ruộng đã phục hồi sau khi thú rừng giẫm phá.","good");changed=true;}
+  const w=c.wildlife;
+  if(w && !w.resolved && at>=w.arrive){
+    w.resolved=true;const tile=w.route[w.route.length-1];
+    const defended=buildings(c).some(([i,b])=>b.k==="watchtower"&&isBuildingActive(b)&&cheb(i,tile)<=7)||troopPower(c.army)>=20;
+    if(defended)log(c,at,"Lính giữ làng / chòi canh đã xua đàn lợn rừng. Ruộng an toàn.","good");
+    else if(c.b[tile]?.k==="farm"&&isBuildingActive(c.b[tile])){
+      c.cropDamage={tile,until:at+2*MIN};
+      log(c,at,"Lợn rừng giẫm phá một ruộng: năng suất giảm 50% trong 2 phút. Xây chòi trong 7 ô hoặc giữ quân ở làng (sức mạnh 20) để phòng lần sau.","warn");
+    }else log(c,at,"Đàn lợn rừng đã bỏ đi vì ruộng không còn ở đó.");
+    changed=true;
+  }
+  if(w && at>=w.end){delete c.wildlife;changed=true;}
+  const slot=Math.floor((at-c.t0)/(30*MIN));
+  if(slot<1 || (at-c.t0)%(30*MIN)!==0 || c.wildlife || c.battleId)return changed;
+  const r=rng(c.seed^Math.imul(slot,1597334677));if(r()>.45)return changed;
+  const farms=buildings(c).filter(([,b])=>b.k==="farm"&&isBuildingActive(b));
+  if(!farms.length)return changed;
+  const [tile]=farms[Math.floor(r()*farms.length)];
+  const ctx=haulingContext(c,derive(c));
+  const starts=c.t.map((t,i)=>t===F&&c.seen[i]&&cheb(i,tile)>=3&&cheb(i,tile)<=12?i:-1).filter(i=>i>=0);
+  for(const from of starts.slice(0,24)){
+    const route=haulPath(c,from,tile,ctx);if(!route || route.length<2)continue;
+    c.wildlife={route,start:at,arrive:at+MIN,end:at+MIN+15_000};
+    log(c,at,"Có lợn rừng đang tới ruộng, còn 1 phút! Chòi canh trong 7 ô hoặc quân ở làng có sức mạnh 20 sẽ xua chúng.","warn");return true;
+  }
+  return changed;
 }
 
 function stepEnvoys(c: City, nt: number) {
@@ -1182,6 +1239,7 @@ export function settle(c: City, now: number) {
       if (b.doneAt && b.doneAt <= nt) {
         b.lvl += 1;
         b.doneAt = null;
+        log(c,nt,`${buildingName(c,b.k)} ${b.lvl===1?"xây xong":"đã nâng lên cấp "+b.lvl}.`,"good");
         dirty = true;
         if (b.k === "temple" && !c.templeAt) {
           c.templeAt = nt;
@@ -1196,6 +1254,7 @@ export function settle(c: City, now: number) {
     if (stepExplorers(c, nt)) dirty = true;
     if (stepArmy(c, nt)) dirty = true;
     if (stepEnvoys(c, nt)) dirty = true;
+    if (stepWildlife(c, nt)) dirty = true;
     if (autoAssign(c, nt)) dirty = true;
     if (dirty) { D = derive(c); st = stats(c, D, nt); hauling = haulingContext(c, D); refreshHauling(c, nt, hauling); dirty = false; }
 
