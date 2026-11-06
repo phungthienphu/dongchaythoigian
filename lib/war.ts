@@ -2,7 +2,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { ClientSession } from "mongodb";
 import { battles, cities, mongoClient, type CityDoc } from "./db";
-import { pruneHomeOrders, RES, UKEYS, W, MARCH_TILES_PER_MIN, MIN, canVisit, derive, stats, score, settle, updateRefuges, troopPower, troopCount, type City, type Troops, type Res } from "./engine";
+import { normalizeResources, pruneHomeOrders, RES, UKEYS, W, MARCH_TILES_PER_MIN, MIN, canVisit, derive, stats, score, settle, updateRefuges, troopPower, troopCount, type City, type Troops, type Res } from "./engine";
 import { createBattle, type BattleState, type BattleResult } from "./battle";
 import { knowsNation } from "./world-discovery";
 import { reserveMarchFood, marchLogistics } from "./march-supplies";
@@ -179,7 +179,7 @@ export async function finishBattle(id: string, result: BattleResult) {
     const d = await col.findOne({ _id: w.defenderId }, { session });
     if (!d || d.state.battleId !== id || !w.snapshot) throw new Error("Trạng thái trận đánh không khớp.");
     validateResult(w, d.state, result);
-    const now = Date.now(), c = d.state;
+    const now = Date.now(), c = d.state; normalizeResources(c);
     for (const tile of result.burnedTiles) if (c.b[tile]) { c.b[tile].burned = true; c.b[tile].doneAt = null; }
     c.army = result.defenderSurvivors;
     // The simulation chooses the losses, bounded again at the persistence boundary.
@@ -199,6 +199,7 @@ export async function finishBattle(id: string, result: BattleResult) {
     await col.updateOne({ _id: d._id }, { $set: cityUpdate(c, now), $unset: { incomingBattleId: "" }, $inc: { ver: 1 } }, { session });
     const a=await col.findOne({_id:w.attackerId},{session});
     if(a){
+      normalizeResources(a.state);
       a.state.log.unshift({at:now,msg:battleReport(result,"attacker",w.defenderName),cls:result.winner==='attacker'?'good':'warn'});
       await col.updateOne({_id:a._id},{$set:cityUpdate(a.state,now),$inc:{ver:1}},{session});
     }
@@ -226,7 +227,7 @@ export async function returnArmy(id: string) {
     const w = await wars.findOne({ _id: id, status: "returning" }, { session }); if (!w) return null;
     const now = Date.now(); if (now < (w.back ?? Infinity)) throw new Error("Đoàn quân chưa về tới làng.");
     const a = await col.findOne({ _id: w.attackerId }, { session }); if (!a) throw new Error("Không tìm thấy làng.");
-    const c = a.state;
+    const c = a.state; normalizeResources(c);
     if (!c.battleId) settle(c, now);
     if(w.suppliesFood!==undefined)c.provisionedSoldiers=Math.max(0,(c.provisionedSoldiers??0)-troopCount(w.troops));
     addArmy(c.army, w.result?.attackerSurvivors ?? w.marchSurvivors ?? w.troops); addArmy(c.deployedArmy ??= {}, w.troops, -1);

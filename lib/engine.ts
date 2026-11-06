@@ -8,7 +8,10 @@ import { isActionInput } from "./action-input";
 export const ENGINE_VER = 3;
 export const W = 96;
 export const H = 96;
-export const G = 0, F = 1, HL = 2, R = 3, O = 4;
+export const G = 0, F = 1, HL = 2, R = 3, O = 4, GOLD = 5, DIAMOND = 6;
+export const isRock = (t: number) => t === HL || t === O || t === GOLD || t === DIAMOND;
+export const mineralResource = (t:number): ResKey => t===GOLD?"gold":t===DIAMOND?"diamond":t===O?"copper":"stone";
+export const depositCapacity = (t:number) => t===F?CAP.forest:t===GOLD?CAP.gold:t===DIAMOND?CAP.diamond:t===O?CAP.ore:t===HL?CAP.hill:0;
 
 export const MIN = 60_000;
 export const HOUR = 60 * MIN;
@@ -22,18 +25,18 @@ const MIN_POP = 3;
 // gathering by hand (per person per hour) and how much each tile/animal holds
 export const GATHER_SPEED = 120; // Active play: a wood load takes 10 seconds, not 20 minutes.
 const CHOP_RATE = 30 * GATHER_SPEED, STONE_RATE = 20 * GATHER_SPEED, ORE_RATE = 8 * GATHER_SPEED, HUNT_RATE = 40 * GATHER_SPEED;
-export const CAP = { forest: 400, hill: 1500, ore: 1200 };
+export const CAP = { forest: 400, hill: 1500, ore: 1200, gold: 800, diamond: 120 };
 const MEAT_PER_ANIMAL = 50, HERD_REGROW = 0.5; // animals per hour
 export const EXPLORE_TILES_PER_MIN = 36; // matches the on-screen walking pace (~0.6 tiles/s)
 const START_SIGHT = 9, SCOUT_SIGHT = 3;
 
 export const SEASONS = ["Xuân", "Hạ", "Thu", "Đông"];
 export const ERA_NAMES = ["", "Thời đồ đá", "Thời đồ đồng", "Thời đồ sắt"];
-export const TERRAIN = ["Đồng cỏ", "Rừng", "Đồi đá", "Sông", "Mỏ đồng"];
-export const RES = ["food", "wood", "stone", "copper"] as const;
+export const TERRAIN = ["Đồng cỏ", "Rừng", "Đồi đá", "Sông", "Mỏ đồng", "Mỏ vàng", "Mỏ kim cương"];
+export const RES = ["food", "wood", "stone", "copper", "gold", "diamond"] as const;
 export type ResKey = (typeof RES)[number];
 export type Res = Record<ResKey, number>;
-export const RN: Record<ResKey, string> = { food: "Lương thực", wood: "Gỗ", stone: "Đá", copper: "Đồng" };
+export const RN: Record<ResKey, string> = { food: "Lương thực", wood: "Gỗ", stone: "Đá", copper: "Đồng", gold: "Vàng", diamond: "Kim cương" };
 const NAMES = ["Tí", "Tèo", "Mận", "Đào", "Sửu", "Dần", "Bống", "Cò", "Sẻ", "Mít", "Na", "Bưởi", "Cốm", "Gạo", "Nụ", "Lúa", "Cau", "Sen", "Mây", "Gió", "Đá", "Suối", "Trúc", "Tre", "Muối", "Vừng", "Hến", "Ốc", "Ngô", "Khoai"];
 
 type Need = "forest" | "hill" | "ore" | "water" | "river" | "bank";
@@ -59,7 +62,7 @@ const DEFS = {
   gather: { n: "Trại hái lượm", era: 1, cost: { wood: 15 }, sec: 10, jobs: 2, prod: { food: 60 }, up: true, d: "Lương thực. Thêm 50% trên đất phù sa." },
   wood: { n: "Trại đốn gỗ", era: 1, cost: { food: 10 }, sec: 10, jobs: 2, prod: { wood: 60 }, need: "forest", up: true, drop: ["wood"], d: "Phải kề rừng. Người chặt cây gần đây đỡ phải đi xa." },
   quarry: { n: "Bãi đá", era: 1, cost: { wood: 20 }, sec: 15, jobs: 2, prod: { stone: 40 }, need: "hill", up: true, drop: ["stone", "copper"], d: "Đặt trên đồi. Người đào đá gần đây đỡ phải đi xa." },
-  storehouse: { n: "Kho", era: 1, cost: { wood: 40, stone: 10 }, sec: 30, storage: 1000, up: true, drop: ["food", "wood", "stone", "copper"], d: "+1.000 sức chứa mỗi loại, mỗi cấp." },
+  storehouse: { n: "Kho", era: 1, cost: { wood: 40, stone: 10 }, sec: 30, storage: 1000, up: true, drop: ["food", "wood", "stone", "copper", "gold", "diamond"], d: "+1.000 sức chứa mỗi loại, mỗi cấp." },
   fire: { n: "Bếp lửa chung", era: 1, cost: { wood: 80, stone: 30 }, sec: 60, max: 2, drop: ["food"], d: "Dân tăng nhanh gấp đôi. Tối đa 2 bếp." },
   farm: { n: "Ruộng lúa", era: 2, cost: { wood: 80 }, sec: 120, jobs: 2, prod: { food: 90 }, up: true, d: "Gấp đôi trên đất phù sa." },
   canal: { n: "Kênh tưới", era: 2, cost: { stone: 40 }, sec: 30, need: "water", d: "Nối thẳng vào sông hoặc kênh. Đất quanh kênh thành phù sa." },
@@ -70,7 +73,7 @@ const DEFS = {
   stonehouse: { n: "Nhà đá", era: 3, cost: { stone: 250, copper: 30 }, sec: 1200, house: 12, up: true, d: "12 người mỗi cấp. Lũ không làm ngập." },
   forge: { n: "Xưởng dụng cụ", era: 1, cost: { wood: 40, stone: 20 }, sec: 30, up: true, max: 2, d: "Mỗi cấp tăng 25% tốc độ chặt cây, đào đá, săn bắn và làm ruộng, trại hái lượm. Áp dụng toàn làng ngay khi xây xong, không cần giao thợ. Tối đa 2 xưởng; nâng cấp sau khi có Đình làng." },
   wheel: { n: "Cối nước", era: 3, cost: { wood: 200, stone: 100 }, sec: 1200, jobs: 2, prod: { food: 150 }, need: "river", up: true, d: "Sát sông. Mùa đông không giảm." },
-  hall: { n: "Đình làng", era: 2, cost: { wood: 300, stone: 200, copper: 20 }, sec: 900, house: 5, storage: 500, up: true, max: 1, drop: ["food", "wood", "stone", "copper"], d: "Nhà chính. Công trình khác chỉ nâng được tới cấp của Đình. Cấp 3 mở trung tâm điều khiển." },
+  hall: { n: "Đình làng", era: 2, cost: { wood: 300, stone: 200, copper: 20 }, sec: 900, house: 5, storage: 500, up: true, max: 1, drop: ["food", "wood", "stone", "copper", "gold", "diamond"], d: "Nhà chính. Công trình khác chỉ nâng được tới cấp của Đình. Cấp 3 mở trung tâm điều khiển." },
   envoy: { n: "Nhà sứ giả", era: 1, cost: { wood: 80, stone: 30, food: 30 }, sec: 90, up: true, max: 1, d: "Có sứ giả để đi thăm các nước. Mỗi cấp thêm một sứ giả và đi nhanh hơn." },
   barracks: { n: "Trại lính", era: 1, cost: { wood: 120, stone: 40 }, sec: 120, up: true, max: 3, d: "Huấn luyện quân. Mỗi cấp chứa thêm 10 lính." },
   wall: { n: "Tường thành", era: 1, cost: { wood: 30, stone: 20 }, sec: 30, up: true, d: "Chặn quân địch. Độ bền tăng theo cấp và thời đại." },
@@ -189,6 +192,7 @@ export type City = {
   xs: number[];
   camp: number;
   b: Record<string, Building>; // keyed by tile index
+  preciousDepositsVersion?: number;
   copperDepositsVersion?: number; // one-time, additive ore enrichment; never resets the map
   dep: Record<string, number>; // amount already taken from a forest/hill tile
   herds: Herd[];
@@ -303,7 +307,7 @@ export const envoyMs = (c: City, cells: number) => (Math.max(1, cells) / (ENVOY_
 export const canVisit = (c: City, id: string, at: number) => (c.visits?.[id] ?? 0) > at;
 
 export type Mix = Record<ResKey, number>;
-export const DEFAULT_MIX: Mix = { food: 40, wood: 30, stone: 20, copper: 10 };
+export const DEFAULT_MIX: Mix = { food: 40, wood: 30, stone: 20, copper: 10, gold: 0, diamond: 0 };
 export const RAID_WARNING_MS = 30 * MIN;
 
 /** Level of the village hall (0 = not built yet). */
@@ -405,6 +409,25 @@ export function enrichCopperDeposits(c: City): number {
   return added;
 }
 
+export function normalizeResources(c:City){
+  c.res.gold ??= 0;c.res.diamond ??= 0;
+  if(c.auto){c.auto.mix.gold ??= 0;c.auto.mix.diamond ??= 0;}
+}
+export const speedBuildCost=(b:Building,now:number)=>Math.max(0,Math.ceil(((b.doneAt??now)-now)/30_000));
+const gatheringRate=(r:ResKey)=>r==='wood'?CHOP_RATE:r==='stone'?STONE_RATE:r==='gold'?ORE_RATE*.5:r==='diamond'?ORE_RATE*.08:ORE_RATE;
+/** Deterministic additive migration on untouched hills; never builds over a route. */
+export function enrichPreciousDeposits(c:City){
+  normalizeResources(c);if((c.preciousDepositsVersion??0)>=1)return 0;
+  const occupied=new Set([...Object.keys(c.b).map(Number),c.camp,...c.herds.map(h=>h.at),...c.camps.map(b=>b.at),...c.people.flatMap(p=>p.task.t==='mine'?[p.task.at]:[])]);
+  const random=rng(c.seed^0x71b35),hills=c.t.flatMap((t,i)=>t===HL&&!occupied.has(i)&&!Object.hasOwn(c.dep,i)?[{tile:i,rank:random()}]:[]).sort((a,b)=>a.rank-b.rank);
+  const budget=Math.floor(hills.length*.15),goldTarget=Math.min(8,Math.max(2,Math.floor(budget*.7))),diamondTarget=Math.min(3,Math.max(1,budget-goldTarget));let added=0;
+  for(const [kind,count] of [[GOLD,goldTarget],[DIAMOND,diamondTarget]]){
+    const ordered=[...hills].filter(p=>c.t[p.tile]===HL).sort((a,b)=>(cheb(c.camp,a.tile)<=24?0:1)-(cheb(c.camp,b.tile)<=24?0:1)||a.rank-b.rank);
+    for(const {tile} of ordered.slice(0,Math.min(count,budget-added))){c.t[tile]=kind;added++;}
+  }
+  c.preciousDepositsVersion=1;return added;
+}
+
 export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
   const r = rng(seed);
   const t = new Array<number>(W * H).fill(G);
@@ -466,10 +489,11 @@ export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
     army: {}, queue: [], camps, exps: [], nextExp: 1, wins: 0,
     ver: ENGINE_VER, seed, t, seen: new Array(W * H).fill(0), oldbed: [], xs, camp, b: {}, dep: {}, herds,
     people: [], nextId: 1,
-    res: { food: 100, wood: 120, stone: 30, copper: 0 }, pop: 0, popAcc: 0, era: 1,
+    res: { food: 100, wood: 120, stone: 30, copper: 0, gold: 0, diamond: 0 }, pop: 0, popAcc: 0, era: 1,
     t0: now, last: now, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
   };
   enrichCopperDeposits(c);
+  enrichPreciousDeposits(c);
   reveal(c, camp, START_SIGHT);
   for (let k = 0; k < 5; k++) addPerson(c);
   log(c, now, "Bộ lạc 5 người dừng chân bên sông. Bấm chọn một người rồi bấm vào rừng, đồi hoặc đàn thú để giao việc. Bấm ra vùng sương mù để đi thám hiểm.");
@@ -615,7 +639,7 @@ export function stats(c: City, D: Derived, at: number): Stats {
   const tools = 1 + 0.25 * buildings(c).reduce((n, [, b]) => n + (b.k === "forge" && built(b) && !b.flooded ? b.lvl : 0), 0);
   const winter = seasonAt(c, at) === 3;
   const boost = at < c.boostUntil;
-  const rate: Res = { food: 0, wood: 0, stone: 0, copper: 0 };
+  const rate: Res = { food: 0, wood: 0, stone: 0, copper: 0, gold: 0, diamond: 0 };
   let woodUse = 0;
   for (const [i, b] of buildings(c)) {
     if (!built(b) || b.flooded) continue;
@@ -642,9 +666,8 @@ export function stats(c: City, D: Derived, at: number): Stats {
     if(p.refuge)continue;
     const tk = p.task;
     if (tk.t === "chop" || tk.t === "mine") {
-      const ore = c.t[tk.at] === O;
-      const res: ResKey = tk.t === "chop" ? "wood" : ore ? "copper" : "stone";
-      const base = tk.t === "chop" ? CHOP_RATE : ore ? ORE_RATE : STONE_RATE;
+      const res: ResKey = tk.t === "chop" ? "wood" : mineralResource(c.t[tk.at]);
+      const base = gatheringRate(res);
       const v = base * tools * mult * walkFactor(dropDistance(c, tk.at, res), base * tools * mult);
       rate[res] += v;
       drains.push({ kind: "tile", key: tk.at, res, perHour: v });
@@ -684,7 +707,7 @@ function autoAssign(c: City, now: number) {
   const resOf = (p: Person): ResKey | null => {
     const tk = p.task;
     if (tk.t === "chop") return "wood";
-    if (tk.t === "mine") return c.t[tk.at] === O ? "copper" : "stone";
+    if (tk.t === "mine") return mineralResource(c.t[tk.at]);
     if (tk.t === "hunt") return "food";
     if (tk.t === "work") return (Object.keys(def(c.b[tk.at]?.k ?? "hut").prod ?? {})[0] as ResKey) ?? null;
     return null;
@@ -692,7 +715,7 @@ function autoAssign(c: City, now: number) {
   const total = c.people.length, mixSum = RES.reduce((a, r) => a + (c.auto!.mix[r] ?? 0), 0) || 1;
   let changed = false;
   for (const p of idle) {
-    const have: Res = { food: 0, wood: 0, stone: 0, copper: 0 };
+    const have: Res = { food: 0, wood: 0, stone: 0, copper: 0, gold: 0, diamond: 0 };
     for (const q of c.people) { const r = resOf(q); if (r) have[r]++; }
     const order = [...RES].sort((a, b) => (have[a] - (total * c.auto!.mix[a]) / mixSum) - (have[b] - (total * c.auto!.mix[b]) / mixSum));
     for (const r of order) {
@@ -709,6 +732,7 @@ function autoAssign(c: City, now: number) {
 
 /** Nearest sensible job producing `r`: an open building slot first, then gathering by hand. */
 function autoTarget(c: City, r: ResKey): TaskInput | null {
+  if(r==='gold'&&c.era<2||r==='diamond'&&c.era<3)return null;
   const slots = buildings(c)
     .filter(([i, b]) => built(b) && !b.flooded && def(b.k).jobs && Object.keys(def(b.k).prod ?? {})[0] === r && workersAt(c, i) < def(b.k).jobs!)
     .sort((a, b) => cheb(a[0], c.camp) - cheb(b[0], c.camp));
@@ -716,7 +740,7 @@ function autoTarget(c: City, r: ResKey): TaskInput | null {
   const ok = (i: number) => !!c.seen[i] && !c.b[i];
   if (r === "wood") { const i = nearestTile(c, c.camp, (j) => ok(j) && c.t[j] === F, 20); return i >= 0 ? { t: "chop", at: i } : null; }
   if (r === "stone") { const i = nearestTile(c, c.camp, (j) => ok(j) && c.t[j] === HL, 20); return i >= 0 ? { t: "mine", at: i } : null; }
-  if (r === "copper") { const i = nearestTile(c, c.camp, (j) => ok(j) && c.t[j] === O, 25); return i >= 0 ? { t: "mine", at: i } : null; }
+  if (["copper","gold","diamond"].includes(r)) { const i = nearestTile(c, c.camp, (j) => ok(j) && isRock(c.t[j]) && mineralResource(c.t[j])===r, 40); return i >= 0 ? { t: "mine", at: i } : null; }
   const herd = c.herds.filter((h) => h.n >= 1 && c.seen[h.at] && cheb(h.at, c.camp) <= 20).sort((a, b) => cheb(a.at, c.camp) - cheb(b.at, c.camp))[0];
   return herd ? { t: "hunt", herd: herd.id } : null;
 }
@@ -749,7 +773,7 @@ function taskError(c: City, tk: TaskInput, adding: number): string | null {
   if (!Number.isInteger(tk.at) || tk.at < 0 || tk.at >= W * H) return "Ô không hợp lệ.";
   if (!c.seen[tk.at]) return "Vùng này chưa khám phá.";
   if (tk.t === "chop") return c.t[tk.at] === F ? null : "Chỉ chặt được ô rừng.";
-  if (tk.t === "mine") return c.t[tk.at] === HL || c.t[tk.at] === O ? null : "Chỉ đào được ô đồi đá hoặc mỏ đồng.";
+  if (tk.t === "mine") return isRock(c.t[tk.at]) ? (c.t[tk.at]===GOLD&&c.era<2?"Vàng mở từ đời đồng.":c.t[tk.at]===DIAMOND&&c.era<3?"Kim cương mở từ đời sắt.":null) : "Chỉ đào được đồi đá hoặc mỏ khoáng sản.";
   const b = c.b[tk.at];
   if (!b || !def(b.k).jobs) return "Công trình này không cần người làm.";
   if (!b || b.lvl < 1) return "Công trình chưa xây xong.";
@@ -882,7 +906,7 @@ function routeLength(route: number[]) {
 function haulPassable(c: City, tile: number, to: number, water: boolean) {
   const b = c.b[tile];
   if (b?.k === "wall" && built(b)) return false;
-  if (c.t[tile] === HL || c.t[tile] === O) return false;
+  if (isRock(c.t[tile])) return false;
   if (tile === to) return true;
   if (!water && c.t[tile] === R) return false;
   return !b || b.burned || b.k === "canal" || b.k === "farm" || b.k === "levee" || b.k === "gate";
@@ -890,7 +914,7 @@ function haulPassable(c: City, tile: number, to: number, water: boolean) {
 function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredLand = false): number[] | null {
   const key = `${from}:${to}:${exploredLand}`;
   if (ctx.paths.has(key)) return ctx.paths.get(key)!;
-  const rockyTarget = c.t[to] === HL || c.t[to] === O;
+  const rockyTarget = isRock(c.t[to]);
   const arrived = (tile: number) => rockyTarget ? tile !== to && cheb(tile, to) === 1 && haulPassable(c, tile, -1, true) : tile === to;
   if (arrived(from)) { const path = [from]; ctx.paths.set(key, path); return path; }
   const find = (water: boolean) => {
@@ -1049,9 +1073,9 @@ export function updateRefuges(c:City,at:number){
 function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob | null {
   const tk = p.task;
   if (tk.t === "chop" || tk.t === "mine") {
-    if (tk.t === "chop" ? c.t[tk.at] !== F : c.t[tk.at] !== HL && c.t[tk.at] !== O) return null;
-    const resource: ResKey = tk.t === "chop" ? "wood" : c.t[tk.at] === O ? "copper" : "stone";
-    const rate = resource === "wood" ? CHOP_RATE : resource === "copper" ? ORE_RATE : STONE_RATE;
+    if (tk.t === "chop" ? c.t[tk.at] !== F : !isRock(c.t[tk.at])) return null;
+    const resource: ResKey = tk.t === "chop" ? "wood" : mineralResource(c.t[tk.at]);
+    const rate = gatheringRate(resource);
     return { tile: tk.at, resource, rate: rate * ctx.tools * ctx.mult, source: { kind: "tile", key: tk.at } };
   }
   if (tk.t === "hunt") {
@@ -1110,7 +1134,7 @@ function beginHaul(c: City, p: Person, at: number, ctx: HaulContext) {
   let job = haulingJob(c, p, at, ctx);
   if (!job && (p.task.t === "chop" || p.task.t === "mine")) {
     const task = p.task;
-    const next = nearestTile(c, task.at, i => !!c.seen[i] && !c.b[i] && (task.t === "chop" ? c.t[i] === F : c.t[i] === HL || c.t[i] === O), 4);
+    const next = nearestTile(c, task.at, i => !!c.seen[i] && !c.b[i] && (task.t === "chop" ? c.t[i] === F : isRock(c.t[i]) && mineralResource(c.t[i])===(p.haul?.resource??mineralResource(c.t[task.at]))), 4);
     p.task = next >= 0 ? { t: task.t, at: next } : { t: "idle" };
     job = haulingJob(c, p, at, ctx);
   }
@@ -1131,9 +1155,9 @@ function beginHaul(c: City, p: Person, at: number, ctx: HaulContext) {
   }
   const from = p.pos ?? c.camp, path = haulPath(c, from, job.tile, ctx);
   if (!path) return;
-  const travel = Math.ceil(routeLength(path)) * HAUL_TILE_MS;
-  p.haul = { phase: travel ? "travel" : "work", at, nextAt: at + (travel || Math.ceil(HAUL_CAPACITY / job.rate * HOUR / HAUL_TILE_MS) * HAUL_TILE_MS), tile: from,
-    route: path, routeStart: at, resource: job.resource, carried: 0, capacity: HAUL_CAPACITY, source: job.source, taskKey: taskKey(p), workRate: job.rate };
+  const travel = Math.ceil(routeLength(path)) * HAUL_TILE_MS, capacity=job.resource==='diamond'?1:job.resource==='gold'?5:HAUL_CAPACITY;
+  p.haul = { phase: travel ? "travel" : "work", at, nextAt: at + (travel || Math.ceil(capacity / job.rate * HOUR / HAUL_TILE_MS) * HAUL_TILE_MS), tile: from,
+    route: path, routeStart: at, resource: job.resource, carried: 0, capacity, source: job.source, taskKey: taskKey(p), workRate: job.rate };
 }
 function takeCargo(c: City, h: Haul, at: number): number {
   if (!h.source) return 0;
@@ -1153,8 +1177,8 @@ function takeCargo(c: City, h: Haul, at: number): number {
     return amount;
   }
   const tile = h.source.key, terrain = c.t[tile];
-  if (terrain !== F && terrain !== HL && terrain !== O) return 0;
-  const cap = terrain === F ? CAP.forest : terrain === O ? CAP.ore : CAP.hill;
+  if (terrain !== F && !isRock(terrain)) return 0;
+  const cap = depositCapacity(terrain);
   const amount = Math.max(0, Math.min(h.capacity, cap - (c.dep[tile] ?? 0)));
   c.dep[tile] = (c.dep[tile] ?? 0) + amount;
   if (c.dep[tile] >= cap) { c.t[tile] = G; delete c.dep[tile]; }
@@ -1167,7 +1191,7 @@ function refreshHauling(c: City, at: number, ctx: HaulContext) {
     const h = p.haul;
     if (!h || p.refuge) continue;
     if (h.phase === "work") {
-      if ([HL, O].includes(c.t[h.tile])) { p.pos = h.tile; delete p.haul; beginHaul(c, p, at, ctx); continue; }
+      if (isRock(c.t[h.tile])) { p.pos = h.tile; delete p.haul; beginHaul(c, p, at, ctx); continue; }
       const job = haulingJob(c, p, at, ctx);
       if (job && h.workRate && job.rate !== h.workRate) {
         h.nextAt = at + Math.max(0, h.nextAt - at) * h.workRate / job.rate;
@@ -1204,7 +1228,7 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: number, sme
       continue;
     }
     if (h.phase === "work" && p.task.t === "work" && !isBuildingActive(c.b[p.task.at])) { delete p.haul; beginHaul(c, p, at, ctx); continue; }
-    if (h.phase === "work" && h.source && (h.source.kind === "tile" ? ![F, HL, O].includes(c.t[h.source.key]) : h.source.kind === "building" ? !isBuildingActive(c.b[h.source.key]) : !herdById(c, h.source.key)?.n)) {
+    if (h.phase === "work" && h.source && (h.source.kind === "tile" ? c.t[h.source.key]!==F&&!isRock(c.t[h.source.key]) : h.source.kind === "building" ? !isBuildingActive(c.b[h.source.key]) : !herdById(c, h.source.key)?.n)) {
       delete p.haul; beginHaul(c, p, at, ctx); continue;
     }
     if (h.phase === "work" && p.task.t === "work" && def(c.b[p.task.at]?.k ?? "hut").use?.wood && smelt < 1) h.nextAt += HAUL_TILE_MS * (1 - smelt);
@@ -1212,7 +1236,7 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: number, sme
     if (h.phase === "travel") {
       h.tile = h.route[h.route.length - 1]; p.pos = h.tile;
       const job = haulingJob(c, p, at, ctx);
-      if (!job || (job.tile !== h.tile && !([HL, O].includes(c.t[job.tile]) && cheb(job.tile, h.tile) === 1)) || taskKey(p) !== h.taskKey) { delete p.haul; beginHaul(c, p, at, ctx); continue; }
+      if (!job || (job.tile !== h.tile && !(isRock(c.t[job.tile]) && cheb(job.tile, h.tile) === 1)) || taskKey(p) !== h.taskKey) { delete p.haul; beginHaul(c, p, at, ctx); continue; }
       h.phase = "work"; h.at = at; h.source = job.source; h.resource = job.resource; h.workRate = job.rate;
       h.nextAt = at + Math.ceil(h.capacity / job.rate * HOUR / HAUL_TILE_MS) * HAUL_TILE_MS;
     } else if (h.phase === "work") {
@@ -1225,7 +1249,7 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: number, sme
       if (h.drop === undefined || !activeDrop(c, h.drop, h.resource!)) returnCargo(c, p, at, ctx);
     } else {
       if (!h.carried) { delete p.haul; beginHaul(c, p, at, ctx); continue; }
-      if (h.drop === undefined || !activeDrop(c, h.drop, h.resource!) || (h.tile !== h.drop && !([HL,O].includes(c.t[h.drop]) && cheb(h.tile,h.drop) === 1))) { returnCargo(c, p, at, ctx); continue; }
+      if (h.drop === undefined || !activeDrop(c, h.drop, h.resource!) || (h.tile !== h.drop && !(isRock(c.t[h.drop]) && cheb(h.tile,h.drop) === 1))) { returnCargo(c, p, at, ctx); continue; }
       const amount = Math.min(h.carried, Math.max(0, storage - c.res[h.resource!]));
       c.res[h.resource!] += amount; h.carried -= amount;
       if (h.carried > 1e-9) { h.nextAt = at + HAUL_TILE_MS; continue; }
@@ -1249,7 +1273,7 @@ function newCourse(c: City, r: () => number) {
       return Math.max(1, Math.min(W - 3, Math.round(x + off * k)));
     });
     const set = riverSet(xs);
-    if ([...set].some((i) => c.t[i] === O || i === c.camp)) continue;
+    if ([...set].some((i) => isRock(c.t[i]) && c.t[i]!==HL || i === c.camp)) continue;
     if (xs.every((x, y) => x === c.xs[y])) continue;
     return xs;
   }
@@ -1543,8 +1567,15 @@ function onSeason(c: City, si: number) {
   }
 }
 
+function completeBuilding(c:City,b:Building,at:number){
+  b.lvl++;b.doneAt=null;
+  log(c,at,`${buildingName(c,b.k)} ${b.lvl===1?"xây xong":"đã nâng lên cấp "+b.lvl}.`,"good");
+  if(b.k==='temple'&&!c.templeAt){c.templeAt=at;log(c,at,"Đền Sông Mẹ khánh thành. Thành phố đã đi từ lều cỏ tới kỳ quan.","good");}
+}
+
 /** Advance the city to `now`: finish construction, run seasons, produce, grow. Mutates `c`. */
 export function settle(c: City, now: number) {
+  normalizeResources(c);
   if (now <= c.last) return;
   let t = c.haulAt ?? c.last;
   c.haulAt = t;
@@ -1566,14 +1597,7 @@ export function settle(c: City, now: number) {
         log(c,nt,"Ruộng đã cải tạo và gieo lại, nông dân tiếp tục làm việc.","good");
       }
       if (b.doneAt && b.doneAt <= nt) {
-        b.lvl += 1;
-        b.doneAt = null;
-        log(c,nt,`${buildingName(c,b.k)} ${b.lvl===1?"xây xong":"đã nâng lên cấp "+b.lvl}.`,"good");
-        dirty = true;
-        if (b.k === "temple" && !c.templeAt) {
-          c.templeAt = nt;
-          log(c, nt, "Đền Sông Mẹ khánh thành. Thành phố đã đi từ lều cỏ tới kỳ quan.", "good");
-        }
+        completeBuilding(c,b,nt);dirty = true;
       }
     }
     if (dirty) autoStaff(c);
@@ -1630,7 +1654,7 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number): st
   if (t === R) return "Không xây được trên sông.";
   if(!["farm","canal","levee","gate"].includes(k) && [...c.exps,...(Object.keys(c.homeOrders??{}).length?homeSoldiers(c,c.last):[]).flatMap(s=>{const o=c.homeOrders?.[s.id];return o?[{route:s.moving?o.route:[idx(Math.floor(s.x),Math.floor(s.y))]}]:[];}),...c.people.flatMap(p=>p.refuge?[p.refuge]:[])].some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân hoặc dân tránh địch đang dùng lối này. Chờ họ trở về hoặc chọn ô khác để không chặn đường.";
   if (k === "quarry") { if (t !== HL) return "Bãi đá phải đặt trên đồi."; }
-  else if (t === HL || t === O) return "Đồi đá chỉ đặt được bãi đá.";
+  else if (isRock(t)) return "Đồi đá chỉ đặt được bãi đá.";
   else if (t === F) return "Rừng rậm: cho người chặt hết cây trước, hoặc chọn ô cỏ.";
   const near = (dirs: readonly (readonly [number, number])[], fn: (j: number) => boolean) =>
     dirs.some(([dx, dy]) => inb(x + dx, y + dy) && fn(idx(x + dx, y + dy)));
@@ -1665,6 +1689,7 @@ export type Action =
   | { type: "build"; k: BKey; x: number; y: number }
   | { type: "upgrade"; x: number; y: number }
   | { type: "repair"; x: number; y: number }
+  | { type: "speedBuild"; x: number; y: number }
   | { type: "tendFarm"; x: number; y: number }
   | { type: "demolish"; x: number; y: number }
   | { type: "moveSoldier"; id: string; x: number; y: number }
@@ -1682,6 +1707,16 @@ export type Action =
 export function applyAction(c: City, a: Action, now: number): string | null {
   if (!isActionInput(a)) return "Yêu cầu không hợp lệ.";
   settle(c, now);
+  if (a.type === "speedBuild") {
+    const b=c.b[idx(a.x,a.y)];
+    if(!b?.doneAt||b.doneAt<=now)return "Công trình không còn đang xây.";
+    const cost=speedBuildCost(b,now);
+    if(c.res.diamond<cost)return `Cần ${cost} kim cương để hoàn tất.`;
+    c.res.diamond-=cost;b.doneAt=now;
+    // Use the normal construction completion path, including staffing and wonders.
+    completeBuilding(c,b,now);autoStaff(c);
+    log(c,now,`Dùng ${cost} kim cương hoàn tất ${def(b.k).n}.`,"good");return null;
+  }
   if (a.type === "tendFarm") {
     const b=c.b[idx(a.x,a.y)];
     if (!b || b.k!=="farm" || !isBuildingActive(b) || b.doneAt) return "Cần chọn ruộng đã xây xong, không bị cháy/ngập.";

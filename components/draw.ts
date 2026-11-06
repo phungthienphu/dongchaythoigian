@@ -1,7 +1,7 @@
 import { BoundedCache } from "@/lib/bounded-cache";
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
-import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, homeSoldiers, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
+import { B, CAP, GOLD, DIAMOND, isRock, depositCapacity, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, homeSoldiers, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
 import { placementTiles } from "@/lib/build-placement";
 import type { Fx, Villager } from "./villagers";
 
@@ -214,7 +214,7 @@ function drawGroundTile(r: RC, x: number, y: number) {
     if (y === H - 1) poly(c, [q(-0.5, 0.5, z), q(0.5, 0.5, z), q(0.5, 0.5, -16), q(-0.5, 0.5, -16)], "#336d96");
     return;
   }
-  const col = t === HL || t === O ? mix(grassColor(r, i), "#a39272", 0.55) : grassColor(r, i);
+  const col = isRock(t) ? mix(grassColor(r, i), "#a39272", 0.55) : grassColor(r, i);
   poly(c, [q(-0.5, -0.5), q(0.5, -0.5), q(0.5, 0.5), q(-0.5, 0.5)], col);
   // banks and map edges: show the soil layer
   if (water(x + 1, y)) poly(c, [q(0.5, -0.5), q(0.5, 0.5), q(0.5, 0.5, inb(x + 1, y) ? -5 : -16), q(0.5, -0.5, inb(x + 1, y) ? -5 : -16)], "#6b4a2b");
@@ -272,12 +272,12 @@ function drawRock(r: RC, x: number, y: number, low: boolean) {
     box(r, x, y, 0.08, 0.08, 0.4, 0.4, 5, 9, "#cbbb9c", "#b0a083", "#938366");
     pyramid(r, x, y, 0.08, 0.08, 0.4, 0.4, 9, 5, "#c0af90", "#9d8d71");
   }
-  if (r.city.t[i] === O) {
+  if ([O,GOLD,DIAMOND].includes(r.city.t[i])) {
     const q = tp(r, x, y);
     for (const [u, v, z] of [[-0.12, 0.3, 8], [0.25, 0.12, 6], [0.05, 0.25, 14]]) {
       const [sx, sy] = q(u, v, z);
-      r.c.fillStyle = "#d9813a"; r.c.beginPath(); r.c.arc(sx, sy, 2.6 * r.v.s, 0, Math.PI * 2); r.c.fill();
-      r.c.fillStyle = "#ffc27a"; r.c.beginPath(); r.c.arc(sx - 0.8 * r.v.s, sy - 0.8 * r.v.s, 1 * r.v.s, 0, Math.PI * 2); r.c.fill();
+      r.c.fillStyle = r.city.t[i]===GOLD?"#edc238":r.city.t[i]===DIAMOND?"#6ce3ed":"#d9813a"; r.c.beginPath(); r.c.arc(sx, sy, 2.6 * r.v.s, 0, Math.PI * 2); r.c.fill();
+      r.c.fillStyle = r.city.t[i]===DIAMOND?"#efffff":r.city.t[i]===GOLD?"#fff3a0":"#ffc27a"; r.c.beginPath(); r.c.arc(sx - 0.8 * r.v.s, sy - 0.8 * r.v.s, 1 * r.v.s, 0, Math.PI * 2); r.c.fill();
     }
   }
 }
@@ -1526,8 +1526,8 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
           c.fillStyle = "#d9b07a"; c.beginPath(); c.ellipse(sx, sy - 2.5 * v.s, 2.4 * v.s, 1.2 * v.s, 0, 0, Math.PI * 2); c.fill();
         },
       });
-    } else if (t === HL || t === O) {
-      const worn = used / (t === O ? CAP.ore : CAP.hill);
+    } else if (isRock(t)) {
+      const worn = used / depositCapacity(t);
       items.push({ d, f: () => drawRock(r, x, y, worn > 0.55) });
     }
   }

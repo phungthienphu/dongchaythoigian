@@ -1,7 +1,7 @@
 /** Serializable, deterministic battle simulation. All time advances in 100 ms ticks.
  * Balance defaults: loot cap is 25% of each starting resource; civilian loss is
  * capped at floor(pop/2). Retreating armies can be pursued until they leave. */
-import { B, H, HL, O, R, RES, UKEYS, UNITS, W, type City, type Res, type Troops, type UKey } from './engine';
+import { isRock, B, H, HL, O, R, RES, UKEYS, UNITS, W, type City, type Res, type Troops, type UKey } from './engine';
 export const BATTLE_TICK_MS = 100;
 export const BATTLE_TIMEOUT_MS = 180_000;
 export type BattleSide = 'attacker' | 'defender';
@@ -12,14 +12,14 @@ export type BattleCommand = { type: 'move'; groupId: string; x: number; y: numbe
 export type BattleStrike = { id: string; at: number; source: string; kind: 'arrow' | 'stone' | 'melee'; from: {x:number;y:number}; to: {x:number;y:number} };
 export type BattleState = { strikes?: BattleStrike[]; id: string; attackerId: string; defenderId: string; startedAt: number; lastTick: number; terrain: number[]; groups: BattleGroup[]; buildings: BattleBuilding[]; status: 'fighting' | 'retreating' | 'finished'; winner?: BattleSide; defenderOnline: boolean; initialPopulation: number; populationLoss: number; startingResources: Res; loot: Res; devastation: number };
 export type BattleResult = { winner: BattleSide; attackerSurvivors: Troops; defenderSurvivors: Troops; attackerCasualties: number; defenderCasualties: number; populationLoss: number; burnedTiles: number[]; loot: Res; devastation: number };
-const emptyRes = (): Res => ({ food: 0, wood: 0, stone: 0, copper: 0 });
+const emptyRes = (): Res => ({ food: 0, wood: 0, stone: 0, copper: 0 , gold: 0, diamond: 0});
 const dist = (a: {x:number;y:number}, b: {x:number;y:number}) => Math.hypot(a.x-b.x,a.y-b.y);
 const xy = (tile:number) => ({ x: tile % W + .5, y: Math.floor(tile / W) + .5 });
 const living = (g:BattleGroup) => g.count > 0 && !g.escaped;
 const range = (u:UKey) => u === 'bow' ? 6 : u === 'sling' ? 4 : 1.4;
 const flatBuilding=(k:string)=>['farm','canal','levee'].includes(k);
 const blockingBuilding=(b:BattleBuilding,side:BattleSide)=>!b.burned&&!flatBuilding(b.k)&&!(b.k==='gate'&&side==='defender');
-const blockedTerrain=(terrain:number)=>terrain===R||terrain===HL||terrain===O;
+const blockedTerrain=(terrain:number)=>terrain===R||isRock(terrain);
 function safeSpawn(terrain:number[],buildings:BattleBuilding[],side:BattleSide,p:{x:number;y:number}){
   const blocked=new Set(buildings.filter(b=>blockingBuilding(b,side)).map(b=>b.tile));
   const start=Math.max(0,Math.min(H-1,Math.floor(p.y)))*W+Math.max(0,Math.min(W-1,Math.floor(p.x)));
@@ -168,8 +168,8 @@ function tick(s:BattleState){
   for(const b of s.buildings)if(b.k==='watchtower'&&!b.burned&&!b.inactive){const target=s.groups.find(g=>g.side==='attacker'&&living(g)&&dist(g,xy(b.tile))<=7);if(target){strike(s,b.id,'arrow',xy(b.tile),target);damage(target,2*b.lvl);}}
   const total=s.buildings.reduce((n,b)=>n+(b.initiallyBurned?0:b.value),0),burned=s.buildings.reduce((n,b)=>n+(b.burned&&!b.initiallyBurned?b.value:0),0),fraction=total?burned/total:0;
   s.populationLoss=Math.min(Math.floor(s.initialPopulation/2),Math.floor(fraction*s.initialPopulation/2));
-  if(s.status==='fighting')for(const r of RES)s.loot[r]=Math.floor(s.startingResources[r]*.25*fraction);
-  const cap=RES.reduce((n,r)=>n+s.startingResources[r]*.25,0),looted=RES.reduce((n,r)=>n+s.loot[r],0);
+  if(s.status==='fighting')for(const r of RES)s.loot[r]=Math.floor((s.startingResources[r]??0)*.25*fraction);
+  const cap=RES.reduce((n,r)=>n+(s.startingResources[r]??0)*.25,0),looted=RES.reduce((n,r)=>n+s.loot[r],0);
   s.devastation=.5*fraction+.3*(s.initialPopulation>=2?s.populationLoss/Math.floor(s.initialPopulation/2):0)+.2*(cap?looted/cap:0);
   if(s.status==='fighting'&&s.devastation>=(s.defenderOnline?.5:.4)){s.status='finished';s.winner='attacker';return;}
   if(!s.groups.some(g=>g.side==='attacker'&&living(g))){s.status='finished';s.winner='defender';}

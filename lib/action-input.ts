@@ -10,7 +10,7 @@ const BUILDINGS: Record<BKey, true> = {
   watchtower: true, temple: true, logistics: true, infirmary: true,
 };
 const UNITS: Record<UKey, true> = { club: true, sling: true, spear: true, bow: true, sword: true, elephant: true, wagon: true, medic: true };
-const RESOURCES = ['food', 'wood', 'stone', 'copper'] as const;
+const RESOURCES = ['food', 'wood', 'stone', 'copper', 'gold', 'diamond'] as const;
 const MAP_SIDE = 96;
 const own = (object: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(object, key);
 const record = (value: unknown): value is Record<string, unknown> => {
@@ -51,7 +51,7 @@ export function isActionInput(value: unknown): value is Action {
   switch (value.type) {
     case 'advance': case 'alarm': return true;
     case 'build': return known(BUILDINGS, value.k) && point(value);
-    case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': return point(value);
+    case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'speedBuild': return point(value);
     case 'moveSoldier': return typeof value.id === 'string' && /^(club|sling|spear|bow|sword|elephant|wagon|medic):\d{1,3}$/.test(value.id) && point(value);
     case 'train': return known(UNITS, value.u) && integer(value.n, 1, 50);
     case 'recall': return integer(value.exp, 1);
@@ -62,7 +62,7 @@ export function isActionInput(value: unknown): value is Action {
     case 'auto': {
       if (typeof value.on !== 'boolean' || !record(value.mix)) return false;
       const mix = value.mix;
-      return Object.keys(mix).length === RESOURCES.length && RESOURCES.every(key => own(mix, key) && typeof mix[key] === 'number' && Number.isFinite(mix[key]) && mix[key] >= 0 && mix[key] <= 100);
+      return [4,6].includes(Object.keys(mix).length) && Object.keys(mix).every(key => RESOURCES.includes(key as typeof RESOURCES[number])) && RESOURCES.every(key => (key==='gold'||key==='diamond')&&!own(mix,key) || own(mix,key) && typeof mix[key] === 'number' && Number.isFinite(mix[key]) && mix[key] >= 0 && mix[key] <= 100);
     }
     default: return false;
   }

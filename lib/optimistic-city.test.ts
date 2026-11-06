@@ -4,7 +4,7 @@ import { applyAction, newCity, settle, idx, F, G, type Action, type City } from 
 import { OptimisticCityQueue, type CityActionResponse } from './optimistic-city';
 function deferred<T>() { let resolve!: (value:T)=>void; let reject!: (error:Error)=>void; const promise=new Promise<T>((yes,no)=>{resolve=yes;reject=no;}); return {promise,resolve,reject}; }
 const flush=()=>new Promise<void>(resolve=>setImmediate(resolve));
-const toggle=(on:boolean):Action=>({type:'auto',on,mix:{food:40,wood:30,stone:20,copper:10}});
+const toggle=(on:boolean):Action=>({type:'auto',on,mix:{food:40,wood:30,stone:20,copper:10, gold: 0, diamond: 0}});
 function city(){const c=newCity(0,1);c.b[c.camp]={k:'hall',lvl:3,doneAt:null};return c;}
 function applied(c:City,a:Action){const copy=structuredClone(c);assert.equal(applyAction(copy,a,0),null);return copy;}
 test('optimistic state publishes before delayed network and rejects stale background loads',async()=>{

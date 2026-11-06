@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { newCity, G, HL, R, idx, UNITS, applyAction, settle, homeSoldiers, pruneHomeOrders, canPlace, derive, type City } from './engine';
 function fixture():City {
  const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.b={};c.herds=[];c.camps=[];c.camp=idx(10,10);c.army={club:1};
- c.b[idx(10,10)]={k:'barracks',lvl:1,doneAt:null};c.res={food:10000,wood:10000,stone:10000,copper:10000};return c;
+ c.b[idx(10,10)]={k:'barracks',lvl:1,doneAt:null};c.res={food:10000,wood:10000,stone:10000,copper:10000, gold: 0, diamond: 0};return c;
 }
 test('training records progress clocks, completes serially and walks from entrance to guard post',()=>{
  const c=fixture();c.army={};c.guardPosts=[{x:18,y:10}];assert.equal(applyAction(c,{type:'train',u:'club',n:2},0),null);

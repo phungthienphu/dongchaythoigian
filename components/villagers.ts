@@ -1,7 +1,7 @@
 import { BoundedCache } from "@/lib/bounded-cache";
 // Client-side animation of the people stored on the server. Positions are visual only;
 // what each person does (their task) comes from the server.
-import { B, H, HL, O, R, W, buildings, refugePosition, farmRemaining, cheb, explorerPos, haulPosition, herdById, idx, inb, type City, type Haul, type Person, type ResKey } from "@/lib/engine";
+import { B, H, isRock, HL, O, R, W, buildings, refugePosition, farmRemaining, cheb, explorerPos, haulPosition, herdById, idx, inb, type City, type Haul, type Person, type ResKey } from "@/lib/engine";
 import { herdAnimals } from "./draw";
 
 export type Job = "wood" | "quarry" | "gather" | "farm" | "build" | "smith" | "trade" | "hunt" | "explore" | "idle" | "other";
@@ -57,7 +57,7 @@ const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -
 
 /** Can a villager stand on this tile? (`water` = allow swimming) */
 function passable(city: City, j: number, to: number, water: boolean) {
-  if (city.t[j] === HL || city.t[j] === O) return false;
+  if (isRock(city.t[j])) return false;
   if (j === to) return true;
   if (!water && city.t[j] === R) return false;
   const b = city.b[j];
@@ -66,7 +66,7 @@ function passable(city: City, j: number, to: number, water: boolean) {
 
 /** 8-direction BFS (no corner cutting), then straightened so people walk diagonally instead of in steps. */
 function findPath(city: City, from: number, to: number, water: boolean): [number, number][] | null {
-  if (city.t[to] === HL || city.t[to] === O) {
+  if (isRock(city.t[to])) {
     const x = to % W, y = Math.floor(to / W);
     const paths = DIRS.filter(([dx,dy]) => inb(x+dx,y+dy) && passable(city,idx(x+dx,y+dy),-1,water))
       .map(([dx,dy]) => findPath(city,from,idx(x+dx,y+dy),water)).filter((p): p is [number,number][] => p !== null);
@@ -167,7 +167,7 @@ export class Crowd {
   private syncTopology(city: City) {
     let changed = !this.hasTopology;
     for (let i = 0; i < W * H; i++) {
-      const water = city.t[i] === R ? 1 : city.t[i] === HL || city.t[i] === O ? 2 : 0;
+      const water = city.t[i] === R ? 1 : isRock(city.t[i]) ? 2 : 0;
       if (this.waterMask[i] !== water) { this.waterMask[i] = water; changed = true; }
     }
     const obstacles = Object.keys(city.b).filter((i) => !passable(city, Number(i), -1, true)).join(",");

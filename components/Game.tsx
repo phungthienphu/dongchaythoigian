@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  DEFAULT_MIX, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
+  DEFAULT_MIX, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
   armyCap, armyUsed, buildingCost, trainingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -44,8 +44,8 @@ function tileDesc(c: City, D: Derived, i: number) {
   const parts = [TERRAIN[c.t[i]]];
   if (c.t[i] === G && D.fert[i]) parts.push("đất phù sa");
   if (D.rd[i] === 1 && c.t[i] !== R) parts.push(D.prot[i] ? "vùng lũ, có đê che" : "vùng lũ");
-  const cap = c.t[i] === F ? CAP.forest : c.t[i] === O ? CAP.ore : c.t[i] === HL ? CAP.hill : 0;
-  if (cap) parts.push(`còn ${fmt(cap - (c.dep[i] ?? 0))} ${c.t[i] === F ? "gỗ" : c.t[i] === O ? "đồng" : "đá"}`);
+  const cap = depositCapacity(c.t[i]);
+  if (cap) parts.push(`còn ${fmt(cap - (c.dep[i] ?? 0))} ${c.t[i] === F ? "gỗ" : RN[mineralResource(c.t[i])].toLowerCase()}`);
   return parts.join(", ");
 }
 
@@ -61,7 +61,7 @@ function taskFor(c: City, i: number): { task: TaskInput; label: string } | null 
   if (b) return B[b.k].jobs && b.lvl >= 1 && !b.flooded && !b.burned ? { task: { t: "work", at: i }, label: `Làm ở ${buildingName(c,b.k)}` } : null;
   if (c.t[i] === F) return { task: { t: "chop", at: i }, label: "Chặt cây ở đây" };
   if (c.t[i] === HL) return { task: { t: "mine", at: i }, label: "Đào đá ở đây" };
-  if (c.t[i] === O) return { task: { t: "mine", at: i }, label: "Đào đồng ở đây" };
+  if (isRock(c.t[i])) return { task: { t: "mine", at: i }, label: `Đào ${RN[mineralResource(c.t[i])].toLowerCase()} ở đây` };
   if (c.t[i] === R) return null;
   return { task: { t: "move", to: i }, label: "Chạy tới đây" };
 }
@@ -71,7 +71,7 @@ function taskLabel(c: City, p: Person) {
   switch (tk.t) {
     case "work": return `Làm ở ${buildingName(c,c.b[tk.at]?.k ?? "hut")}`;
     case "chop": return "Chặt cây";
-    case "mine": return c.t[tk.at] === O ? "Đào đồng" : "Đào đá";
+    case "mine": return `Đào ${RN[mineralResource(c.t[tk.at])].toLowerCase()}`;
     case "hunt": return c.herds.find((h) => h.id === tk.herd)?.kind === "boar" ? "Săn lợn rừng" : "Săn hươu";
     case "explore": return "Đi thám hiểm";
     default: return "Rảnh";
@@ -104,6 +104,8 @@ const ICON = {
   wood: <svg viewBox="0 0 24 24"><rect x="3" y="8" width="16" height="8" rx="4" fill="#8a5a2b" /><ellipse cx="19" cy="12" rx="2.6" ry="4" fill="#e0b27a" /></svg>,
   stone: <svg viewBox="0 0 24 24"><path d="M4 17l3-8 6-3 6 5 1 6z" fill="#b9b2a2" /><path d="M13 6l6 5 1 6h-7z" fill="#948d7e" /></svg>,
   copper: <svg viewBox="0 0 24 24"><path d="M3 16l4-6h10l4 6z" fill="#d9813a" /><path d="M7 10h10l-2-3H9z" fill="#f0a868" /></svg>,
+  gold: <svg viewBox="0 0 24 24"><path d="M3 17l4-8h10l4 8z" fill="#f1c64f"/><path d="M7 9l3-3h7v3z" fill="#fff1a1"/></svg>,
+  diamond: <svg viewBox="0 0 24 24"><path d="M3 9l5-5h8l5 5-9 12z" fill="#70dbe7"/><path d="M3 9h18M8 4l4 17 4-17" fill="none" stroke="#e6ffff"/></svg>,
   pop: <svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="3.5" fill="#f1c9a0" /><path d="M5 21c0-5 3-8 7-8s7 3 7 8z" fill="#c9503e" /></svg>,
   build: <svg viewBox="0 0 24 24"><path d="M4 20l8-8" stroke="#8a5a2b" strokeWidth="2.5" strokeLinecap="round" /><rect x="10" y="4" width="10" height="6" rx="1" fill="#d6a03f" transform="rotate(45 15 7)" /></svg>,
   army: <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z" fill="#b04130" /><path d="M12 6l4 1.7V11c0 3-1.7 5-4 6.3z" fill="#e2b240" /></svg>,
@@ -990,6 +992,7 @@ export default function Game() {
               <p className="muted small">{B[sel.k].d}</p>
               {sel.doneAt && <p className="small">{sel.lvl === 0 ? "Đang xây" : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
               {c.cropDamage?.tile===selI && c.cropDamage.until>t && <p className="err small">Ruộng bị thú rừng giẫm: năng suất còn 50%, phục hồi sau {fmtDur(c.cropDamage.until-t)}.</p>}
+              {sel.doneAt && <button disabled={busy||c.res.diamond<speedBuildCost(sel,t)} onClick={()=>act({type:"speedBuild",...selected})}>Hoàn tất ngay · {speedBuildCost(sel,t)} kim cương (30 giây / viên)</button>}
               {(sel.flooded || sel.burned) && <p className="err small">{sel.burned ? "Bị cháy, cần sửa để hoạt động lại." : "Bị ngập, không hoạt động."}</p>}
               {sel.k==="farm" && <>
                 <p className={farmRemaining(sel)<=0?"err small":"small"}>Dinh dưỡng: {Math.ceil(farmRemaining(sel))}/{farmCapacity(sel)} · giảm theo lượng lương thực thực sự thu hoạch.</p>
@@ -1030,6 +1033,7 @@ export default function Game() {
               {sel.k==="barracks" && sel.lvl>=1 && !armyStagingTiles(c,1).length && <p className="err small">Trại lính bị bịt kín. Chừa lối đất nối ra ngoài, đặt cổng thay tường hoặc dỡ công trình chắn lối; quân không tự phá nhà mình.</p>}
               {["barracks","logistics","infirmary"].includes(sel.k) && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
               {sel.k === "hall" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("control")}>{control ? "Trung tâm điều khiển" : "Xem Đình làng"}</button>}
+              {sel.doneAt && <button disabled={busy||c.res.diamond<speedBuildCost(sel,t)} onClick={()=>act({type:"speedBuild",...selected})}>Hoàn tất ngay · {speedBuildCost(sel,t)} kim cương (30 giây / viên)</button>}
               {(sel.flooded || sel.burned) && <button className="primary" disabled={busy} onClick={() => act({ type: "repair", ...selected })}>Sửa ({costText(repairCost(sel.k, sel.lvl, !!sel.burned, c.era))})</button>}
               {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && sel.lvl >= levelCap(c, sel.k) && (
                 <p className="muted small">{hallLv ? `Nâng Đình làng lên cấp ${sel.lvl + 1} để nâng tiếp.` : "Xây Đình làng (Thời đồ đồng) để nâng cấp công trình."}</p>
@@ -1302,7 +1306,7 @@ export default function Game() {
             {panel === "control" && (
               <ControlPanel
                 c={c} t={t} busy={busy} control={control} hallLv={hallLv} groups={groups} homePower={homePower}
-                rate={{ food: st.rate.food, wood: st.rate.wood - st.woodUse, stone: st.rate.stone, copper: st.copperRate }}
+                rate={{ ...st.rate, wood: st.rate.wood - st.woodUse }}
                 act={act}
                 pickGroup={(ids) => { setPicked(new Set(ids)); setPanel(null); setMsg({ text: `Đã chọn ${ids.length} người. Bấm lên bản đồ để giao việc mới.` }); }}
                 attackAll={(campId) => { const camp=campById(c,campId);if(!camp)return;setSelected({x:camp.at%W,y:Math.floor(camp.at/W)});setSend({...c.army});setPanel(null);setMsg({text:"Kiểm tra lương thực và hỗ trợ trước khi xuất quân."}); }}
