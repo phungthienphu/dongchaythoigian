@@ -1,6 +1,6 @@
 // Client-side animation of the people stored on the server. Positions are visual only;
 // what each person does (their task) comes from the server.
-import { B, H, HL, O, R, W, buildings, cheb, explorerPos, haulPosition, herdById, idx, inb, type City, type Haul, type Person, type ResKey } from "@/lib/engine";
+import { B, H, HL, O, R, W, buildings, farmRemaining, cheb, explorerPos, haulPosition, herdById, idx, inb, type City, type Haul, type Person, type ResKey } from "@/lib/engine";
 import { herdAnimals } from "./draw";
 
 export type Job = "wood" | "quarry" | "gather" | "farm" | "build" | "smith" | "trade" | "hunt" | "explore" | "idle" | "other";
@@ -286,7 +286,8 @@ export class Crowd {
       if (person?.haul) { this.haulVisual(v, city, person, dt, now, tnow); continue; }
       if (person && person.task.t !== "idle" && person.task.t !== "explore") {
         // A newly assigned worker waits for the engine's first haul tick; no decorative income cycle.
-        v.state = "work"; v.moving = false; v.carrying = false; v.cargo = 0; v.haulPhase = undefined;
+        const field=person.task.t==="work"?city.b[person.task.at]:undefined;
+        v.state = field?.k==="farm" && (field.tendUntil || farmRemaining(field)<=0) ? "rest" : "work"; v.moving = false; v.carrying = false; v.cargo = 0; v.haulPhase = undefined;
         continue;
       }
       if (v.haulPhase && person) this.start(v, city, person.task.t === "idle" && person.task.at !== undefined);

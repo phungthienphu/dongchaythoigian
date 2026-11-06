@@ -117,7 +117,7 @@ const ERA_UP: Record<number, string> = {
   3: "Bước vào Thời đồ sắt: mở nhà đá, lò rèn, cối nước và Đền Sông Mẹ.",
 };
 
-export type Building = { k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean };
+export type Building = { k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
 export type Task =
   | { t: "idle"; at?: number } // at = where they stand and wait
   | { t: "work"; at: number }
@@ -540,7 +540,7 @@ export function stats(c: City, D: Derived, at: number): Stats {
     const d = def(b.k);
     const eff = d.jobs ? Math.min(1, (workers.get(i) ?? 0) / d.jobs) : 0;
     if (d.use?.wood) woodUse += d.use.wood * LVL_MULT[b.lvl] * eff;
-    if (!d.prod) continue;
+    if (!d.prod || (b.k==="farm" && (b.tendUntil || farmRemaining(b)<=0))) continue;
     for (const r of RES) {
       let v = d.prod[r];
       if (!v) continue;
@@ -851,7 +851,7 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   }
   if (tk.t !== "work") return null;
   const b = c.b[tk.at];
-  if (!built(b) || b.flooded) return null;
+  if (!built(b) || b.flooded || (b.k==="farm" && (b.tendUntil || farmRemaining(b)<=0))) return null;
   const d = def(b.k), resource = RES.find(r => (d.prod?.[r] ?? 0) > 0);
   if (!resource || !d.jobs) return null;
   let rate = d.prod![resource]! * LVL_MULT[b.lvl] / d.jobs * ctx.mult * GATHER_SPEED;
@@ -925,9 +925,16 @@ function beginHaul(c: City, p: Person, at: number, ctx: HaulContext) {
   p.haul = { phase: travel ? "travel" : "work", at, nextAt: at + (travel || Math.ceil(HAUL_CAPACITY / job.rate * HOUR / HAUL_TILE_MS) * HAUL_TILE_MS), tile: from,
     route: path, routeStart: at, resource: job.resource, carried: 0, capacity: HAUL_CAPACITY, source: job.source, taskKey: taskKey(p), workRate: job.rate };
 }
-function takeCargo(c: City, h: Haul): number {
+function takeCargo(c: City, h: Haul, at: number): number {
   if (!h.source) return 0;
-  if (h.source.kind === "building") return isBuildingActive(c.b[h.source.key]) ? h.capacity : 0;
+  if (h.source.kind === "building") {
+    const b=c.b[h.source.key];if(!isBuildingActive(b))return 0;
+    if(b.k!=="farm")return h.capacity;
+    if(b.tendUntil)return 0;
+    const amount=Math.min(h.capacity,farmRemaining(b));b.fertility=farmRemaining(b)-amount;
+    if(amount>0 && b.fertility===0)log(c,at,"Ruộng đã bạc màu, nông dân tạm nghỉ. Chọn ruộng để cải tạo đất và gieo lại.","warn");
+    return amount;
+  }
   if (h.source.kind === "herd") {
     const herd = herdById(c, h.source.key);
     if (!herd) return 0;
@@ -999,7 +1006,7 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: number, sme
       h.nextAt = at + Math.ceil(h.capacity / job.rate * HOUR / HAUL_TILE_MS) * HAUL_TILE_MS;
     } else if (h.phase === "work") {
       if (taskKey(p) !== h.taskKey || !haulingJob(c, p, at, ctx)) { delete p.haul; beginHaul(c, p, at, ctx); continue; }
-      h.carried = takeCargo(c, h);
+      h.carried = takeCargo(c, h, at);
       if (h.carried > 0) returnCargo(c, p, at, ctx);
       else { delete p.haul; beginHaul(c, p, at, ctx); }
     } else if (h.phase === "return") {
@@ -1274,6 +1281,10 @@ export function settle(c: City, now: number) {
   while (t < end) {
     const nt = t + HAUL_TILE_MS; // fixed persisted ticks: polling never changes delivery or starvation timing
     for (const b of Object.values(c.b)) {
+      if(b.k==="farm" && b.tendUntil && b.tendUntil<=nt){
+        b.fertility=farmCapacity(b);delete b.tendUntil;dirty=true;
+        log(c,nt,"Ruộng đã cải tạo và gieo lại, nông dân tiếp tục làm việc.","good");
+      }
       if (b.doneAt && b.doneAt <= nt) {
         b.lvl += 1;
         b.doneAt = null;
@@ -1363,10 +1374,16 @@ export function score(c: City) {
   return s;
 }
 
+export const FARM_TEND_MS = 30_000;
+export const farmCapacity = (b: Building) => 600 * Math.max(1,b.lvl);
+export const farmRemaining = (b: Building) => Math.max(0,b.fertility ?? farmCapacity(b));
+export const farmTendCost = (b: Building): Partial<Res> => ({ food: 20*Math.max(1,b.lvl), wood: 5*Math.max(1,b.lvl) });
+
 export type Action =
   | { type: "build"; k: BKey; x: number; y: number }
   | { type: "upgrade"; x: number; y: number }
   | { type: "repair"; x: number; y: number }
+  | { type: "tendFarm"; x: number; y: number }
   | { type: "demolish"; x: number; y: number }
   | { type: "setGuardPosts"; posts: { x: number; y: number }[] }
   | { type: "advance" }
@@ -1382,6 +1399,16 @@ export type Action =
 export function applyAction(c: City, a: Action, now: number): string | null {
   if (!isActionInput(a)) return "Yêu cầu không hợp lệ.";
   settle(c, now);
+  if (a.type === "tendFarm") {
+    const b=c.b[idx(a.x,a.y)];
+    if (!b || b.k!=="farm" || !isBuildingActive(b) || b.doneAt) return "Cần chọn ruộng đã xây xong, không bị cháy/ngập.";
+    if(b.tendUntil) return "Ruộng đang được cải tạo và gieo lại.";
+    if(farmRemaining(b)>=farmCapacity(b)) return "Ruộng còn đầy dinh dưỡng, chưa cần cải tạo.";
+    const cost=farmTendCost(b),err=missing(c,cost);if(err)return err;
+    pay(c,cost);b.tendUntil=now+FARM_TEND_MS;
+    log(c,now,"Đang cải tạo đất và gieo lại ruộng, hoàn tất sau 30 giây.");
+    return null;
+  }
   if (a.type === "setGuardPosts") {
     if (!Array.isArray(a.posts) || a.posts.length > 20) return "Chỉ đặt tối đa 20 điểm gác.";
     const seen = new Set<number>();

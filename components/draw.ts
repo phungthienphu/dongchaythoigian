@@ -1,6 +1,6 @@
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
-import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
+import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
 import { placementTiles } from "@/lib/build-placement";
 import type { Fx, Villager } from "./villagers";
 
@@ -653,11 +653,12 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       }
       const soil = r.season === 3 ? "#8a7158" : "#7a5634";
       poly(c, [q(-0.46, -0.46, 1), q(0.46, -0.46, 1), q(0.46, 0.46, 1), q(-0.46, 0.46, 1)], soil);
-      const crop = ["#8fd05a", "#a9c24a", "#e2b84a", "#9c8466"][r.season];
+      const field=r.city.b[i],remaining=field?farmRemaining(field)/farmCapacity(field):1;
+      const crop = remaining<=0 || field?.tendUntil ? "#80664c" : ["#8fd05a", "#a9c24a", "#e2b84a", "#9c8466"][r.season];
       c.strokeStyle = crop; c.lineWidth = Math.max(1.5, 3 * s); c.lineCap = "round";
       for (let row = 0; row < 5; row++) {
         const v = -0.38 + row * 0.19;
-        const a = q(-0.38, v, 3 * hs), b = q(0.38, v, 3 * hs);
+        const a = q(-0.38, v, 3 * hs), b = q(0.38, v, (remaining<=0 || field?.tendUntil ? .3 : 3) * hs);
         c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
       }
       c.lineCap = "butt";

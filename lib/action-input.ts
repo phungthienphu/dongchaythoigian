@@ -51,7 +51,7 @@ export function isActionInput(value: unknown): value is Action {
   switch (value.type) {
     case 'advance': case 'alarm': return true;
     case 'build': return known(BUILDINGS, value.k) && point(value);
-    case 'upgrade': case 'repair': case 'demolish': return point(value);
+    case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': return point(value);
     case 'train': return known(UNITS, value.u) && integer(value.n, 1, 50);
     case 'recall': return integer(value.exp, 1);
     case 'attack': return integer(value.camp, 1) && troops(value.units);
