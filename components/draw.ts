@@ -2,7 +2,7 @@ import { BoundedCache } from "@/lib/bounded-cache";
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
 import {drawCaravanActor} from "./trade-actors";
-import { B, CAP, GOLD, DIAMOND, isRock, depositCapacity, F, G, H, HL, N4, N8, O, R, UKEYS, W, returningFerries,shipsFree,wildlifePosition, homeSoldiers, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
+import { B, CAP, GOLD, DIAMOND, isRock, depositCapacity, F, G, H, HL, N4, N8, O, R, UKEYS, W, raidActors, returningFerries,shipsFree,wildlifePosition, homeSoldiers, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
 import { placementTiles } from "@/lib/build-placement";
 import {hungerSpeech,villagersHungry} from "@/lib/villager-mood";
 import type { Fx, Villager } from "./villagers";
@@ -1632,19 +1632,11 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     for(const ferry of returningFerries(city,o.now))if(inWater(r,ferry.x,ferry.y)&&seen[idx(Math.floor(ferry.x),Math.floor(ferry.y))]&&onScreen(ferry.x-.5,ferry.y-.5))items.push({d:ferry.x+ferry.y,f:()=>{const [sx,sy]=P(v,ferry.x,ferry.y);drawTransportBoat(c,sx,sy,v.s*.65,r.anim,ferry.face);}});
     const beast=wildlifePosition(city,o.now);
     if(beast){const [fx,fy]=beast,ti=idx(Math.floor(fx),Math.floor(fy));if(seen[ti]&&onScreen(fx-.5,fy-.5))items.push({d:fx+fy,f:()=>drawAnimal(r,"boar",fx,fy,1,false,false,.73)});}
-    // incoming barbarian raid
-    if (city.raid) {
-      const rd = city.raid, p = Math.max(0, Math.min(1, (o.now - rd.warn) / Math.max(1, rd.at - rd.warn)));
-      const hx = (rd.from % W) + 0.5, hy = Math.floor(rd.from / W) + 0.5, tx = (city.camp % W) + 0.5, ty = Math.floor(city.camp / W) + 0.5;
-      const cx = hx + (tx - hx) * p, cy = hy + (ty - hy) * p, len = Math.hypot(tx - hx, ty - hy) || 1;
-      const face: 1 | -1 = (tx - hx) - (ty - hy) >= 0 ? 1 : -1;
-      for (let n = 0; n < 7; n++) {
-        const row = Math.floor(n / 3), col = (n % 3) - 1;
-        const fx = cx - ((tx - hx) / len) * row * 0.35 + (-(ty - hy) / len) * col * 0.35, fy = cy - ((ty - hy) / len) * row * 0.35 + ((tx - hx) / len) * col * 0.35;
-        const ti = idx(Math.max(0, Math.min(W - 1, Math.floor(fx))), Math.max(0, Math.min(H - 1, Math.floor(fy))));
-        if (!vis[ti] || !seen[ti]) continue;
-        items.push({ d: fx + fy, f: () => { const fn = () => drawSoldier(r, "club", fx, fy, face, true, n * 0.53, false, true); if (inWater(r, fx, fy)) wade(r, fx, fy, fn); else fn(); } });
-      }
+    // Barbarians appear only after the warning, on a persisted land route.
+    for(const actor of raidActors(city,o.now)){
+      const {x:fx,y:fy}=actor,ti=idx(Math.max(0,Math.min(W-1,Math.floor(fx))),Math.max(0,Math.min(H-1,Math.floor(fy))));
+      if(!vis[ti]||!seen[ti]||!onScreen(fx-.5,fy-.5))continue;
+      items.push({d:fx+fy,f:()=>drawSoldier(r,"club",fx,fy,actor.face,actor.moving,actor.seed,actor.fighting,true)});
     }
     // marching expeditions
     for (const e of city.exps) {

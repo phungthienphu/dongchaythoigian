@@ -195,6 +195,7 @@ export type Refuge = { route: number[]; at: number; arrive: number; pausedAt: nu
 export type Person = { refuge?: Refuge; id: number; name: string; task: Task; pos?: number; haul?: Haul }; // pos: tile they last headed to
 export type Herd = { id: number; at: number; kind: "deer" | "boar"; n: number; max: number };
 export type LogEntry = { caravanId?: string; at: number; msg: string; cls?: "warn" | "good" };
+export type RaidEncounter = { start:number; engage:number; resolveAt:number; end:number; route:number[]; power:number; won?:boolean };
 export type City = {
   upkeepStartsAt?: number;
   wheelFuelStartsAt?: number;
@@ -244,6 +245,7 @@ export type City = {
   wins: number;
   auto?: { on: boolean; mix: Record<ResKey, number> }; // auto-assign shares (control centre)
   raid?: { at: number; warn: number; power: number; from: number } | null; // incoming barbarians
+  raidEncounter?: RaidEncounter; // short arrival, clash and withdrawal after the warning expires
   trips?: EnvoyTrip[]; // envoys travelling on the world map
   wildlife?: { route: number[]; start: number; arrive: number; end: number; resolved?: boolean };
   cropDamage?: { tile: number; until: number };
@@ -1177,7 +1179,7 @@ export function refugePosition(p:Person,now:number){
   return {x,y,hidden:!returning && progress>=1 && f.building!==undefined,moving:returning?now<f.back!:progress<1,returning};
 }
 export function civiliansInDanger(c:City,at:number){
-  return !!c.battleId || !!(c.raid && Math.max(c.raid.warn,c.raid.at-RAID_SHELTER_MS)<=at && at<c.raid.at);
+  return !!c.battleId || !!(c.raidEncounter && c.raidEncounter.start<=at && at<c.raidEncounter.end) || !!(c.raid && Math.max(c.raid.warn,c.raid.at-RAID_SHELTER_MS)<=at);
 }
 export function updateRefuges(c:City,at:number){
   const danger=civiliansInDanger(c,at);
@@ -1438,6 +1440,7 @@ export function wildernessKeep(c:City,at:number){
     if(p.refuge)route(p.refuge.route);
   }
   for(const s of homeSoldiers(c,at)){around(idx(Math.floor(s.x),Math.floor(s.y)));if(s.moving)route(c.homeOrders?.[s.id]?.route);}
+  if(c.raidEncounter && c.raidEncounter.end>at)route(c.raidEncounter.route);
   for(const e of c.exps)route(e.route);
   for(const e of c.trips??[])if(e.back>at)route(e.villageRoute);
   for(const e of c.merchantJourneys??[])if(e.back>at)route(e.villageRoute);
@@ -1581,10 +1584,73 @@ const troopText = (t: Troops) => UKEYS.filter((u) => t[u]).map((u) => `${t[u]} $
 /** Barbarians set out from a nearby camp; they reach the village RAID_WARNING_MS later. */
 function scheduleRaid(c: City, at: number, r: () => number) {
   const near = c.camps.filter((k) => !k.cleared && campStrength(k)>0 && cheb(k.at, c.camp) <= 35).sort((a, b) => cheb(a.at, c.camp) - cheb(b.at, c.camp))[0];
-  if (!near || r() > 0.6 || c.raid) return;
+  if (!near || r() > 0.6 || c.raid || c.raidEncounter) return;
   c.raid = { warn: at, at: at + RAID_WARNING_MS, power: Math.round(campStrength(near) * 0.5 + c.era * 10), from: near.at };
   c.alarm = false;
   log(c, at, `Trinh sát báo: man rợ (⚔ ${c.raid.power}) đang kéo đến làng, tới sau ${Math.round(RAID_WARNING_MS / MIN)} phút.${hasControl(c) ? " Có thể đánh kẻng ở Đình làng." : ""}`, "warn");
+}
+
+/** Spawn near an explored outskirts corner, then follow dry, unblocked land.
+ * If the centre is enclosed, stop on the reachable outside of the obstruction. */
+export function raidEntryRoute(c:City,from:number):number[] {
+  const target=buildings(c).find(([,b])=>b.k==="hall"&&isBuildingActive(b))?.[0]??c.camp;
+  const places=[c.camp,...buildings(c).map(([tile])=>tile)];
+  const xs=places.map(i=>i%W),ys=places.map(i=>Math.floor(i/W));
+  const minX=Math.max(0,Math.min(...xs)-3),maxX=Math.min(W-1,Math.max(...xs)+3);
+  const minY=Math.max(0,Math.min(...ys)-3),maxY=Math.min(H-1,Math.max(...ys)+3);
+  const corner=[idx(minX,minY),idx(maxX,minY),idx(minX,maxY),idx(maxX,maxY)]
+    .sort((a,b)=>cheb(a,from)-cheb(b,from)||a-b)[0];
+  const pass=(i:number)=>!!c.seen[i]&&c.t[i]!==R&&haulPassable(c,i,-1,false);
+  let entry=-1,score=Infinity;
+  for(let i=0;i<W*H;i++){
+    if(!pass(i)||c.b[i]||cheb(i,target)<3)continue;
+    const d=(i%W-corner%W)**2+(Math.floor(i/W)-Math.floor(corner/W))**2;
+    if(d<score){entry=i;score=d;}
+  }
+  if(entry<0)return [];
+  const prev=new Int32Array(W*H).fill(-1),queue=[entry];prev[entry]=entry;
+  let goal=entry,distance=cheb(entry,target);
+  for(let head=0;head<queue.length;head++){
+    const tile=queue[head],d=cheb(tile,target);
+    if(d<distance){goal=tile;distance=d;}
+    if(d<=1){goal=tile;break;}
+    const x=tile%W,y=Math.floor(tile/W);
+    for(const [dx,dy]of N8){
+      if(!inb(x+dx,y+dy))continue;
+      const next=idx(x+dx,y+dy);
+      if(prev[next]!==-1||!pass(next))continue;
+      if(dx&&dy&&(!pass(idx(x+dx,y))||!pass(idx(x,y+dy))))continue;
+      prev[next]=tile;queue.push(next);
+    }
+  }
+  const route=[goal];for(let tile=goal;tile!==entry;){tile=prev[tile];route.push(tile);}
+  return route.reverse();
+}
+export function raidPhase(c:City,at:number):"warning"|"enter"|"fight"|"retreat"|null {
+  const e=c.raidEncounter;
+  if(e&&at>=e.start&&at<e.end)return at<e.engage?"enter":at<e.resolveAt?"fight":"retreat";
+  return c.raid?"warning":null;
+}
+/** A bounded visual formation on the persisted route; no actors during warning. */
+export function raidActors(c:City,at:number){
+  const e=c.raidEncounter,phase=raidPhase(c,at);
+  if(!e?.route.length||!phase||phase==="warning")return [];
+  const length=routeLength(e.route),duration=Math.max(1,e.engage-e.start);
+  const progress=phase==="enter"?(at-e.start)/duration:phase==="fight"?1:1-(at-e.resolveAt)/Math.max(1,e.end-e.resolveAt);
+  return Array.from({length:7},(_,n)=>{
+    const lag=Math.floor(n/3)*.35;
+    let distance=Math.max(0,Math.min(length,length*progress+(phase==="enter"?-lag:phase==="retreat"?lag:0)));
+    let tile=e.route[0],x=tile%W+.5,y=Math.floor(tile/W)+.5,face:1|-1=1;
+    for(let i=1;i<e.route.length;i++){
+      const a=e.route[i-1],b=e.route[i],dx=b%W-a%W,dy=Math.floor(b/W)-Math.floor(a/W),d=Math.hypot(dx,dy);
+      face=((dx-dy)*(phase==="retreat"?-1:1)>=0?1:-1);
+      if(distance<=d){const f=distance/d;x=a%W+.5+dx*f;y=Math.floor(a/W)+.5+dy*f;break;}
+      distance-=d;tile=b;x=tile%W+.5;y=Math.floor(tile/W)+.5;
+    }
+    // Small within-cell spacing keeps the formation off neighbouring obstacles.
+    const offset=((n%3)-1)*.12;
+    return {x:x+offset,y:y+(phase==="fight"?(Math.floor(n/3)-1)*.12:offset),face,moving:phase!=="fight",fighting:phase==="fight",seed:n*.53};
+  });
 }
 
 function raid(c: City, at: number, r: () => number) {
@@ -1594,6 +1660,7 @@ function raid(c: City, at: number, r: () => number) {
   const attack = inc.power * (0.8 + r() * 0.4);
   // with the bell rung, villagers shelter and fighters gather at the hall
   const defense = (troopPower(c.army) * (bell ? 1.25 : 1) + 15) * (0.8 + r() * 0.4);
+  if(c.raidEncounter)c.raidEncounter.won=defense>=attack;
   if (defense >= attack) {
     const lost = casualties(c.army, Math.min(0.5, (attack / defense) * 0.25), r);
     log(c, at, `Man rợ kéo đến cướp làng nhưng bị đánh lui.${troopCount(lost) ? ` Hy sinh: ${troopText(lost)}.` : ""}`, "good");
@@ -1723,7 +1790,17 @@ function stepArmy(c: City, nt: number) {
   }
   pruneHomeOrders(c);
   let changed = false;
-  if (c.raid && c.raid.at <= nt) { raid(c, c.raid.at, rng(c.seed ^ Math.imul(Math.floor(c.raid.at / MIN), 3266489917))); changed = true; }
+  if(c.raid && c.raid.at<=nt && !c.raidEncounter){
+    const start=c.raid.at,route=raidEntryRoute(c,c.raid.from),travel=Math.max(1000,Math.ceil(routeLength(route)/1.9)*1000);
+    const engage=start+travel,resolveAt=engage+6000;
+    c.raidEncounter={start,engage,resolveAt,end:resolveAt+travel,route,power:c.raid.power};
+    log(c,start,"Man rợ xuất hiện ở rìa làng! Quân giữ làng chuẩn bị giao chiến.","warn");changed=true;
+  }
+  const encounter=c.raidEncounter;
+  if(encounter && encounter.won===undefined && c.raid && encounter.resolveAt<=nt){
+    raid(c,encounter.resolveAt,rng(c.seed ^ Math.imul(Math.floor(c.raid.at / MIN),3266489917)));changed=true;
+  }
+  if(encounter && encounter.end<=nt){delete c.raidEncounter;changed=true;}
   while (c.queue.length && c.queue[0].doneAt <= nt) {
     const q = c.queue.shift()!;
     const k = c.army[q.u] ?? 0;
@@ -1940,7 +2017,7 @@ export function settle(c: City, now: number) {
     }
     c.popAcc = Math.max(-1, Math.min(1, c.popAcc));
     c.pop = c.people.length;
-    if (c.people.length !== popBefore) dirty = true;
+    if (c.people.length !== popBefore) { updateRefuges(c,nt); dirty = true; }
     t = nt;
   }
   c.haulAt = t;
@@ -1953,7 +2030,7 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number): st
   if (d.era > c.era) return "Chưa tới thời đại này.";
   if (c.b[i]) return "Ô này đã có công trình.";
   if (t === R) return "Không xây được trên sông.";
-  if(!["farm","canal","levee","gate"].includes(k) && [...c.exps,...(c.merchantJourneys??[]).filter(j=>j.back>c.last).map(j=>({route:j.villageRoute})),...(Object.keys(c.homeOrders??{}).length?homeSoldiers(c,c.last):[]).flatMap(s=>{const o=c.homeOrders?.[s.id];return o?[{route:s.moving?o.route:[idx(Math.floor(s.x),Math.floor(s.y))]}]:[];}),...c.people.flatMap(p=>p.refuge?[p.refuge]:[])].some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân hoặc dân tránh địch đang dùng lối này. Chờ họ trở về hoặc chọn ô khác để không chặn đường.";
+  if(!["farm","canal","levee","gate"].includes(k) && [...c.exps,...(c.raidEncounter && c.raidEncounter.end>c.last?[c.raidEncounter]:[]),...(c.merchantJourneys??[]).filter(j=>j.back>c.last).map(j=>({route:j.villageRoute})),...(Object.keys(c.homeOrders??{}).length?homeSoldiers(c,c.last):[]).flatMap(s=>{const o=c.homeOrders?.[s.id];return o?[{route:s.moving?o.route:[idx(Math.floor(s.x),Math.floor(s.y))]}]:[];}),...c.people.flatMap(p=>p.refuge?[p.refuge]:[])].some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân hoặc dân tránh địch đang dùng lối này. Chờ họ trở về hoặc chọn ô khác để không chặn đường.";
   if (k === "quarry") { if (t !== HL) return "Bãi đá phải đặt trên đồi."; }
   else if (isRock(t)) return "Đồi đá chỉ đặt được bãi đá.";
   else if (t === F) return "Rừng rậm: cho người chặt hết cây trước, hoặc chọn ô cỏ.";

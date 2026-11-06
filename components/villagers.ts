@@ -302,7 +302,7 @@ export class Crowd {
         continue;
       }
       if(v.fleeing){delete v.fleeing;v.run=false;if(person && !person.haul)this.start(v,city,false);}
-      if(v.id===null && (city.battleId || city.raid)){v.visible=false;continue;}
+      if(v.id===null && (city.battleId || city.raid || city.raidEncounter)){v.visible=false;continue;}
       if (person?.haul) { this.haulVisual(v, city, person, dt, now, tnow); continue; }
       if (person && person.task.t !== "idle" && person.task.t !== "explore") {
         // A newly assigned worker waits for the engine's first haul tick; no decorative income cycle.

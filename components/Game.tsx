@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
+  raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
   armyCap, armyUsed, buildingCost, trainingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -257,11 +257,11 @@ function ControlPanel(props: {
       )}
       {tab === "auto" && <AutoAssignPanel c={c} busy={busy} act={act}/>}
       {tab === "alarm" && (
-        c.raid ? (
+        (c.raid || c.raidEncounter) ? (
           <>
-            <p className="small"><b className="danger">Man rợ ⚔ {c.raid.power}</b> tới sau {fmtDur(c.raid.at - t)}. Quân ở nhà ⚔ {fmt(homePower)}.</p>
+            <p className="small"><b className="danger">Man rợ ⚔ {c.raid?.power ?? c.raidEncounter!.power}</b> {raidPhase(c,t)==="warning"?`tới sau ${fmtDur(c.raid!.at-t)}`:raidPhase(c,t)==="enter"?"đang tiến vào làng":raidPhase(c,t)==="fight"?"đang giao chiến":"đang rút lui"}. Quân ở nhà ⚔ {fmt(homePower)}.</p>
             <p className="muted small">Đánh kẻng để chuẩn bị phòng thủ (+25% sức thủ); nếu thua chỉ mất 12% tài nguyên thay vì 25%. Dân vẫn làm việc, chỉ tự trú ẩn trong 60 giây cuối trước khi địch tới.</p>
-            <button className="primary wide" disabled={busy || !!c.alarm} onClick={() => act({ type: "alarm" })}>{c.alarm ? "Đã đánh kẻng" : "Đánh kẻng báo động"}</button>
+            {c.raid && raidPhase(c,t)==="warning" && <button className="primary wide" disabled={busy || !!c.alarm} onClick={() => act({ type: "alarm" })}>{c.alarm ? "Đã đánh kẻng" : "Đánh kẻng báo động"}</button>}
           </>
         ) : <p className="muted small">Yên bình. Khi trinh sát thấy man rợ kéo đến, bạn sẽ có {Math.round(30)} phút để đánh kẻng.</p>
       )}
@@ -1059,13 +1059,13 @@ export default function Game() {
         </div>
       )}
 
-      {c.raid && (
+      {(c.raid || c.raidEncounter) && (
         <div className="raidbar" role="alert">
-          <b>⚠ Man rợ ⚔ {c.raid.power} đang kéo đến</b>
-          <span>tới sau {fmtDur(c.raid.at - t)} · quân ở nhà ⚔ {fmt(homePower)} · {civiliansInDanger(c,t) ? "địch sắp tới, dân đang tìm chỗ trú" : "dân tiếp tục làm việc; tự trú khi còn 60 giây"}</span>
-          {control ? (
+          <b>⚠ Man rợ ⚔ {c.raid?.power ?? c.raidEncounter!.power} · {raidPhase(c,t)==="warning"?"đang chuẩn bị tấn công":raidPhase(c,t)==="enter"?"đang tiến vào làng":raidPhase(c,t)==="fight"?"đang giao chiến":"đang rút lui"}</b>
+          <span>{raidPhase(c,t)==="warning" ? `tới sau ${fmtDur(c.raid!.at-t)} · ${civiliansInDanger(c,t)?"dân đang tìm chỗ trú":"dân tiếp tục làm việc; tự trú khi còn 60 giây"}` : "Dân giữ chỗ trú tới khi toán quân rút khỏi làng"} · quân ở nhà ⚔ {fmt(homePower)}</span>
+          {c.raid && raidPhase(c,t)==="warning" && (control ? (
             <button className="primary" disabled={busy || !!c.alarm} onClick={() => act({ type: "alarm" })}>{c.alarm ? "Đã đánh kẻng" : "Đánh kẻng"}</button>
-          ) : <span className="muted small">Đình làng cấp 3 mới đánh kẻng được</span>}
+          ) : <span className="muted small">Đình làng cấp 3 mới đánh kẻng được</span>)}
         </div>
       )}
 
