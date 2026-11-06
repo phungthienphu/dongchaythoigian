@@ -1,7 +1,7 @@
 import { BoundedCache } from "@/lib/bounded-cache";
 // Client-side animation of the people stored on the server. Positions are visual only;
 // what each person does (their task) comes from the server.
-import { B, H, isRock, HL, O, R, W, buildings, refugePosition, farmRemaining, cheb, explorerPos, haulPosition, herdById, idx, inb, type City, type Haul, type Person, type ResKey } from "@/lib/engine";
+import { B, H, isRock, HL, O, R, W, buildings, refugePosition, cheb, explorerPos, haulPosition, herdById, idx, inb, type City, type Haul, type Person, type ResKey } from "@/lib/engine";
 import { herdAnimals } from "./draw";
 
 export type Job = "wood" | "quarry" | "gather" | "farm" | "build" | "smith" | "trade" | "hunt" | "explore" | "idle" | "other";
@@ -221,7 +221,7 @@ export class Crowd {
       };
       if (p.haul) this.haulVisual(v, city, p, 0, city.last, performance.now());
       else if (p.task.t === "idle" || p.task.t === "explore") this.start(v, city, false);
-      else { v.state = "work"; v.carrying = false; v.cargo = 0; }
+      else { v.state = "rest"; v.carrying = false; v.cargo = 0; }
       next.push(v);
     }
     for (const [i, b] of buildings(city)) {
@@ -298,8 +298,8 @@ export class Crowd {
       if (person?.haul) { this.haulVisual(v, city, person, dt, now, tnow); continue; }
       if (person && person.task.t !== "idle" && person.task.t !== "explore") {
         // A newly assigned worker waits for the engine's first haul tick; no decorative income cycle.
-        const field=person.task.t==="work"?city.b[person.task.at]:undefined;
-        v.state = field?.k==="farm" && (field.tendUntil || farmRemaining(field)<=0) ? "rest" : "work"; v.moving = false; v.carrying = false; v.cargo = 0; v.haulPhase = undefined;
+        v.state = "rest"; v.moving = false; v.run = false; v.swing = 0;
+        v.carrying = false; v.cargo = 0; v.haulPhase = undefined;
         continue;
       }
       if (v.haulPhase && person) this.start(v, city, person.task.t === "idle" && person.task.at !== undefined);
@@ -384,8 +384,11 @@ export class Crowd {
     const dx = position.x - v.fx, dy = position.y - v.fy;
     if (Math.abs(dx - dy) > 1e-5) v.face = dx - dy >= 0 ? 1 : -1;
     v.fx = position.x; v.fy = position.y;
+    // A farming assignment alone does not mean the worker has reached the field.
+    const farming = h.phase === "work" && !h.resting && (h.workRate ?? 0) > 0
+      && p.task.t === "work" && city.b[p.task.at]?.k === "farm" && h.tile === p.task.at;
     // Distinct places in the front crop rows, only while actually farming.
-    if (h.phase === "work" && p.task.t === "work" && city.b[p.task.at]?.k === "farm") {
+    if (farming && p.task.t === "work") {
       const tile=p.task.at;
       const workers=city.people.filter(q=>q.task.t==="work"&&q.task.at===tile).sort((a,b)=>a.id-b.id);
       const slot=workers.findIndex(q=>q.id===p.id)%2;
@@ -397,6 +400,7 @@ export class Crowd {
     v.moving = (h.phase === "travel" || h.phase === "return") && now < h.nextAt;
     v.run = false; v.visible = true;
     v.state = h.resting && h.phase !== "travel" ? "rest" : h.phase === "travel" ? "toWork" : h.phase === "work" ? "work" : "toHome";
+    if (v.job === "farm" && v.state === "work" && !farming) v.state = "rest";
     if (h.drop !== undefined) v.home = h.drop;
     if (h.source) v.work = h.source.kind === "herd" ? herdById(city, h.source.key)?.at ?? h.tile : h.source.key;
     if (h.phase !== "work" || !(h.workRate && h.workRate > 0)) { v.swing = 0; return; }

@@ -81,6 +81,24 @@ assert.equal(farmActors.length,2);assert.ok(farmActors.every(v=>v.visible&&v.job
 assert.notDeepEqual([farmActors[0].fx,farmActors[0].fy],[farmActors[1].fx,farmActors[1].fy],'farmers must not overlap in one spot');
 assert.ok(farmActors.every(v=>Math.floor(v.fx)===20&&Math.floor(v.fy)===20),'working actors stay within their actual farm');
 console.log('PASS: two working farmers are visible, separated and remain inside their assigned field.');
+// Waiting/blocked farmers at the warehouse must not hoe at their last position.
+const warehouse = idx(24, 20);
+for (const p of farmers.people) { delete p.haul; p.pos = warehouse; }
+const waitingFarmers = new Crowd(); waitingFarmers.sync(farmers);
+assert.ok(waitingFarmers.list.every(v => v.state === 'rest'), 'initial sync cannot invent farm work');
+farmCrowd.sync(farmers); farmCrowd.update(farmers, .1, 2000);
+assert.ok(farmActors.every(v => v.state === 'rest' && !v.moving && v.swing === 0), 'existing actors stop hoeing without an authoritative job phase');
+waitingFarmers.update(farmers, .1, 2000);
+assert.ok(waitingFarmers.list.every(v => v.state === 'rest' && Math.floor(v.fx) === 24), 'waiting workers stay at their real position');
+const farmer = farmers.people[0];
+for (const phase of ['travel', 'return', 'unload', 'work']) {
+  farmer.haul = { phase, at: 0, nextAt: 10000, tile: warehouse, route: [warehouse], routeStart: 0, carried: phase === 'return' || phase === 'unload' ? 10 : 0, capacity: 10, workRate: 5400, resource: 'food', source: { kind: 'building', key: farm }, taskKey: 'farm' };
+  waitingFarmers.update(farmers, .1, 2000);
+  assert.notEqual(waitingFarmers.list[0].state, 'work', `${phase} at warehouse cannot animate farming`);
+  assert.equal(Math.floor(waitingFarmers.list[0].fx), 24, 'no teleport to the field');
+}
+console.log('PASS: farmers wait without hoeing at warehouses, including stale work phases and delivery legs.');
+
 
 console.log('PASS: authoritative hauling movement/cargo, response sync continuity, reassignment cargo retention, and no renderer deposits.');
 
