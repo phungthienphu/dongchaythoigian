@@ -1628,7 +1628,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     c.res.food-=suppliesFood;
     for (const u of UKEYS) if (units[u]) c.army[u]! -= units[u]!;
     c.exps.push({ id: c.nextExp++, units, camp: camp.id, depart: now, arrive: now + ms, back: now + 2 * ms, resolved: false, route:plan.route, suppliesFood, logisticsVersion:1, combatVersion:1 });
-    log(c, now, `Xuất quân (${troopText(units)}) đánh trại man rợ, tới nơi sau ${Math.round(ms / MIN)} phút.`);
+    log(c, now, `Xuất quân (${troopText(units)}) đánh trại man rợ, tới nơi sau ${ms < MIN ? `${Math.ceil(ms / 1000)} giây` : `${Math.ceil(ms / MIN)} phút`}.`);
     return null;
   }
   if (a.type === "assign" || a.type === "assignN") {
