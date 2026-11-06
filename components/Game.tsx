@@ -11,6 +11,7 @@ import {
 import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHerd, pickVillager, pickBuilding, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import { Crowd } from "./villagers";
 import WorldMap from "./WorldMap";
+import HowToPlay from "./HowToPlay";
 import { placementHint, placementTiles } from "@/lib/build-placement";
 import BattleView from "./BattleView";
 import { useWars } from "./useWars";
@@ -335,6 +336,7 @@ export default function Game() {
   const visitRequest = useRef(0);
   const visitRef = useRef<{ id: string; name: string; ownerName: string | null; city: City; D: Derived; crowd: Crowd } | null>(null);
   const [visiting, setVisiting] = useState<{ id: string; name: string; ownerName: string | null; era: number } | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [worldOpen, setWorldOpen] = useState(false);
   const [nations, setNations] = useState<Nation[]>([]);
   // dev-only handle for inspecting villagers from the browser console
@@ -831,6 +833,7 @@ export default function Game() {
         <div className="brand">
           <div className="titlerow">
             <h1>{name}</h1>
+            <button onClick={()=>setHelpOpen(true)}>Cách chơi</button>
             {me.user ? (
               <button className="acct" onClick={() => openPanel("friends")} title={me.user.email}>
                 {me.user.picture ? <img src={me.user.picture} alt="" referrerPolicy="no-referrer" /> : <span className="av">{me.user.name[0]}</span>}
