@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { cities, users, type CityDoc } from "./db";
 import { SESSION_COOKIE, readSession, currentUser } from "./auth";
-import { ENGINE_VER, newCity, score, settle, type City } from "./engine";
+import { ENGINE_VER, newCity, score, settle, enrichCopperDeposits, type City } from "./engine";
 
 import { registerEnvoyVisits } from "./diplomacy";
 import { resolveDiscoveries } from "./world";
@@ -57,6 +57,8 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
     await resolveDiscoveries(pid, c, now);
     const arrivals = structuredClone(c.trips ?? []);
     settle(c, now);
+    const addedOre=enrichCopperDeposits(c);
+    if(addedOre)c.log.unshift({at:now,msg:`Bổ sung ${addedOre} mỏ đồng trên các đồi đá chưa khai thác. Mỗi mỏ đồng còn hoạt động có trữ lượng tối đa 1.200; hãy khám phá thêm quanh làng.`,cls:"good"});
     const result = mutate(c, now);
     const envoyOutbox=[...new Map([...(doc.envoyOutbox??[]),...[...arrivals,...(c.trips??[])].filter(tr=>tr.target).map(({id,depart,target,targetName,arrive})=>({key:`${pid}:${depart}:${id}`,trip:{id,depart,target,targetName,arrive}}))].filter(entry=>entry.trip.arrive+7*24*60*60_000>now).map(entry=>[entry.key,entry])).values()];
     const res = await col.updateOne(

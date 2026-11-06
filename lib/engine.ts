@@ -22,7 +22,7 @@ const MIN_POP = 3;
 // gathering by hand (per person per hour) and how much each tile/animal holds
 export const GATHER_SPEED = 120; // Active play: a wood load takes 10 seconds, not 20 minutes.
 const CHOP_RATE = 30 * GATHER_SPEED, STONE_RATE = 20 * GATHER_SPEED, ORE_RATE = 8 * GATHER_SPEED, HUNT_RATE = 40 * GATHER_SPEED;
-export const CAP = { forest: 400, hill: 1500, ore: 400 };
+export const CAP = { forest: 400, hill: 1500, ore: 1200 };
 const MEAT_PER_ANIMAL = 50, HERD_REGROW = 0.5; // animals per hour
 export const EXPLORE_TILES_PER_MIN = 36; // matches the on-screen walking pace (~0.6 tiles/s)
 const START_SIGHT = 9, SCOUT_SIGHT = 3;
@@ -189,6 +189,7 @@ export type City = {
   xs: number[];
   camp: number;
   b: Record<string, Building>; // keyed by tile index
+  copperDepositsVersion?: number; // one-time, additive ore enrichment; never resets the map
   dep: Record<string, number>; // amount already taken from a forest/hill tile
   herds: Herd[];
   people: Person[];
@@ -376,6 +377,34 @@ function valueNoise(r: () => number, cells: number) {
   };
 }
 
+/** Upgrade old worlds without moving buildings, refilling mined tiles, or
+ * consuming the map generator's RNG stream. Only untouched stone hills change. */
+export function enrichCopperDeposits(c: City): number {
+  if ((c.copperDepositsVersion ?? 0) >= 1) return 0;
+  const occupied = new Set([c.camp, ...Object.keys(c.b).map(Number), ...c.herds.map(h=>h.at), ...c.camps.map(b=>b.at),
+    ...c.people.flatMap(p=>p.task.t==='mine'?[p.task.at]:[])]);
+  const random=rng(c.seed ^ 0x43a91), candidates:{tile:number;rank:number}[]=[];
+  let hills=0,ores=0,near=0;
+  for(let tile=0;tile<c.t.length;tile++){
+    if(c.t[tile]===O){ores++;if(cheb(c.camp,tile)<=18)near++;}
+    if(c.t[tile]!==HL)continue;hills++;
+    const rank=random();
+    if(!occupied.has(tile)&&!Object.hasOwn(c.dep,tile))candidates.push({tile,rank});
+  }
+  // Keep at least three quarters of the remaining stone hills for quarrying.
+  const budget=Math.floor(hills*.25);let added=0;
+  const convert=(tile:number)=>{c.t[tile]=O;added++;ores++;};
+  for(const {tile} of [...candidates].filter(p=>cheb(c.camp,p.tile)<=18).sort((a,b)=>cheb(c.camp,a.tile)-cheb(c.camp,b.tile)||a.rank-b.rank)){
+    if(near>=3||added>=budget)break;convert(tile);near++;
+  }
+  const target=Math.max(12,Math.ceil((hills+ores-added)*.12));
+  for(const {tile} of candidates.sort((a,b)=>a.rank-b.rank)){
+    if(ores>=target||added>=budget)break;if(c.t[tile]===HL)convert(tile);
+  }
+  c.copperDepositsVersion=1;
+  return added;
+}
+
 export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
   const r = rng(seed);
   const t = new Array<number>(W * H).fill(G);
@@ -440,6 +469,7 @@ export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
     res: { food: 100, wood: 120, stone: 30, copper: 0 }, pop: 0, popAcc: 0, era: 1,
     t0: now, last: now, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
   };
+  enrichCopperDeposits(c);
   reveal(c, camp, START_SIGHT);
   for (let k = 0; k < 5; k++) addPerson(c);
   log(c, now, "Bộ lạc 5 người dừng chân bên sông. Bấm chọn một người rồi bấm vào rừng, đồi hoặc đàn thú để giao việc. Bấm ra vùng sương mù để đi thám hiểm.");
