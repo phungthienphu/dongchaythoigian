@@ -1,3 +1,4 @@
+import { BoundedCache } from "@/lib/bounded-cache";
 // Client-side animation of the people stored on the server. Positions are visual only;
 // what each person does (their task) comes from the server.
 import { B, H, HL, O, R, W, buildings, refugePosition, farmRemaining, cheb, explorerPos, haulPosition, herdById, idx, inb, type City, type Haul, type Person, type ResKey } from "@/lib/engine";
@@ -156,7 +157,7 @@ export class Crowd {
   list: Villager[] = [];
   fx: Fx[] = [];
   chopping = new Set<number>(); // tiles with an axe swinging right now
-  private paths = new Map<string, [number, number][] | null>();
+  private paths = new BoundedCache<string, [number, number][] | null>(128, 16384, path=>path?.length??1);
   private homes: number[] = [];
   private waterMask = new Uint8Array(W * H);
   private obstacles = "";
@@ -178,11 +179,9 @@ export class Crowd {
 
   private path(city: City, a: number, b: number) {
     const k = a + ">" + b;
-    if (!this.paths.has(k)) {
-      if (this.paths.size >= 1024) this.paths.delete(this.paths.keys().next().value!);
-      this.paths.set(k, route(city, a, b));
-    }
-    return this.paths.get(k)!;
+    const cached=this.paths.get(k);
+    if(cached!==undefined)return cached;
+    const path=route(city,a,b);this.paths.set(k,path);return path;
   }
 
   private nearestHome(city: City, to: number) {

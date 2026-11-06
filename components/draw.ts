@@ -1,3 +1,4 @@
+import { BoundedCache } from "@/lib/bounded-cache";
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
 import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
@@ -78,7 +79,7 @@ export function visibleTileBounds(v: View) {
 }
 
 /* ---------- colour helpers ---------- */
-const mixCache = new Map<string, string>();
+const mixCache = new BoundedCache<string, string>(2048, 2048);
 function mix(a: string, b: string, t: number) {
   const key = a + b + t.toFixed(2);
   let out = mixCache.get(key);

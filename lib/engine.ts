@@ -1,3 +1,4 @@
+import { BoundedCache } from "./bounded-cache";
 import { isActionInput } from "./action-input";
 
 // Shared game engine. Runs on the server (source of truth) and on the client
@@ -808,7 +809,7 @@ export const HAUL_CAPACITY = 10;
 export const HAUL_TILE_MS = 1000;
 const HAUL_UNLOAD_MS = 1000;
 type HaulJob = { tile: number; resource: ResKey; rate: number; source: NonNullable<Haul["source"]> };
-type HaulContext = { paths: Map<string, number[] | null>; D: Derived; tools: number; mult: number };
+type HaulContext = { paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number };
 const taskKey = (p: Person) => JSON.stringify(p.task);
 
 /** Tile-centre position along the persisted authoritative route. No client RNG. */
@@ -877,7 +878,7 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext): number[]
 }
 function haulingContext(c: City, D: Derived): HaulContext {
   const active = Object.values(c.b).filter(b => built(b) && !b.flooded);
-  return { paths: new Map(), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: 1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length) };
+  return { paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: 1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length) };
 }
 export function armyStagingTiles(c:City,limit=24){
   const home=buildings(c).find(([,b])=>b.k==="barracks"&&isBuildingActive(b))?.[0]??c.camp;
