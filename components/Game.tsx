@@ -22,6 +22,7 @@ import { useDiplomacy } from "./useDiplomacy";
 import CaravanNoticeLink from "./CaravanNoticeLink";
 import DockPanel from "./DockPanel";
 import AutoAssignPanel from "./AutoAssignPanel";
+import EraStorageNotice from "./EraStorageNotice";
 import FrontierStatus from "./FrontierStatus";
 import {HungerNotice,HungryVillager} from "./HungerStatus";
 import MarketPanel from "./MarketPanel";
@@ -1288,6 +1289,7 @@ export default function Game() {
               <>
                 <h3>Lên {ERA_NAMES[c.era + 1]}</h3>
                 <p className="small muted">Lên đời tự đổi kiến trúc và mở công trình. Cấp công trình vẫn nâng riêng bằng tài nguyên. Đời sau cần dân số, kho và hạ tầng lớn hơn.</p>
+                <EraStorageNotice era={c.era} storage={st.storage} onOpenShop={()=>setPanel("shop")}/>
                 <p className="small">Sau khi lên đời, nhu cầu nuôi dân và quân tăng gấp đôi: dân {upkeepRates(c.era+1).civilian.food/6} thực / 10 phút + {upkeepRates(c.era+1).civilian.wood} gỗ / giờ; quân {upkeepRates(c.era+1).soldier.food/6} thực / 10 phút + {upkeepRates(c.era+1).soldier.wood} gỗ / giờ mỗi người.</p>
                 <ul className="goal">
                   {next.hall ? <li><span>Đình làng</span><span className="gbar"><i style={{ width: Math.min(100, (hallLv / next.hall) * 100) + "%" }} /></span><span>cấp {hallLv}/{next.hall}</span></li> : null}

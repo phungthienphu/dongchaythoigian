@@ -44,3 +44,12 @@ test('full wood compartment does not prevent stone delivery',()=>{
  }
  settle(c,1000);assert.equal(c.res.wood,limits.wood);assert.ok(Math.abs(c.people[0].haul!.carried-(10-2/3600))<1e-8);assert.equal(c.res.stone,limits.stone);assert.equal(c.people[1].haul,undefined);
 });
+test('era food goal cannot be reached by extra gathering camps until storage is expanded',()=>{
+ const c=newCity(0,123);c.era=2;c.t.fill(G);c.seen.fill(1);c.camp=idx(20,20);c.herds=[];c.camps=[];
+ c.b={[idx(19,20)]:{k:'hall',lvl:3,doneAt:null},[idx(22,20)]:{k:'gather',lvl:1,doneAt:null}};
+ c.people=c.people.slice(0,2);for(const p of c.people){p.task={t:'work',at:idx(22,20)};p.pos=idx(22,20);}
+ c.res.food=1900;settle(c,2*60_000);assert.equal(caps(c).food,2000);assert.ok(c.res.food>1950&&c.res.food<=2000);
+ c.b[idx(23,20)]={k:'gather',lvl:1,doneAt:null};assert.equal(caps(c).food,2000);
+ c.b[idx(21,20)]={k:'storehouse',lvl:1,doneAt:null};assert.equal(caps(c).food,3000);
+ settle(c,5*60_000);assert.ok(c.res.food>2500&&c.res.food<=3000);
+});

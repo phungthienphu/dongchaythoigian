@@ -146,6 +146,9 @@ button.link:disabled { color: var(--muted); text-decoration: none; }
 /* era goals */
 .goal li { display: grid; grid-template-columns: 78px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
 .goal .gbar { height: 6px; }
+.era-storage-notice { margin:12px 0; padding:12px; border:1px solid #b88c46; border-radius:8px; background:#b88c4618; font-size:13px; }
+.era-storage-notice ul { padding-left:18px; margin:8px 0; }
+.era-storage-notice p { margin:8px 0; }
 
 /* ===== full-screen game HUD ===== */
 body:has(.game) { padding: 0; overflow: hidden; }
