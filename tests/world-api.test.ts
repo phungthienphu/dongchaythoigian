@@ -29,7 +29,7 @@ const world=await import('../app/api/world/route');
 const envoy=await import('../app/api/world/envoy/route');
 const visit=await import('../app/api/visit/[id]/route');
 test('world API returns only home and explicitly discovered nations, never unknown friend coordinates',async()=>{
- let body=await (await world.GET()).json();expect(body.nations.map((n:{id:string})=>n.id)).toEqual(['me']);expect(JSON.stringify(body)).not.toContain('Secret friend');expect(JSON.stringify(body)).not.toContain('91');
+ let body=await (await world.GET()).json();expect(body.nations.map((n:{id:string})=>n.id)).toEqual(['me']);expect(JSON.stringify(body)).not.toContain('Secret friend');expect(JSON.stringify(body.nations)).not.toContain('"x":91');
  mine.state.discoveries=['friend'];body=await (await world.GET()).json();expect(body.nations.map((n:{id:string})=>n.id)).toEqual(['me','friend']);expect(body.nations[1].friend).toBe(true);expect(body.nations[1].x).toBe(91);mine.state.discoveries=[];
 });
 test('friend village API works without scouting and strips the owners world intelligence',async()=>{

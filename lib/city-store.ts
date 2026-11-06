@@ -3,6 +3,7 @@ import { cities, users, type CityDoc } from "./db";
 import { SESSION_COOKIE, readSession, currentUser } from "./auth";
 import { ENGINE_VER, newCity, score, settle, type City } from "./engine";
 
+import { registerEnvoyVisits } from "./diplomacy";
 import { resolveDiscoveries } from "./world";
 
 export const PID_COOKIE = "pid";
@@ -54,16 +55,24 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
     // cities from an older engine are replaced by a fresh world (prototype stage, no migration)
     const c = doc.state.ver === ENGINE_VER ? doc.state : newCity(now);
     await resolveDiscoveries(pid, c, now);
+    const arrivals = structuredClone(c.trips ?? []);
     settle(c, now);
     const result = mutate(c, now);
+    const envoyOutbox=[...new Map([...(doc.envoyOutbox??[]),...[...arrivals,...(c.trips??[])].filter(tr=>tr.target).map(({id,depart,target,targetName,arrive})=>({key:`${pid}:${depart}:${id}`,trip:{id,depart,target,targetName,arrive}}))].filter(entry=>entry.trip.arrive+7*24*60*60_000>now).map(entry=>[entry.key,entry])).values()];
     const res = await col.updateOne(
       { _id: pid, ver: doc.ver },
       {
-        $set: { state: c, score: score(c), era: c.era, pop: c.pop, templeAt: c.templeAt, updatedAt: new Date(now), ...(opts.requestId ? { actionReceipts: [...(doc.actionReceipts ?? []).slice(-63), { id: opts.requestId, result }] } : {}) },
+        $set: { envoyOutbox, state: c, score: score(c), era: c.era, pop: c.pop, templeAt: c.templeAt, updatedAt: new Date(now), ...(opts.requestId ? { actionReceipts: [...(doc.actionReceipts ?? []).slice(-63), { id: opts.requestId, result }] } : {}) },
         $inc: { ver: 1 },
       },
     );
-    if (res.modifiedCount === 1) return { doc: { ...doc, state: c } as CityDoc, result, now };
+    if (res.modifiedCount === 1) {
+      try {
+        await registerEnvoyVisits(pid,doc.name,envoyOutbox.map(entry=>entry.trip));
+        if(envoyOutbox.length)await col.updateOne({_id:pid},{$pull:{envoyOutbox:{key:{$in:envoyOutbox.map(entry=>entry.key)}}}});
+      } catch { /* Durable outbox retries on the next successful city load. */ }
+      return { doc: { ...doc, state: c } as CityDoc, result, now };
+    }
     // a plain load lost the race to another save: show the settled state without saving it
     if (opts.readOnlyFallback && attempt === 4) return { doc: { ...doc, state: c } as CityDoc, result, now };
   }

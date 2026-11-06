@@ -6,6 +6,7 @@ export type CityDoc = {
   name: string;
   owner?: string; // Google user id once the player has signed in
   world?: { x: number; y: number }; // position on the world map
+  envoyOutbox?: { key: string; trip: Pick<import("./engine").EnvoyTrip, "id" | "depart" | "target" | "targetName" | "arrive"> }[];
   actionReceipts?: { id: string; result: unknown }[];
   incomingBattleId?: string;
   outboundBattleId?: string;
@@ -40,6 +41,10 @@ export async function mongoClient() {
   g._mongo ??= new MongoClient(uri).connect().then(async (client) => {
     const d = client.db(dbName());
     await d.collection("cities").createIndex({ score: -1 });
+    await d.collection("envoy_visits").createIndex({ to: 1, arrive: -1 });
+    await d.collection("envoy_visits").createIndex({ from: 1, eventAt: -1 });
+    await d.collection("envoy_visits").createIndex({ to: 1, eventAt: -1 });
+    await d.collection("envoy_visits").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await d.collection("users").createIndex({ friendCode: 1 }, { unique: true });
     return client;
   });
@@ -61,4 +66,8 @@ export async function battles() {
   await col.createIndex({ attackerId: 1, createdAt: -1 });
   await col.createIndex({ defenderId: 1, createdAt: -1 });
   return col;
+}
+
+export async function envoyVisits() {
+  return (await db()).collection<import("./diplomacy-types").EnvoyVisit>("envoy_visits");
 }

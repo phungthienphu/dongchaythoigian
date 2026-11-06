@@ -16,6 +16,8 @@ import HowToPlay from "./HowToPlay";
 import { buildAvailability } from "@/lib/build-availability";
 import { placementHint, placementTiles } from "@/lib/build-placement";
 import BattleView from "./BattleView";
+import DiplomacyMessages, { diplomacyText } from "./DiplomacyMessages";
+import { useDiplomacy } from "./useDiplomacy";
 import { useWars } from "./useWars";
 import { OptimisticCityQueue } from "@/lib/optimistic-city";
 import type { Nation } from "@/lib/world";
@@ -407,7 +409,6 @@ export default function Game() {
     setLoading(false);
   }, [accept]);
 
-  const war = useWars(!loading && !needsName && !!me.user?.hasCity, () => { void loadCity(); });
 
   const loadWorld = useCallback(async () => {
     const res = await fetch("/api/world", { cache: "no-store" });
@@ -415,7 +416,12 @@ export default function Game() {
     else setMsg({ text: "Không tải được danh sách các nước. Hãy mở lại bản đồ.", err: true });
   }, []);
 
-  useEffect(() => { if (worldOpen) void loadWorld(); }, [worldOpen, loadWorld]);
+  const diplomacy = useDiplomacy(!loading && !needsName, () => { void loadCity(); void loadWorld(); });
+  const war = useWars(!loading && !needsName && !!me.user?.hasCity, () => { void loadCity(); void diplomacy.refresh(); });
+  useEffect(()=>{if(panel==="log")void diplomacy.refresh();},[panel,diplomacy.refresh]);
+
+  const sharedLocations=diplomacy.messages.filter(m=>m.side==="host"&&m.decision==="accepted").map(m=>m.id).join("|");
+  useEffect(() => { if (worldOpen) void loadWorld(); }, [worldOpen, loadWorld, sharedLocations]);
 
   const envoySchedule = (cityRef.current?.trips ?? []).map(tr => `${tr.id}:${tr.target}:${tr.arrived ? tr.back : tr.arrive}`).join("|");
   useEffect(() => {
@@ -474,11 +480,11 @@ export default function Game() {
       if (vis) { if (!vis.city.battleId) settle(vis.city, now()); vis.D = derive(vis.city); vis.crowd.sync(vis.city); }
       bump();
     }, 1000);
-    const sync = setInterval(() => { loadCity(); loadBoard(); loadMe(); }, 60_000);
+    const sync = setInterval(() => { loadCity(); loadBoard(); loadMe(); void diplomacy.refresh(); }, 60_000);
     // while visiting, pick up the owner's latest orders every few seconds
     const visitSync = setInterval(() => { const v = visitRef.current; if (v) loadVisit(v.id, false); }, 5_000);
     return () => { clearInterval(tick); clearInterval(sync); clearInterval(visitSync); };
-  }, [loadCity, loadBoard, loadMe, loadVisit]);
+  }, [loadCity, loadBoard, loadMe, loadVisit, diplomacy.refresh]);
 
   // canvas sizing, camera and render loop
   useEffect(() => {
@@ -750,7 +756,8 @@ export default function Game() {
 
   const noticeCity=cityRef.current;
   const noticeKey=noticeCity?`dong-notices:${noticeCity.seed}:${noticeCity.t0}`:"";
-  const latestNoticeAt=Math.max(0,...(noticeCity?.log??[]).map(l=>l.at));
+  const diplomaticNotices=diplomacy.messages.map(m=>({at:m.decidedAt??m.requestedAt??m.arrive,msg:diplomacyText(m),cls:"good"}));
+  const latestNoticeAt=Math.max(0,...(noticeCity?.log??[]).map(l=>l.at),...diplomaticNotices.map(l=>l.at));
   useEffect(()=>{
     if(!noticeKey)return;
     let at=0;try{at=Number(localStorage.getItem(noticeKey))||0;}catch{}
@@ -763,7 +770,7 @@ export default function Game() {
   },[panel,noticeKey,latestNoticeAt]);
   const c = cityRef.current, D = dRef.current;
   const t = now();
-  const notices=[...(c?.log??[])].sort((a,b)=>b.at-a.at);
+  const notices=[...(c?.log??[]),...diplomaticNotices].sort((a,b)=>b.at-a.at);
 
   if (loading) return <main className="wrap"><p className="muted">Đang tải thành phố…</p></main>;
 
@@ -835,7 +842,7 @@ export default function Game() {
     { k: "army", icon: "army", label: "Quân đội", badge: troopCount(c.army) || undefined },
     { k: "people", icon: "pop", label: "Dân làng", badge: idle.length ? `${idle.length} rảnh` : undefined },
     { k: "era", icon: "era", label: "Thời đại", badge: reqMet(c) ? "!" : undefined },
-    { k: "log", icon: "log", label: "Thông báo", badge: readNotice.key===noticeKey ? c.log.filter(l=>l.at>readNotice.at).length||undefined : undefined },
+    { k: "log", icon: "log", label: "Thông báo", badge: readNotice.key===noticeKey ? notices.filter(l=>l.at>readNotice.at).length||undefined : undefined },
     { k: "rank", icon: "rank", label: "Xếp hạng" },
     { k: "friends", icon: "friends", label: "Bạn bè", badge: me.friends.filter((f) => f.online).length || undefined },
     ...(hallLv ? [{ k: "control" as Panel, icon: "era" as IconKey, label: "Đình làng", badge: c.raid ? "!" : undefined }] : []),
@@ -1271,11 +1278,11 @@ export default function Game() {
             ))}
 
             {panel === "log" && (
-              <ol className="log">
-                {notices.map((l, i) => (
+              <><DiplomacyMessages messages={diplomacy.messages} busy={diplomacy.busy} error={diplomacy.error} onAction={diplomacy.act} /><ol className="log">
+                {[...c.log].sort((a,b)=>b.at-a.at).map((l, i) => (
                   <li key={i} className={l.cls ?? ""}><span className="t">{stamp(c, l.at)}</span>{l.msg}</li>
                 ))}
-              </ol>
+              </ol></>
             )}
 
             {panel === "control" && (
