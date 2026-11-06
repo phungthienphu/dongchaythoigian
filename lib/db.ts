@@ -47,6 +47,10 @@ export async function mongoClient() {
     await d.collection("caravans").createIndex({seller:1,createdAt:-1});
     await d.collection("caravans").createIndex({buyer:1,createdAt:-1});
     await d.collection("caravans").createIndex({"raid.by":1,createdAt:-1});
+    await d.collection("caravans").createIndex({status:1,nextCheckAt:1});
+    await d.collection("battles").createIndex({ attackerId: 1, createdAt: -1 });
+    await d.collection("battles").createIndex({ defenderId: 1, createdAt: -1 });
+    await d.collection("battles").createIndex({ status: 1, updatedRecoveryAt: 1, createdAt: 1 });
     await d.collection("cities").createIndex({ score: -1 });
     await d.collection("envoy_visits").createIndex({ to: 1, arrive: -1 });
     await d.collection("envoy_visits").createIndex({ from: 1, eventAt: -1 });
@@ -69,10 +73,7 @@ export async function users(): Promise<Collection<UserDoc>> {
 }
 
 export async function battles() {
-  const col = (await db()).collection<import("./war").BattleDoc>("battles");
-  await col.createIndex({ attackerId: 1, createdAt: -1 });
-  await col.createIndex({ defenderId: 1, createdAt: -1 });
-  return col;
+  return (await db()).collection<import("./war").BattleDoc>("battles");
 }
 
 export async function envoyVisits() {

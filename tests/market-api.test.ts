@@ -7,7 +7,7 @@ let hints:string[]=[];
 const now=Date.now();
 let tables:Record<string,any[]>={cities:[],orders:[],ships:[]};
 const value=(d:any,key:string)=>key.split('.').reduce((a,k)=>a?.[k],d);
-function matches(d:any,q:any):boolean{return Object.entries(q).every(([k,v]:any)=>k==='$or'?v.some((p:any)=>matches(d,p)):v&&typeof v==='object'?Object.entries(v).every(([op,x]:any)=>op==='$ne'?value(d,k)!==x:op==='$in'?x.includes(value(d,k)):false):value(d,k)===v);}
+function matches(d:any,q:any):boolean{return Object.entries(q).every(([k,v]:any)=>k==='$or'?v.some((p:any)=>matches(d,p)):v&&typeof v==='object'?Object.entries(v).every(([op,x]:any)=>op==='$ne'?value(d,k)!==x:op==='$in'?x.includes(value(d,k)):op==='$exists'?(value(d,k)!==undefined)===x:op==='$lte'?value(d,k)<=x:false):value(d,k)===v);}
 const collection=(name:string)=>({
  findOne:async(q:any)=>structuredClone(tables[name].find(d=>matches(d,q))??null),
  countDocuments:async(q:any)=>tables[name].filter(d=>matches(d,q)).length,
@@ -21,7 +21,7 @@ const session=()=>({withTransaction:async(fn:()=>Promise<any>)=>{let release!:()
 mock.module('../lib/db',()=>({cities:async()=>collection('cities'),marketOrders:async()=>collection('orders'),caravans:async()=>collection('ships'),mongoClient:async()=>({startSession:session})}));
 mock.module('../lib/war',()=>({warConfigured:()=>true,workerRequest:async(path:string)=>{hints.push(path);},socketUrl:()=> 'wss://worker.example/market-feed'}));
 mock.module('../lib/city-store',()=>({battlePlayerId:async()=>pid}));
-const {marketAction,advanceCaravan,marketData}=await import('../lib/market');
+const {marketAction,advanceCaravan,marketData,reconcileCaravans}=await import('../lib/market');
 const api=await import('../app/api/market/route');
 function reset(){hints=[];failWrite=false;pid='seller';tables={cities:['seller','buyer','raider','other'].map((id,n)=>{const c=newCity(now,1);c.t.fill(G);c.seen.fill(1);c.b={[idx(20,20)]:{k:'market',lvl:1,doneAt:null},[idx(22,20)]:{k:'barracks',lvl:3,doneAt:null}};c.era=2;c.camp=idx(19,20);c.res={food:10000,wood:200,stone:200,copper:0,gold:100,diamond:20};c.army={club:20,sword:20};c.discoveries=['seller','buyer'];c.shieldUntil=now+999999;return{_id:id,name:id,owner:id,ver:0,state:c,world:{x:40+n*10,y:40}};}),orders:[],ships:[]};}
 const city=(id:string)=>tables.cities.find(d=>d._id===id).state;
@@ -88,4 +88,30 @@ test('tracking can recover an older own convoy but cannot expose a strangers con
  expect((await marketData('seller',ship._id)).caravans.some(c=>c._id===ship._id)).toBe(true);
  expect((await marketData('other',ship._id)).caravans.some(c=>c._id===ship._id)).toBe(false);
  expect((await marketData('seller')).socket).toBe('wss://worker.example/market-feed');
+});
+test('waiting convoy saves its settled checkpoint instead of replaying the same offline village on every retry',async()=>{
+ reset();await create();await buy();const s=tables.ships[0];
+ city('buyer').res.stone=500;city('seller').res.gold=500;
+ await advanceCaravan(s._id,s.back+1000);const before=tables.cities.map(d=>d.ver),hintCount=hints.length;
+ await advanceCaravan(s._id,s.back+61000);
+ expect(tables.ships[0].status).toBe('waiting');expect(city('buyer').last).toBe(s.back+61000);
+ expect(tables.cities.find(d=>d._id==='buyer').ver).toBeGreaterThan(before[1]);
+ expect(tables.ships[0].nextCheckAt).toBe(s.back+121000);expect(hints.length).toBe(hintCount);
+ city('buyer').res.stone=0;city('seller').res.gold=0;
+ await advanceCaravan(s._id,s.back+62000);expect(tables.ships[0].status).toBe('completed');
+ expect(city('buyer').res.stone).toBe(100); // interactive retry need not wait for cron
+});
+test('delivered convoys do not load or settle villages again before escort return',async()=>{
+ reset();await create();await buy();const s=tables.ships[0];await advanceCaravan(s._id,s.arrive);
+ const before=structuredClone(tables.cities);await advanceCaravan(s._id,s.arrive+1000);
+ expect(tables.cities).toEqual(before);
+});
+
+test('recovery selects due and legacy convoys without starving them behind future journeys',async()=>{
+ reset();await create();await buy();const due=tables.ships[0];due.arrive=now-20000;due.back=now-10000;due.nextCheckAt=now-1;
+ const future=Array.from({length:35},(_,i)=>({...structuredClone(due),_id:`future-${i}`,arrive:now+1000000,back:now+2000000,nextCheckAt:now+1000000}));
+ tables.ships=[...future,due];const result=await reconcileCaravans();expect(result).toEqual({checked:1,failed:0});
+ expect(tables.ships.find(s=>s._id===due._id).status).toBe('completed');
+ const legacy={...future[0],_id:'legacy'};delete legacy.nextCheckAt;tables.ships.push(legacy);const before=structuredClone(tables.cities);
+ expect(await reconcileCaravans()).toEqual({checked:1,failed:0});expect(tables.ships.at(-1).nextCheckAt).toBe(legacy.arrive);expect(tables.cities).toEqual(before);
 });

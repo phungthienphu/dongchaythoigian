@@ -1,6 +1,7 @@
+import {nextCaravanEvent,caravanRecoveryAt} from './caravan-clock';
 import type {ClientSession} from 'mongodb';
 import {caravans,marketOrders,cities,mongoClient,type CityDoc} from './db';
-import {RN,RES,UKEYS,MIN,settle,stats,derive,normalizeResources,envoyVillageRoute,reserveMarchFood,pruneHomeOrders,troopCount,type City,type Troops,type ResKey} from './engine';
+import {RN,RES,UKEYS,MIN,settle,score,stats,derive,normalizeResources,envoyVillageRoute,reserveMarchFood,pruneHomeOrders,troopCount,type City,type Troops,type ResKey} from './engine';
 import {validMarketAction,hasMarket,fighters,interception,caravanView,CARAVAN_CELLS_PER_MIN} from './market-rules';
 import {startRoadFight,advanceRoadFight} from './road-combat';
 import type {MarketAction,Caravan,MarketData} from './market-types';
@@ -8,7 +9,7 @@ import {workerRequest,warConfigured,socketUrl} from './war';
 async function transaction<T>(fn:(s:ClientSession)=>Promise<T>){const s=(await mongoClient()).startSession();try{return (await s.withTransaction(()=>fn(s)))!;}finally{await s.endSession();}}
 function note(c:City,at:number,msg:string,warn=false,caravanId?:string){c.log.unshift({at,msg,...(caravanId?{caravanId}:{}),cls:warn?'warn':'good'});c.log=c.log.slice(0,200);}
 function prepare(d:CityDoc,now:number){normalizeResources(d.state);if(!d.state.battleId)settle(d.state,now);}
-async function save(d:CityDoc,s:ClientSession){await (await cities()).updateOne({_id:d._id},{$set:{state:d.state,updatedAt:new Date()},$inc:{ver:1}},{session:s});}
+async function save(d:CityDoc,s:ClientSession){await (await cities()).updateOne({_id:d._id},{$set:{state:d.state,score:score(d.state),era:d.state.era,pop:d.state.pop,templeAt:d.state.templeAt,updatedAt:new Date()},$inc:{ver:1}},{session:s});}
 function usable(d:CityDoc|null,needsMarket=true):asserts d is CityDoc{if(!d?.owner)throw new Error('Cần đăng nhập Google và có làng.');if(d.state.battleId||d.incomingBattleId)throw new Error('Làng đang bị tấn công, chưa thể giao thương hoặc điều quân.');if(needsMarket&&!hasMarket(d.state))throw new Error('Cần có Chợ đã xây xong, không cháy/ngập.');}
 function reserveUnits(c:City,t:Troops){for(const u of UKEYS)if((t[u]??0)>(c.army[u]??0))throw new Error('Không đủ quân đang ở nhà.');for(const u of UKEYS){const n=t[u]??0;c.army[u]=(c.army[u]??0)-n;(c.deployedArmy??={})[u]=(c.deployedArmy?.[u]??0)+n;}pruneHomeOrders(c);}
 function returnUnits(c:City,t:Troops,initial:Troops){for(const u of UKEYS){c.army[u]=(c.army[u]??0)+(t[u]??0);(c.deployedArmy??={})[u]=Math.max(0,(c.deployedArmy?.[u]??0)-(initial[u]??0));}}
@@ -53,7 +54,7 @@ export async function marketAction(pid:string,a:MarketAction){
    journey(seller.state,id,route,now,ship.arrive,ship.back);journey(me.state,id,incoming,now-duration,now,ship.arrive,{incoming:true});
    note(seller.state,now,`Làng ${me.name} đã mua ${order.amount} ${RN[order.resource]} của bạn với giá ${order.price} ${RN[order.currency]}. Đoàn xe đã xuất phát, ${troopCount(order.escorts)} quân hộ tống. Nhận tiền khi giao hàng thành công; có nguy cơ bị cướp.`,false,id);
    note(me.state,now,`Đã mua ${order.amount} ${RN[order.resource]} từ ${seller.name}, giữ riêng ${order.price} ${RN[order.currency]}. Đoàn xe đang tới; nếu bị cướp sẽ hoàn tiền.`,false,id);
-   await ships.insertOne(ship,{session});await orders.updateOne({_id:order._id},{$set:{status:'sold'}},{session});await save(me,session);await save(seller,session);return[pid,seller._id];
+   ship.nextCheckAt=nextCaravanEvent(ship);await ships.insertOne(ship,{session});await orders.updateOne({_id:order._id},{$set:{status:'sold'}},{session});await save(me,session);await save(seller,session);return[pid,seller._id];
   }
   // One interception per convoy; only independently discovered routes are targetable.
   const ship=await ships.findOne({_id:a.id},{session});if(!ship)throw new Error('Không tìm thấy đoàn xe.');
@@ -69,7 +70,7 @@ export async function marketAction(pid:string,a:MarketAction){
   journey(me.state,ship._id,route,now,meet.meetAt,meet.meetAt+(meet.meetAt-now)+MIN,{raider:true});
   for(const d of [seller,buyer])note(d.state,now,`CẢNH BÁO: quân ${me.name} đang hành quân cướp đoàn xe ${seller.name} → ${buyer.name}, dự kiến chạm trán lúc ${new Date(meet.meetAt).toLocaleTimeString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'})}.`,true,ship._id);
   note(me.state,now,`Đã xuất ${troopCount(a.units!)} quân chặn đoàn xe ${seller.name} → ${buyer.name}.`,true,ship._id);
-  await ships.updateOne({_id:ship._id},{$set:{raid:ship.raid}},{session});for(const d of [me,seller,buyer])await save(d,session);return[pid,ship.seller,ship.buyer];
+  await ships.updateOne({_id:ship._id},{$set:{raid:ship.raid,nextCheckAt:nextCaravanEvent(ship)}},{session});for(const d of [me,seller,buyer])await save(d,session);return[pid,ship.seller,ship.buyer];
  });
  await hint(changed);
  if(a.type==='create'||a.type==='buy'||a.type==='cancel'){
@@ -84,8 +85,7 @@ export async function advanceCaravan(id:string,now=Date.now()){
  const ships=await caravans(),col=await cities();
  const changed=await transaction(async session=>{
   const s=await ships.findOne({_id:id,status:{$ne:'completed'}},{session});if(!s)return[];
-  const firstEvent=s.raid&&s.raid.won===undefined?s.raid.meetAt:s.robbed?s.raid!.fight!.last:s.arrive;
-  if(now<firstEvent||(s.raid?.fight&&!s.raid.fight.finished&&now<s.raid.fight.last+1000))return[];
+  if(now<nextCaravanEvent(s))return[];
   const ids=[...new Set([s.seller,s.buyer,...(s.raid?[s.raid.by]:[])])],docs=new Map<string,CityDoc>();
   for(const id of ids){const d=await col.findOne({_id:id},{session});if(!d)return[];prepare(d,now);docs.set(id,d);}
   const seller=docs.get(s.seller)!,buyer=docs.get(s.buyer)!;let dirty=false;
@@ -113,14 +113,21 @@ export async function advanceCaravan(id:string,now=Date.now()){
    const status=complete?'completed':now>=arrival&&(!s.goodsDelivered||!s.paymentDelivered)?'waiting':now>=arrival?'returning':'travelling';
    if(s.status!==status){s.status=status;dirty=true;}
   }
-  if(!dirty)return[];
+  // Persist the simulated checkpoint even while a full warehouse blocks
+  // transfer. Otherwise every cron replays the same growing offline interval.
+  s.nextCheckAt=caravanRecoveryAt(s,now);
+  if(!dirty){
+   await ships.updateOne({_id:s._id},{$set:{nextCheckAt:s.nextCheckAt}},{session});
+   for(const d of docs.values())await save(d,session);
+   return[];
+  }
   await ships.replaceOne({_id:s._id},s,{session});for(const d of docs.values())await save(d,session);return ids;
  });
  await hint(changed);
 }
 export async function reconcileCaravans(limit=30){
- const col=await caravans(),rows=await col.find({status:{$ne:'completed'}}).sort({reconciledAt:1,createdAt:1}).limit(limit).toArray();
- let failed=0;for(const r of rows){try{await advanceCaravan(r._id);}catch{failed++;}finally{await col.updateOne({_id:r._id},{$set:{reconciledAt:Date.now()}});}}
+ const col=await caravans(),rows=await col.find({status:{$ne:'completed'},$or:[{nextCheckAt:{$exists:false}},{nextCheckAt:{$lte:Date.now()}}]}).sort({reconciledAt:1,createdAt:1}).limit(limit).toArray();
+ let failed=0;for(const r of rows){try{if(nextCaravanEvent(r)<=Date.now())await advanceCaravan(r._id);else await col.updateOne({_id:r._id,nextCheckAt:r.nextCheckAt??{$exists:false}},{$set:{nextCheckAt:nextCaravanEvent(r)}});}catch{failed++;}finally{await col.updateOne({_id:r._id},{$set:{reconciledAt:Date.now()}});}}
  return {checked:rows.length,failed};
 }
 export async function marketData(pid:string,target?:string):Promise<MarketData>{
