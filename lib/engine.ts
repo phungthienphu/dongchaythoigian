@@ -19,10 +19,10 @@ export const SEASON_MS = 6 * HOUR; // 4 seasons = 1 real day
 export const MAX_SETTLE_MS = 14 * 24 * HOUR; // offline progress cap
 const BASE_STORAGE = 500;
 export const POP_GROWTH_PER_HOUR = 60;
-/** Hourly engine units; food is consumed continuously at 5/10 per minute in era 1. */
+/** Hourly engine units; food is consumed continuously at 2/4 per minute in era 1. */
 export function upkeepRates(era:number){
   const scale=2**Math.max(0,Math.floor(era)-1);
-  return { civilian:{food:300*scale,wood:scale},soldier:{food:600*scale,wood:2*scale} };
+  return { civilian:{food:120*scale,wood:scale},soldier:{food:240*scale,wood:2*scale} };
 }
 /** Better food tools and baskets keep food production in step with era upkeep. */
 export const foodEraScale=(c:City,at:number)=>c.upkeepStartsAt!==undefined&&at<c.upkeepStartsAt?1:2**Math.max(0,c.era-1);

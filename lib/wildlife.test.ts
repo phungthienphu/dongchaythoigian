@@ -8,7 +8,7 @@ function fixture(){
 }
 test('boars follow persisted path, warn before arrival and only temporarily reduce one farm yield',()=>{
  const c=fixture(),tile=c.wildlife!.route[2];assert.deepEqual(wildlifePosition(c,MIN/2),[49.5,48.5]);
- const before=stats(c,derive(c),0).rate.food;settle(c,MIN);assert.equal(c.cropDamage?.tile,tile);assert.equal(stats(c,derive(c),MIN).rate.food+300,(before+300)/2);
+ const before=stats(c,derive(c),0).rate.food;settle(c,MIN);assert.equal(c.cropDamage?.tile,tile);assert.equal(stats(c,derive(c),MIN).rate.food+120,(before+120)/2);
  assert.ok(c.log.some(e=>e.msg.includes('50%')));assert.equal(c.b[tile].burned,undefined);
  settle(c,3*MIN);assert.equal(c.cropDamage,undefined);assert.equal(c.wildlife,undefined);assert.ok(c.log.some(e=>e.msg.includes('phục hồi')));
 });

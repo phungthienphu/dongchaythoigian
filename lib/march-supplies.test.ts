@@ -10,5 +10,5 @@ test('march food grows with distance and army load; missing food never mutates s
 });
 test('prepaid deployed soldiers keep army slots but do not charge food upkeep twice',()=>{
  const c=newCity(0,123),d=derive(c);c.deployedArmy={club:10};const unprovisioned=stats(c,d,0).rate.food;c.provisionedSoldiers=10;
- assert.equal(stats(c,d,0).rate.food-unprovisioned,6000);
+ assert.equal(stats(c,d,0).rate.food-unprovisioned,2400);
 });
