@@ -22,7 +22,12 @@ export function useWars(ready: boolean, onUpdate: () => void) {
       clearTimeout(reconnect);
       reconnect = setTimeout(() => void refresh(), Math.min(30_000, 1000 * 2 ** Math.min(retry++, 5)));
     };
-    const refresh = async () => {
+    let inFlight: Promise<void> | null = null;
+    const refresh = (): Promise<void> => {
+      if (disposed) return Promise.resolve();
+      return inFlight ??= load().finally(() => { inFlight = null; });
+    };
+    const load = async () => {
       const request = ++generation;
       try {
         const res = await fetch("/api/battles", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
@@ -45,7 +50,7 @@ export function useWars(ready: boolean, onUpdate: () => void) {
         }
       } catch (error) { if (!disposed && request === generation) { setStatus("error");setError(error instanceof Error && error.message.includes("đăng nhập") ? error.message : "Không tải được trạng thái trận đánh. Đang thử kết nối lại…"); schedule(); } }
     };
-    refreshRef.current = refresh;
+    refreshRef.current = async () => { if (inFlight) await inFlight; await refresh(); };
     const foreground = () => { if (document.visibilityState === "visible") { void refresh(); updateRef.current(); } };
     document.addEventListener("visibilitychange", foreground); window.addEventListener("online", foreground);
     void refresh();

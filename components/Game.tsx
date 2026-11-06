@@ -1,5 +1,6 @@
 "use client";
 
+import { ReadFlights } from "@/lib/read-flights";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
@@ -326,6 +327,8 @@ export default function Game() {
   const [battleOpen, setBattleOpen] = useState<string | null>(null);
   const [armDemolish, setArmDemolish] = useState(false);
 
+  const reads = useRef(new ReadFlights());
+  const panelRef = useRef(panel); panelRef.current = panel;
   const cityRef = useRef<City | null>(null);
   const actionQueue = useRef<OptimisticCityQueue | null>(null);
   const [saving, setSaving] = useState(false);
@@ -380,7 +383,7 @@ export default function Game() {
           return response;
         },
         onUncertain: async () => {
-          const res = await fetch("/api/city", { cache: "no-store" });
+          const res = await fetch("/api/city", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
           if (!res.ok) throw new Error("Không tải được làng.");
           const response = await res.json();
           offsetRef.current = response.serverNow - Date.now();
@@ -397,26 +400,30 @@ export default function Game() {
     return true;
   }, []);
 
-  const loadCity = useCallback(async () => {
+  const loadCity = useCallback(() => reads.current.run("city", async () => {
+    try {
     if (actionQueue.current?.isPending) return;
     const generation = actionQueue.current?.version;
-    const res = await fetch("/api/city", { cache: "no-store" });
+    const res = await fetch("/api/city", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
     if (res.status === 404) { setNeedsName(true); setLoading(false); return; }
-    if (!res.ok) { setMsg({ text: "Không tải được thành phố. Kiểm tra kết nối MongoDB.", err: true }); setLoading(false); return; }
+    if (!res.ok) { const data=await res.json().catch(()=>({})); setMsg({ text: data.error ?? "Không tải được thành phố. Thử kết nối lại.", err: true }); setLoading(false); return; }
     const data = await res.json();
     if (actionQueue.current && (actionQueue.current.isPending || generation !== actionQueue.current.version)) return;
     accept(data);
     setShopEra(data.state.era);
     setNeedsName(false);
     setLoading(false);
-  }, [accept]);
+    } catch { setMsg({text:"Mất kết nối khi tải làng. Hãy tải lại trang.",err:true});setLoading(false); }
+  }), [accept]);
 
 
-  const loadWorld = useCallback(async () => {
-    const res = await fetch("/api/world", { cache: "no-store" });
+  const loadWorld = useCallback(() => reads.current.run("world", async () => {
+    try {
+    const res = await fetch("/api/world", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
     if (res.ok) setNations((await res.json()).nations);
     else setMsg({ text: "Không tải được danh sách các nước. Hãy mở lại bản đồ.", err: true });
-  }, []);
+    } catch { setMsg({text:"Mất kết nối khi tải bản đồ thế giới.",err:true}); }
+  }), []);
 
   const diplomacy = useDiplomacy(!loading && !needsName, () => { void loadCity(); void loadWorld(); });
   const [marketTarget,setMarketTarget]=useState<string>();
@@ -436,10 +443,10 @@ export default function Game() {
     return () => clearTimeout(timer);
   },[envoySchedule,loadCity,loadWorld]);
 
-  const loadVisit = useCallback(async (id: string, first: boolean) => {
+  const loadVisit = useCallback((id: string, first: boolean) => reads.current.run(`visit:${id}`, async () => {
     const request = ++visitRequest.current;
     try {
-      const res = await fetch(`/api/visit/${id}`, { cache: "no-store" });
+      const res = await fetch(`/api/visit/${id}`, { cache: "no-store", signal: AbortSignal.timeout(15_000) });
       const data = await res.json();
       if (request !== visitRequest.current) return;
       if (!res.ok) {
@@ -460,20 +467,24 @@ export default function Game() {
     } catch {
       if (request === visitRequest.current) setMsg({ text: "Mất kết nối khi tải làng. Thử lại sau.", err: true });
     }
-  }, []);
+  }), []);
 
-  const loadMe = useCallback(async () => {
-    const res = await fetch("/api/me", { cache: "no-store" });
+  const loadMe = useCallback(() => reads.current.run("me", async () => {
+    try {
+    const res = await fetch("/api/me", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
     if (res.ok) setMe(await res.json());
-  }, []);
+    } catch { /* Retain the last known identity until the next refresh. */ }
+  }), []);
 
-  const loadBoard = useCallback(async () => {
-    const res = await fetch("/api/leaderboard", { cache: "no-store" });
+  const loadBoard = useCallback(() => reads.current.run("board", async () => {
+    try {
+    const res = await fetch("/api/leaderboard", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
     if (res.ok) setRows((await res.json()).rows);
-  }, []);
+    } catch { /* Retain the current leaderboard; opening it again retries. */ }
+  }), []);
 
   useEffect(() => {
-    loadCity(); loadBoard(); loadMe();
+    void loadCity(); void loadMe();
     const authErr = new URLSearchParams(location.search).get("auth");
     if (authErr) { setMsg({ text: "Đăng nhập Google không thành công, thử lại.", err: true }); history.replaceState(null, "", "/"); }
     const tick = setInterval(() => {
@@ -484,11 +495,25 @@ export default function Game() {
       if (vis) { if (!vis.city.battleId) settle(vis.city, now()); vis.D = derive(vis.city); vis.crowd.sync(vis.city); }
       bump();
     }, 1000);
-    const sync = setInterval(() => { loadCity(); loadBoard(); loadMe(); void diplomacy.refresh(); }, 60_000);
+    const refreshVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      void loadCity(); void loadMe(); void diplomacy.refresh();
+      if (panelRef.current === "rank") void loadBoard();
+    };
+    const sync = setInterval(refreshVisible, 60_000);
+    const foreground = () => {
+      if (document.visibilityState !== "visible") return;
+      refreshVisible();
+      const v = visitRef.current; if (v) void loadVisit(v.id, false);
+    };
+    document.addEventListener("visibilitychange", foreground);
+    window.addEventListener("online", foreground);
     // while visiting, pick up the owner's latest orders every few seconds
-    const visitSync = setInterval(() => { const v = visitRef.current; if (v) loadVisit(v.id, false); }, 5_000);
-    return () => { clearInterval(tick); clearInterval(sync); clearInterval(visitSync); };
+    const visitSync = setInterval(() => { const v = visitRef.current; if (v && document.visibilityState === "visible") void loadVisit(v.id, false); }, 5_000);
+    return () => { clearInterval(tick); clearInterval(sync); clearInterval(visitSync); document.removeEventListener("visibilitychange", foreground); window.removeEventListener("online", foreground); };
   }, [loadCity, loadBoard, loadMe, loadVisit, diplomacy.refresh]);
+
+  useEffect(() => { if (panel === "rank") void loadBoard(); }, [panel, loadBoard]);
 
   // canvas sizing, camera and render loop
   useEffect(() => {
