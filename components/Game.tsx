@@ -20,6 +20,7 @@ import BattleReports from "./BattleReports";
 import DiplomacyMessages, { diplomacyText } from "./DiplomacyMessages";
 import { useDiplomacy } from "./useDiplomacy";
 import CaravanNoticeLink from "./CaravanNoticeLink";
+import DockPanel from "./DockPanel";
 import MarketPanel from "./MarketPanel";
 import { useMarket } from "./useMarket";
 import { useWars } from "./useWars";
@@ -840,7 +841,7 @@ export default function Game() {
   const selI = selected ? idx(selected.x, selected.y) : -1;
   const sel = selected ? c.b[selI] : undefined;
   const selCamp = selected ? campAt(c, selI) : undefined;
-  const campPlan=selCamp?expeditionPlan(c,selCamp.at):null;
+  const campPlan=selCamp?expeditionPlan(c,selCamp.at,send):null;
   const campSupply=campPlan?marchSupplies(send,campPlan.duration):null;
   const campLogistics=campPlan?marchLogistics(send,campPlan.duration):null;
   const selTask: { task: TaskInput; label: string } | null = !selected || selCamp ? null
@@ -913,7 +914,7 @@ export default function Game() {
           </div>
           <div className="chip" tabIndex={0} title="Số thợ xây đang bận / tổng số thợ xây. Ví dụ 0/2 nghĩa là có thể xây hoặc nâng cấp đồng thời thêm 2 công trình.">
             <Icon k="build" />
-            <div className="cv"><span className="v">{busyN}/{maxB}</span><span className="d">thợ xây</span></div>
+            <div className="cv"><span className="v">{busyN}/{maxB}</span><span className="d">đang bận</span></div>
           </div>
           <div className="chip" tabIndex={0} title="Số quân đang ở làng / sức chứa trại lính. Mỗi loại quân có thể chiếm số chỗ khác nhau. Dòng ⚔ là tổng sức tấn công của quân ở nhà.">
             <Icon k="army" />
@@ -977,7 +978,7 @@ export default function Game() {
               ) : (
                 <>
                   <p className="small">Sức mạnh: <b className="danger">⚔ {campStrength(selCamp)}</b> · Chiến lợi phẩm: {costText(selCamp.loot)}</p>
-                  <p className="muted small">{campPlan?`Hành quân ${fmtDur(campPlan.duration)} mỗi chiều theo lối đi thực tế.`:"Chưa có đường từ trại lính tới mục tiêu. Mở lối hoặc đặt cổng để xuất quân."}</p>
+                  <p className="muted small">{campPlan?`Hành quân ${fmtDur(campPlan.duration)} mỗi chiều theo lối đi thực tế${campPlan.ships?`, cần ${campPlan.ships} thuyền (giữ tới khi quân về)`:""}.`:"Chưa có đường hoặc chưa đủ thuyền cho quân đã chọn. Mở lối trại lính; xây Bến cảng sát sông, khám phá tuyến và đóng đủ thuyền."}</p>
                   {troopCount(c.army) ? (
                     <>
                       <ul className="units">
@@ -1041,6 +1042,7 @@ export default function Game() {
               </>}
               {sel.k==="barracks" && sel.lvl>=1 && !armyStagingTiles(c,1).length && <p className="err small">Trại lính bị bịt kín. Chừa lối đất nối ra ngoài, đặt cổng thay tường hoặc dỡ công trình chắn lối; quân không tự phá nhà mình.</p>}
               {["barracks","logistics","infirmary"].includes(sel.k) && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
+              {sel.k==="dock"&&sel.lvl>=1&&<DockPanel city={c} building={sel} now={t} busy={busy} onBuild={()=>{void act({type:"buildShip",...selected});}}/>}
               {sel.k === "market" && sel.lvl >= 1 && <button className="primary" onClick={()=>setPanel("market")}>Giao thương bằng đoàn xe</button>}
               {sel.k === "hall" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("control")}>{control ? "Trung tâm điều khiển" : "Xem Đình làng"}</button>}
               {sel.k === "storehouse" && sel.lvl >= 1 && <div><p className="small">Nâng riêng từng ngăn +1.000 sức chứa. Mỗi Kho nâng một ngăn mỗi lần.</p>{RES.map(r=>{

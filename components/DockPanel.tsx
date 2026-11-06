@@ -1,0 +1,7 @@
+"use client";
+import {RES,shipCost,shipBuildMs,shipCapacity,shipsFree,SHIP_CAPACITY,costText,type City,type Building} from '@/lib/engine';
+export default function DockPanel({city,building,now,busy,onBuild}:{city:City;building:Building;now:number;busy:boolean;onBuild:()=>void}){
+ const cost=shipCost(city.era),queued=Object.values(city.b).reduce((n,b)=>n+(b.shipQueue?.length??0),0);
+ const reason=building.burned||building.flooded?'Cảng hư hại, cần sửa':building.doneAt?'Cảng đang xây/nâng cấp':(city.transportShips??0)+queued>=shipCapacity(city)?'Đã đủ số thuyền; xây/nâng cảng':RES.some(r=>city.res[r]<(cost[r]??0))?'Chưa đủ tài nguyên':'';
+ return <div><p>Đội thuyền toàn làng: <b>{shipsFree(city,now)} rảnh / {city.transportShips??0} đã đóng</b> · tối đa {shipCapacity(city)} thuyền.</p><p className="small">Một thuyền {SHIP_CAPACITY} chỗ: lính và quân y 1, voi 5, xe hậu cần 3. Quân tự lên thuyền khi cần qua sông nối với cảng đang hoạt động. Khám phá tuyến sông trước khi đi. Thuyền được giữ riêng tới hết chuyến đi và về.</p>{building.shipQueue?.map((done,n)=><div key={n}><p>Thuyền {n+1}: {building.burned||building.flooded?'tạm dừng · ':''}còn {Math.ceil(Math.max(0,done-now)/1000)} giây</p><progress aria-label={`Tiến độ đóng thuyền ${n+1}`} max={shipBuildMs(building)} value={Math.max(0,shipBuildMs(building)-(done-now))}/></div>)}<button disabled={busy||!!reason} title={reason||undefined} onClick={onBuild}>Đóng thuyền vận tải · {costText(cost)} · {Math.ceil(shipBuildMs(building)/1000)} giây</button>{reason&&<p className="small">{reason}</p>}</div>;
+}

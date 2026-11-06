@@ -3,7 +3,7 @@ import type { Action, BKey, UKey } from './engine';
 // Exhaustive typed tables keep the JSON boundary in sync with engine keys,
 // without a runtime engine import (the engine itself invokes this guard).
 const BUILDINGS: Record<BKey, true> = {
-  builderhouse: true, hut: true, gather: true, wood: true, quarry: true, storehouse: true,
+  dock: true, builderhouse: true, hut: true, gather: true, wood: true, quarry: true, storehouse: true,
   fire: true, farm: true, canal: true, levee: true, house: true,
   smelter: true, market: true, stonehouse: true, forge: true, wheel: true,
   hall: true, envoy: true, barracks: true, wall: true, gate: true,
@@ -52,7 +52,7 @@ export function isActionInput(value: unknown): value is Action {
     case 'advance': case 'alarm': return true;
     case 'build': return known(BUILDINGS, value.k) && point(value);
     case 'upgradeStorage': return point(value) && RESOURCES.includes(value.resource as typeof RESOURCES[number]);
-    case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'speedBuild': return point(value);
+    case 'buildShip': case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'speedBuild': return point(value);
     case 'moveSoldier': return typeof value.id === 'string' && /^(club|sling|spear|bow|sword|elephant|wagon|medic):\d{1,3}$/.test(value.id) && point(value);
     case 'train': return known(UNITS, value.u) && integer(value.n, 1, 50);
     case 'recall': return integer(value.exp, 1);

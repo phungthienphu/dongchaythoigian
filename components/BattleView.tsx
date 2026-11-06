@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BattleCommand, BattleSide, BattleState } from "@/lib/battle";
 import type { WarView } from "@/lib/war-view";
-import { derive, UNITS, W, type City, type Derived } from "@/lib/engine";
+import { derive, UNITS, W, R, type City, type Derived } from "@/lib/engine";
 import { camView, clampCam, drawCity, fitView, focusOn, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import { Crowd } from "./villagers";
+import {drawTransportBoat} from "./draw";
 import { drawBattleStrikes, drawSoldier } from "./battle-actors";
 import styles from "./BattleView.module.css";
 
@@ -185,7 +186,8 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
         ctx.fillStyle = own ? "#398aa6" : "#ba5547";
         ctx.beginPath(); ctx.ellipse(at.x, at.y, radius, radius * .68, 0, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = g.id === chosen ? "#ffe08a" : "#f1e4bf"; ctx.lineWidth = g.id === chosen ? 3 : 1; ctx.stroke();
-        drawSoldier(ctx,g,at.x,at.y-6,v.s,time,(b?.strikes??[]).some(e=>e.source===g.id&&b!.lastTick-e.at<650));
+        if(g.naval&&b?.terrain[Math.floor(g.y)*W+Math.floor(g.x)]===R)drawTransportBoat(ctx,at.x,at.y,v.s*.8,time,g.side==="attacker"?1:-1,g.count);
+        else drawSoldier(ctx,g,at.x,at.y-6,v.s,time,(b?.strikes??[]).some(e=>e.source===g.id&&b!.lastTick-e.at<650));
         ctx.font = "bold 12px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff"; ctx.fillText(String(g.count), at.x, at.y+9);
         ctx.fillStyle = "#302c25"; ctx.fillRect(at.x - 15, at.y - 44, 30, 4);
         ctx.fillStyle = own ? "#80d8b3" : "#f4987e"; ctx.fillRect(at.x - 15, at.y - 44, 30 * Math.max(0, Math.min(1, g.hp / (g.initial * UNITS[g.u].hp))), 4);

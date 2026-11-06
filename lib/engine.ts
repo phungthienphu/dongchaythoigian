@@ -69,6 +69,7 @@ const DEFS = {
   levee: { n: "Đê đất", era: 2, cost: { stone: 30, wood: 20 }, sec: 60, need: "bank", d: "Xây sát sông hoặc nối thẳng đê khác. Che lũ trong 2 ô; vòng đê kín bảo vệ toàn bộ đất bên trong khỏi lũ mùa thu." },
   house: { n: "Nhà gỗ", era: 2, cost: { wood: 120, stone: 40 }, sec: 300, house: 7, up: true, d: "Chỗ ở cho 7 người mỗi cấp." },
   smelter: { n: "Lò đúc đồng", era: 2, cost: { wood: 100, stone: 120 }, sec: 600, jobs: 3, prod: { copper: 20 }, use: { wood: 20 }, need: "ore", up: true, drop: ["copper"], d: "Kề mỏ đồng. Đốt gỗ ra đồng." },
+  dock: { n: "Bến cảng", era: 2, cost: { wood: 600, stone: 400, copper: 120, gold: 40 }, sec: 180, need: "river", up: true, max: 3, d: "Đóng thuyền vận tải, mỗi cấp hỗ trợ 3 thuyền. Một thuyền chở 10 chỗ; voi chiếm 5, xe hậu cần chiếm 3. Quân tự lên thuyền khi đường đi cần qua sông có bến hoạt động." },
   market: { n: "Chợ", era: 2, cost: { wood: 200, stone: 100 }, sec: 900, jobs: 2, max: 3, d: "+10% mọi sản lượng. Đăng bán hàng, tự chọn giá và tài nguyên thanh toán; vận chuyển bằng đoàn xe có thể bị người chơi khác cướp. Tối đa 3 chợ." },
   stonehouse: { n: "Nhà đá", era: 3, cost: { stone: 250, copper: 30 }, sec: 1200, house: 12, up: true, d: "12 người mỗi cấp. Lũ không làm ngập." },
   builderhouse: { n: "Nhà thợ xây", era: 1, cost: { wood: 70, stone: 30 }, sec: 40, up: true, max: 2, d: "Mỗi cấp thêm 1 đội thợ, xây thêm 1 công trình đồng thời. Tối đa 2 nhà. Đội thợ chuyên trách, không lấy dân đang thu hoạch. Nhà cháy/ngập không cấp thêm đội; công trình đang xây vẫn được hoàn tất." },
@@ -106,7 +107,7 @@ export const UKEYS = Object.keys(UNITS) as UKey[];
 export type Troops = Partial<Record<UKey, number>>;
 export type Camp = { id: number; at: number; power: number; loot: Partial<Res>; cleared: boolean; respawnAt: number | null; garrison?: Troops };
 export type CampCombat = { last: number; rounds: number; hp: Partial<Record<UKey, number>>; defenders: Troops; defenderHp: Partial<Record<UKey, number>>; initial: Troops };
-export type Expedition = { combatVersion?: 1; combat?: CampCombat; returnAt?: number; id: number; units: Troops; camp: number; depart: number; arrive: number; back: number; resolved: boolean; won?: boolean; loot?: Partial<Res>; recalled?: boolean; suppliesFood?: number; logisticsVersion?: number; marchLosses?: number; route?: number[]; recallAt?: number; returnProgress?: number };
+export type Expedition = { ships?: number; combatVersion?: 1; combat?: CampCombat; returnAt?: number; id: number; units: Troops; camp: number; depart: number; arrive: number; back: number; resolved: boolean; won?: boolean; loot?: Partial<Res>; recalled?: boolean; suppliesFood?: number; logisticsVersion?: number; marchLosses?: number; route?: number[]; recallAt?: number; returnProgress?: number };
 const SOLDIER_FOOD = 2; // per soldier per hour
 export const MARCH_TILES_PER_MIN = 4;
 export const troopPower = (t: Troops) => UKEYS.reduce((a, u) => a + (t[u] ?? 0) * (UNITS[u].atk>0 ? UNITS[u].atk + UNITS[u].hp / 4 : 0), 0);
@@ -161,7 +162,7 @@ const ERA_UP: Record<number, string> = {
 
 export const storageLevel = (b: Building, r: ResKey) => b.storageLevels?.[r] ?? b.lvl;
 
-export type Building = { storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
+export type Building = { shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
 export type Task =
   | { t: "idle"; at?: number } // at = where they stand and wait
   | { t: "work"; at: number }
@@ -219,6 +220,9 @@ export type City = {
   battleId?: string; // active defending battle
   army: Troops; // at home
   queue: { u: UKey; doneAt: number; startedAt?: number }[];
+  transportShips?: number;
+  deployedShips?: number;
+  ferryBookings?: { id:string; ships:number; back:number; at?:number; arrive?:number; route?:number[] }[];
   homeOrders?: Record<string, { route: number[]; at: number; x: number; y: number }>;
   camps: Camp[];
   exps: Expedition[];
@@ -297,6 +301,7 @@ export const BUILDING_ERA_NAMES: Partial<Record<BKey, string[]>> = {
   canal: ["", "Kênh tưới", "Kênh đất", "Kênh xây"],
   levee: ["", "Đê", "Đê đất", "Đê kè đá"],
   smelter: ["", "Lò đúc đồng", "Lò đúc đồng", "Lò luyện kim"],
+  dock: ["", "Bến thuyền", "Bến cảng gỗ", "Cảng đá mái ngói"],
   market: ["", "Chợ", "Chợ làng", "Thương quán"],
   logistics: ["", "Trạm hậu cần", "Trạm xe lương", "Cục hậu cần mái ngói"],
   infirmary: ["", "Quân y viện", "Nhà thuốc quân y", "Y viện mái ngói"],
@@ -974,6 +979,42 @@ function haulingContext(c: City, D: Derived): HaulContext {
   const active = Object.values(c.b).filter(b => built(b) && !b.flooded);
   return { paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: 1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length) };
 }
+export const SHIP_CAPACITY=10;
+export const shipCost=(era:number):Partial<Res>=>eraCost({wood:400,copper:100,gold:40,food:80},era,3);
+export const shipBuildMs=(b:Building)=>Math.ceil(90_000/Math.max(1,b.lvl));
+export const shipPlaces=(u:UKey)=>u==="elephant"?5:u==="wagon"?3:1;
+export const shipsNeeded=(units:Troops)=>UKEYS.reduce((n,u)=>n+Math.ceil((units[u]??0)*shipPlaces(u)/SHIP_CAPACITY),0);
+export function shipCapacity(c:City){return buildings(c).reduce((n,[,b])=>n+(b.k==="dock"&&isBuildingActive(b)?3*b.lvl:0),0);}
+export function shipsFree(c:City,at=c.last){
+  const bookings=(c.ferryBookings??[]).filter(b=>b.back>at).reduce((n,b)=>n+b.ships,0);
+  const expeditions=c.exps.filter(e=>e.back>at||!e.resolved).reduce((n,e)=>n+(e.ships??0),0);
+  return shipCapacity(c)?Math.max(0,(c.transportShips??0)-(c.deployedShips??0)-bookings-expeditions):0;
+}
+/** Troops use land first. A river leg requires enough unreserved transports and
+ * water connected to a working dock; terrain and buildings still block travel. */
+function militaryPath(c:City,from:number,to:number,ships=1){
+  const context=haulingContext(c,derive(c)),land=haulPath(c,from,to,context,true);
+  if(land)return {route:land,ships:0};
+  if(shipsFree(c)<ships)return null;
+  for(const [dock,b]of buildings(c)){
+    if(b.k!=="dock"||!isBuildingActive(b))continue;
+    const water=new Set<number>(),queue:number[]=[];
+    const add=(tile:number)=>{if(c.t[tile]===R&&c.seen[tile]&&!water.has(tile)){water.add(tile);queue.push(tile);}};
+    for(const [dx,dy]of N4){const x=dock%W+dx,y=Math.floor(dock/W)+dy;if(inb(x,y))add(idx(x,y));}
+    for(let head=0;head<queue.length;head++){const tile=queue[head];for(const [dx,dy]of N4){const x=tile%W+dx,y=Math.floor(tile/W)+dy;if(inb(x,y))add(idx(x,y));}}
+    const pass=(tile:number)=>c.seen[tile]&&(c.t[tile]===R?water.has(tile):haulPassable(c,tile,-1,false));
+    const prev=new Int32Array(W*H).fill(-1),q=[from];prev[from]=from;
+    for(let head=0;head<q.length;head++){
+      const tile=q[head];if(tile===to){const route=[to];for(let i=to;i!==from;){i=prev[i];route.push(i);}return {route:route.reverse(),ships};}
+      for(const [dx,dy]of N8){const x=tile%W+dx,y=Math.floor(tile/W)+dy;if(!inb(x,y))continue;const next=idx(x,y);
+        if(prev[next]!==-1||!pass(next)||dx&&dy&&(!pass(idx(x,Math.floor(tile/W)))||!pass(idx(tile%W,y))))continue;
+        prev[next]=tile;q.push(next);
+      }
+    }
+  }
+  return null;
+}
+
 export function armyStagingTiles(c:City,limit=24,source?:number){
   const home=source??buildings(c).find(([,b])=>b.k==="barracks"&&isBuildingActive(b))?.[0]??c.camp;
   const queue=[home],seen=new Set(queue),tiles:number[]=[];
@@ -1023,18 +1064,30 @@ function orderHomeSoldier(c: City, id: string, to: number, now: number): boolean
   const actor = homeSoldiers(c, now).find(s => s.id === id);
   if (!actor || !c.seen[to] || !haulPassable(c, to, -1, false)) return false;
   const from = idx(Math.floor(actor.x), Math.floor(actor.y));
-  const route = haulPath(c, from, to, haulingContext(c, derive(c)), true);
-  if (!route || route.some(i => !c.seen[i] || !haulPassable(c, i, -1, false))) return false;
+  if(c.t[from]===R)return false; // finish the crossing before changing orders
+  const plan=militaryPath(c,from,to,1),route=plan?.route;
+  if(!route)return false;
+  if(plan!.ships){const duration=Math.max(1000,Math.ceil(routeLength(route)/1.9*1000));(c.ferryBookings??=[]).push({id,ships:plan!.ships,at:now,arrive:now+duration,back:now+duration*2,route});}
   (c.homeOrders ??= {})[id] = { route, at: now, x: actor.x, y: actor.y };
   return true;
 }
+/** Empty transports return by the same river route after disembarkation. */
+export function returningFerries(c:City,now:number){
+  return (c.ferryBookings??[]).flatMap(b=>{
+    if(!b.route?.length||b.arrive===undefined||now<b.arrive||now>=b.back)return [];
+    const f=Math.max(0,1-(now-b.arrive)/Math.max(1,b.back-b.arrive)),length=routeLength(b.route);
+    const [x,y]=explorerPos({t:"explore",from:b.route[0],to:b.route[b.route.length-1],start:0,route:b.route},f*length/EXPLORE_TILES_PER_MIN*MIN);
+    return [{x,y,face:((b.route[0]%W-b.route[b.route.length-1]%W)-(Math.floor(b.route[0]/W)-Math.floor(b.route[b.route.length-1]/W))>=0?1:-1) as 1|-1}];
+  });
+}
 /** Local marches leave the barracks entrance and follow the same terrain rules as villagers. */
-export function expeditionPlan(c:City,to:number){
+export function expeditionPlan(c:City,to:number,units:Troops={club:1}){
   const home=buildings(c).find(([,b])=>b.k==="barracks"&&isBuildingActive(b))?.[0]??c.camp;
-  const path=haulPath(c,home,to,haulingContext(c,derive(c)));
+  const start=armyStagingTiles(c,1,home)[0];if(start===undefined)return null;
+  const plan=militaryPath(c,start,to,Math.max(1,shipsNeeded(units))),path=plan?.route;
   if(!path)return null;
-  const route=c.b[home] && path.length>1?path.slice(1):path;
-  return {route,duration:Math.max(1000,routeLength(route)/EXPLORE_TILES_PER_MIN*MIN)};
+  const route=path;
+  return {route,ships:plan!.ships,duration:Math.max(1000,routeLength(route)/EXPLORE_TILES_PER_MIN*MIN)};
 }
 export function expeditionPosition(e:Expedition,at:number,lag=0){
   if(!e.route?.length)return null;
@@ -1499,6 +1552,11 @@ function finishCampCombat(c:City,e:Expedition,camp:Camp|undefined,at:number){
 }
 
 function stepArmy(c: City, nt: number) {
+  if(c.ferryBookings)c.ferryBookings=c.ferryBookings.filter(b=>b.back>nt);
+  for(const [,b]of buildings(c))if(b.k==="dock"){
+    if(b.lvl<1||b.burned||b.flooded){if(b.shipQueue)b.shipQueue=b.shipQueue.map(done=>done+HAUL_TILE_MS);continue;}
+    while(b.shipQueue?.length&&b.shipQueue[0]<=nt){const done=b.shipQueue.shift()!;c.transportShips=(c.transportShips??0)+1;log(c,done,"Đóng xong một thuyền vận tải (10 chỗ).","good");}
+  }
   pruneHomeOrders(c);
   let changed = false;
   if (c.raid && c.raid.at <= nt) { raid(c, c.raid.at, rng(c.seed ^ Math.imul(Math.floor(c.raid.at / MIN), 3266489917))); changed = true; }
@@ -1727,6 +1785,7 @@ export type Action =
   | { type: "upgradeStorage"; resource: ResKey; x: number; y: number }
   | { type: "upgrade"; x: number; y: number }
   | { type: "repair"; x: number; y: number }
+  | { type: "buildShip"; x: number; y: number }
   | { type: "speedBuild"; x: number; y: number }
   | { type: "tendFarm"; x: number; y: number }
   | { type: "demolish"; x: number; y: number }
@@ -1745,6 +1804,13 @@ export type Action =
 export function applyAction(c: City, a: Action, now: number): string | null {
   if (!isActionInput(a)) return "Yêu cầu không hợp lệ.";
   settle(c, now);
+  if(a.type==="buildShip"){
+    const b=c.b[idx(a.x,a.y)];if(b?.k!=="dock"||!isBuildingActive(b)||b.doneAt)return "Cần Bến cảng đã xây xong, không cháy/ngập.";
+    const queued=buildings(c).reduce((n,[,b])=>n+(b.shipQueue?.length??0),0);
+    if((c.transportShips??0)+queued>=shipCapacity(c))return "Đã đủ thuyền theo sức chứa cảng; xây hoặc nâng thêm Bến cảng.";
+    const cost=shipCost(c.era),err=missing(c,cost);if(err)return err;
+    pay(c,cost);const q=b.shipQueue??=[];q.push(Math.max(now,q[q.length-1]??now)+shipBuildMs(b));return null;
+  }
   if (a.type === "speedBuild") {
     const b=c.b[idx(a.x,a.y)];
     if(!b?.doneAt||b.doneAt<=now)return "Công trình không còn đang xây.";
@@ -1768,7 +1834,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
   }
   if (a.type === "moveSoldier") {
     if (c.battleId) return "Hãy điều quân trong màn trận đánh.";
-    return orderHomeSoldier(c, a.id, idx(a.x,a.y), now) ? null : "Không có đường đất đã khám phá tới đó, hoặc lính đã xuất chinh.";
+    return orderHomeSoldier(c, a.id, idx(a.x,a.y), now) ? null : "Không có đường đã khám phá, thiếu thuyền qua sông hoặc lính đang trên thuyền/đã xuất chinh.";
   }
   if (a.type === "setGuardPosts") {
     if (!Array.isArray(a.posts) || a.posts.length > 20) return "Chỉ đặt tối đa 20 điểm gác.";
@@ -1858,14 +1924,14 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     }
     if (!troopCount(units)) return "Chọn ít nhất một lính.";
     if(!troopPower(units))return "Cần có chiến binh đi cùng đoàn hỗ trợ.";
-    const plan=expeditionPlan(c,camp.at);
-    if(!plan)return "Không có đường từ trại lính tới trại man rợ. Hãy mở lối ra, đặt cổng hoặc dỡ công trình chắn đường.";
+    const plan=expeditionPlan(c,camp.at,units);
+    if(!plan)return "Không có đường hoặc thiếu thuyền qua sông. Mở lối trại lính; xây Bến cảng sát đoạn sông đã khám phá và đóng đủ thuyền cho đoàn quân.";
     const ms = plan.duration,suppliesFood=marchSupplies(units,ms).food;
     if(c.res.food<suppliesFood)return `Cần ${suppliesFood} lương thực dự trữ cho cả đi và về.`;
     c.res.food-=suppliesFood;
     for (const u of UKEYS) if (units[u]) c.army[u]! -= units[u]!;
     pruneHomeOrders(c);
-    c.exps.push({ id: c.nextExp++, units, camp: camp.id, depart: now, arrive: now + ms, back: now + 2 * ms, resolved: false, route:plan.route, suppliesFood, logisticsVersion:1, combatVersion:1 });
+    c.exps.push({ id: c.nextExp++, units, camp: camp.id, depart: now, arrive: now + ms, back: now + 2 * ms, resolved: false, route:plan.route, ships:plan.ships, suppliesFood, logisticsVersion:1, combatVersion:1 });
     log(c, now, `Xuất quân (${troopText(units)}) đánh trại man rợ, tới nơi sau ${ms < MIN ? `${Math.ceil(ms / 1000)} giây` : `${Math.ceil(ms / MIN)} phút`}.`);
     return null;
   }
@@ -1905,6 +1971,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
   }
   if (!b) return "Ô này trống.";
   if (a.type === "demolish") {
+    if(b.shipQueue?.length)return "Cảng đang đóng thuyền; chờ hoàn tất trước khi phá.";
     const refund = levelCost(b.k, Math.max(1, b.lvl));
     for (const r of RES) c.res[r] += Math.floor((refund[r] ?? 0) / 2);
     delete c.b[i];

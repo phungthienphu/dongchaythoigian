@@ -2,7 +2,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { ClientSession } from "mongodb";
 import { battles, cities, mongoClient, type CityDoc } from "./db";
-import { normalizeResources, pruneHomeOrders, RES, UKEYS, W, MARCH_TILES_PER_MIN, MIN, canVisit, derive, stats, score, settle, updateRefuges, troopPower, troopCount, type City, type Troops, type Res } from "./engine";
+import { normalizeResources, shipsFree, shipsNeeded, pruneHomeOrders, RES, UKEYS, W, MARCH_TILES_PER_MIN, MIN, canVisit, derive, stats, score, settle, updateRefuges, troopPower, troopCount, type City, type Troops, type Res } from "./engine";
 import { createBattle, type BattleState, type BattleResult } from "./battle";
 import { knowsNation } from "./world-discovery";
 import { reserveMarchFood, marchLogistics } from "./march-supplies";
@@ -13,7 +13,7 @@ export type BattleDoc = {
   _id: string; attackerId: string; defenderId: string; attackerName: string; defenderName: string;
   from: { x: number; y: number }; to: { x: number; y: number };
   logisticsVersion?: number; marchSurvivors?: Troops; marchLosses?: number;
-  suppliesFood?: number; troops: Troops; depart: number; arrive: number; duration: number; back?: number;
+  transportShips?: number; suppliesFood?: number; troops: Troops; depart: number; arrive: number; duration: number; back?: number;
   status: "marching" | "fighting" | "returning" | "completed" | "cancelled";
   createdAt: Date; updatedRecoveryAt?: Date; snapshot?: BattleState; result?: BattleResult; endedAt?: number;
 };
@@ -97,13 +97,15 @@ export async function launchAttack(pid: string, target: unknown, input: unknown)
     if (a.outboundBattleId) throw new Error("Đã có một đoàn quân đang xuất chinh.");
     if (d.incomingBattleId || d.state.battleId) throw new Error("Nước này đã có đoàn quân tiến đánh.");
     const troops = validateTroops(input, a.state.army);
+    const requiredShips=shipsNeeded(troops),transportShips=shipsFree(a.state,now)>=requiredShips?requiredShips:0;
+    a.state.deployedShips=(a.state.deployedShips??0)+transportShips;
     const duration = Math.max(MIN, worldDist(a.world, d.world) / MARCH_TILES_PER_MIN * MIN);
     const suppliesFood = reserveMarchFood(a.state,troops,duration);
     a.state.provisionedSoldiers=(a.state.provisionedSoldiers??0)+troopCount(troops);
     const w: BattleDoc = { _id: crypto.randomUUID(), attackerId: pid, defenderId: target, attackerName: a.name, defenderName: d.name,
-      from: a.world, to: d.world, troops, suppliesFood, logisticsVersion:1, depart: now, arrive: now + duration, duration, status: "marching", createdAt: new Date(now) };
+      from: a.world, to: d.world, troops, transportShips, suppliesFood, logisticsVersion:1, depart: now, arrive: now + duration, duration, status: "marching", createdAt: new Date(now) };
     addArmy(a.state.army, troops, -1); pruneHomeOrders(a.state); a.state.deployedArmy ??= {}; addArmy(a.state.deployedArmy, troops);
-    a.state.log.unshift({at:now,msg:`Xuất ${troopCount(troops)} lính tới ${d.name}, mang ${suppliesFood} lương thực đủ cho đi và về.`,cls:"good"});
+    a.state.log.unshift({at:now,msg:`Xuất ${troopCount(troops)} lính tới ${d.name}, mang ${suppliesFood} lương thực đủ cho đi và về. Mang theo ${transportShips} thuyền vận tải${transportShips?"":"; không thể qua sông trong trận"}.`,cls:"good"});
     // Attacking gives up your own protection.
     delete a.state.shieldUntil;
     await col.updateOne({ _id: pid }, { $set: { ...cityUpdate(a.state, now), outboundBattleId: w._id }, $inc: { ver: 1 } }, { session });
@@ -128,6 +130,7 @@ async function cancelMarch(id: string) {
       const refund=Math.min(w.suppliesFood,Math.max(0,cap.food-a.state.res.food));a.state.res.food+=refund;
       a.state.log.unshift({at:Date.now(),msg:`Hủy xuất quân vì máy chủ trận chưa sẵn sàng; quân đã về, hoàn ${refund} lương thực vào kho.`,cls:"warn"});
     }
+    a.state.deployedShips=Math.max(0,(a.state.deployedShips??0)-(w.transportShips??0));
     addArmy(a.state.army, w.troops); addArmy(a.state.deployedArmy ??= {}, w.troops, -1);
     await col.updateOne({ _id: a._id }, { $set: cityUpdate(a.state, Date.now()), $unset: { outboundBattleId: "" }, $inc: { ver: 1 } }, { session });
     await col.updateOne({ _id: w.defenderId, incomingBattleId: id }, { $unset: { incomingBattleId: "" }, $inc: { ver: 1 } }, { session });
@@ -161,7 +164,7 @@ export async function startBattle(id: string) {
     }
     d.state.battleId = id;
     updateRefuges(d.state,now);
-    const snapshot = createBattle({ id, attackerId: a._id, defenderId: d._id, attacker: a.state, defender: d.state, troops: w.marchSurvivors??w.troops, now, defenderOnline: false });
+    const snapshot = createBattle({ id, attackerId: a._id, defenderId: d._id, attacker: a.state, defender: d.state, troops: w.marchSurvivors??w.troops, now, attackerShips:w.transportShips??0, defenderOnline: false });
     d.state.battleId = id;
     await col.updateOne({ _id: d._id }, { $set: cityUpdate(d.state, now), $inc: { ver: 1 } }, { session });
     await wars.updateOne({ _id: id }, { $set: { status: "fighting", snapshot, ...(march?{marchSurvivors:march.survivors,marchLosses:march.losses}:{}) } }, { session });
@@ -228,6 +231,7 @@ export async function returnArmy(id: string) {
     const now = Date.now(); if (now < (w.back ?? Infinity)) throw new Error("Đoàn quân chưa về tới làng.");
     const a = await col.findOne({ _id: w.attackerId }, { session }); if (!a) throw new Error("Không tìm thấy làng.");
     const c = a.state; normalizeResources(c);
+    c.deployedShips=Math.max(0,(c.deployedShips??0)-(w.transportShips??0));
     if (!c.battleId) settle(c, now);
     if(w.suppliesFood!==undefined)c.provisionedSoldiers=Math.max(0,(c.provisionedSoldiers??0)-troopCount(w.troops));
     addArmy(c.army, w.result?.attackerSurvivors ?? w.marchSurvivors ?? w.troops); addArmy(c.deployedArmy ??= {}, w.troops, -1);

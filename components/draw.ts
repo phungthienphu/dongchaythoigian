@@ -2,7 +2,7 @@ import { BoundedCache } from "@/lib/bounded-cache";
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
 import {drawCaravanActor} from "./trade-actors";
-import { B, CAP, GOLD, DIAMOND, isRock, depositCapacity, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, homeSoldiers, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
+import { B, CAP, GOLD, DIAMOND, isRock, depositCapacity, F, G, H, HL, N4, N8, O, R, UKEYS, W, returningFerries,shipsFree,wildlifePosition, homeSoldiers, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
 import { placementTiles } from "@/lib/build-placement";
 import type { Fx, Villager } from "./villagers";
 
@@ -528,6 +528,19 @@ function drawEvolvingWorkshop(r: RC, k: BKey, x: number, y: number, lvl: number,
 function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) {
   if (k === "hut" && r.city.era > 1) { drawBase(r,r.city.era === 2 ? "house" : "stonehouse",x,y,lvl,i); return; }
   if (k === "house" && r.city.era === 3) { drawBase(r,"stonehouse",x,y,lvl,i); return; }
+  if(k==="dock"){
+    const q=tp(r,x,y),stone=r.city.era>=3;
+    shadow(r,x,y,.46);
+    box(r,x,y,-.4,-.38,.3,.2,0,stone?17:12,stone?"#c9c8b5":"#b58958",stone?"#a1ac9d":"#976d42",stone?"#819080":"#755131");
+    gable(r,x,y,-.44,-.42,.34,.24,stone?17:12,10,stone?"#557e8e":"#a97442",stone?"#416572":"#8f6034",stone?"#32515e":"#744b29");
+    const direction=N4.find(([dx,dy])=>inb(x+dx,y+dy)&&r.city.t[idx(x+dx,y+dy)]===R)??[1,0];
+    const [dx,dy]=direction;
+    for(let n=0;n<7;n++){const u=dx*(.25+n*.12),v=dy*(.25+n*.12);box(r,x,y,u-.18,v-.18,u+.18,v+.18,0,3,"#c29c62","#88633c","#6e4a2e");}
+    for(const side of [-1,1]){const u=dx*.9+dy*.17*side,v=dy*.9+dx*.17*side;box(r,x,y,u-.03,v-.03,u+.03,v+.03,-3,8,"#c5ac79","#8e714b","#745936");}
+    flag(r,x,y,-.31,-.28,0,35,"#568aab",i);
+    if(shipsFree(r.city)>0){const [sx,sy]=q(dx*1.05,dy*1.05,0);drawTransportBoat(r.c,sx,sy,r.v.s*.65,r.anim,1,0);}
+    return;
+  }
   if (drawEvolvingWorkshop(r,k,x,y,lvl,i)) return;
   const c = r.c, s = r.v.s, q = tp(r, x, y), hs = 1 + 0.2 * Math.max(0, lvl - 1);
   const night = false;
@@ -1124,6 +1137,20 @@ const UNIT_LOOK: Record<UKey, { shirt: string; weapon: "club" | "sling" | "spear
   sword: { shirt: "#5a6672", weapon: "sword" }, elephant: { shirt: "#8f8f8f", weapon: "spear" },
 };
 
+/** A transport has a deep hull, blue canopy, oars and a wake; never a walking soldier on water. */
+export function drawTransportBoat(c:CanvasRenderingContext2D,x:number,y:number,s:number,time:number,face:1|-1=1,passengers=0){
+  c.save();c.translate(x,y+Math.sin(time/500)*1.2*s);c.scale(s*face,s);
+  c.strokeStyle="rgba(200,238,239,.65)";c.lineWidth=1.5;
+  for(const k of [0,1]){c.beginPath();c.ellipse(-7-k*5,5+k*2,20+k*5,4,0,.15,Math.PI-.15);c.stroke();}
+  c.fillStyle="#583926";c.strokeStyle="#bc9461";c.beginPath();c.moveTo(-23,-4);c.quadraticCurveTo(-16,12,14,6);c.lineTo(28,-8);c.quadraticCurveTo(4,1,-23,-4);c.fill();c.stroke();
+  c.fillStyle="#a77d4c";c.beginPath();c.ellipse(0,-4,19,5,0,0,Math.PI*2);c.fill();
+  c.strokeStyle="#d4bc87";c.lineWidth=2;
+  for(const k of [-1,1]){c.beginPath();c.moveTo(k*10,-4);c.lineTo(k*10-9+Math.sin(time/210)*3,9);c.stroke();}
+  c.fillStyle="#527f91";c.beginPath();c.moveTo(-11,-7);c.lineTo(-9,-19);c.lineTo(10,-19);c.lineTo(14,-8);c.closePath();c.fill();c.strokeStyle="#d8c598";c.stroke();
+  if(passengers){c.fillStyle="#ebcf99";for(const k of [-1,1]){c.beginPath();c.arc(k*15,-8,2.5,0,Math.PI*2);c.fill();}}
+  c.restore();
+}
+
 export function drawSoldier(r: Pick<RC, "c" | "v" | "anim">, u: UKey, fx: number, fy: number, face: 1 | -1, walking: boolean, seed: number, fighting = false, barbarian = false) {
   const c = r.c, s = Math.max(r.v.s * 1.45, 0.7);
   const [sx, sy] = P(r.v, fx, fy);
@@ -1291,6 +1318,7 @@ function buildingHitShapes(k: BKey, lvl: number, era: number): HitShape[] {
     case "levee": return [shape(-.48, -.48, .48, .48, 6)];
     case "smelter": return [shape(-.3, -.3, .3, .3, 12, 8, true), shape(.05, -.15, .2, 0, 34)];
     case "builderhouse": return [shape(-.4,-.38,.29,.2,(era===1?9:era===2?14:19)*hs,era===1?8:11),shape(-.25,.26,.3,.4,7)];
+    case "dock": return [shape(-.42,-.4,.36,.3,16,10)];
     case "market": return [shape(-.38, -.26, .38, .31, 18, 6)];
     case "forge": return [shape(-.39, -.33, .37, .31, 16*hs, 9)];
     case "wheel": return [shape(-.34, -.34, .16, .24, 13 * hs, 9), shape(.14, -.2, .46, .12, 22)];
@@ -1584,10 +1612,11 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
         if (!onScreen(fx-.5,fy-.5)) continue;
         items.push({d:fx+fy,f:()=>{
           if(o.pickedSoldier===soldier.id){const [sx,sy]=P(v,fx,fy);c.strokeStyle="#f0c766";c.lineWidth=2;c.beginPath();c.ellipse(sx,sy,10*v.s,5*v.s,0,0,Math.PI*2);c.stroke();}
-          drawSoldier(r,soldier.u,fx,fy,soldier.face,soldier.moving,n*.37);
+          if(inWater(r,fx,fy)){const [sx,sy]=P(v,fx,fy);drawTransportBoat(c,sx,sy,v.s*.65,r.anim,soldier.face,1);}else drawSoldier(r,soldier.u,fx,fy,soldier.face,soldier.moving,n*.37);
         }});
       }
     }
+    for(const ferry of returningFerries(city,o.now))if(inWater(r,ferry.x,ferry.y)&&seen[idx(Math.floor(ferry.x),Math.floor(ferry.y))]&&onScreen(ferry.x-.5,ferry.y-.5))items.push({d:ferry.x+ferry.y,f:()=>{const [sx,sy]=P(v,ferry.x,ferry.y);drawTransportBoat(c,sx,sy,v.s*.65,r.anim,ferry.face);}});
     const beast=wildlifePosition(city,o.now);
     if(beast){const [fx,fy]=beast,ti=idx(Math.floor(fx),Math.floor(fy));if(seen[ti]&&onScreen(fx-.5,fy-.5))items.push({d:fx+fy,f:()=>drawAnimal(r,"boar",fx,fy,1,false,false,.73)});}
     // incoming barbarian raid
@@ -1624,10 +1653,11 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
         const fy = fighting && e.combatVersion ? ty-.22+Math.floor(n/2)*.06 : routed ? routed.y : cy + ((ty - hy) / len) * back + ny * col * 0.35;
         const ti = idx(Math.max(0, Math.min(W - 1, Math.floor(fx))), Math.max(0, Math.min(H - 1, Math.floor(fy))));
         if (!vis[ti]) continue;
+        if(e.ships && inWater(r,fx,fy) && n>=e.ships)continue;
         const nn = n;
         items.push({ d: fx + fy, f: () => {
           const fn = () => drawSoldier(r, u, fx, fy, (fighting&&e.combatVersion?1:routed?.face??face), !fighting, nn * 0.41, fighting);
-          if (inWater(r, fx, fy)) wade(r, fx, fy, fn); else fn();
+          if (inWater(r, fx, fy) && e.ships){const [sx,sy]=P(v,fx,fy);drawTransportBoat(c,sx,sy,v.s*.7,r.anim,routed?.face??face,1);}else fn();
         } });
       }
       if (fighting && e.combat) {
