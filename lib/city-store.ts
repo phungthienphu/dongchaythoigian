@@ -1,12 +1,15 @@
 import { cookies } from "next/headers";
 import { cities, users, type CityDoc } from "./db";
 import { SESSION_COOKIE, readSession, currentUser } from "./auth";
-import { ENGINE_VER, newCity, score, settle, enrichCopperDeposits, enrichPreciousDeposits, normalizeResources, type City } from "./engine";
+import { ENGINE_VER, score, settle, enrichCopperDeposits, enrichPreciousDeposits, normalizeResources, type City } from "./engine";
 
 import { registerEnvoyVisits } from "./diplomacy";
 import { resolveDiscoveries } from "./world";
 
 export const PID_COOKIE = "pid";
+export class UnsupportedCityVersionError extends Error {
+  constructor() { super("Làng đang dùng phiên bản dữ liệu khác. Tiến trình được giữ nguyên; hãy thử lại sau khi máy chủ cập nhật xong."); }
+}
 
 /** The signed-in player's city, or the guest city from the `pid` cookie. */
 export async function playerId() {
@@ -45,6 +48,7 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
     if (attempt) await new Promise((r) => setTimeout(r, 30 + Math.random() * 70));
     const doc = await col.findOne({ _id: pid });
     if (!doc || (doc.owner && doc.owner !== uid)) return null;
+    if (doc.state.ver !== ENGINE_VER) throw new UnsupportedCityVersionError();
     const now = Date.now();
     const receipt = opts.requestId && doc.actionReceipts?.find((r) => r.id === opts.requestId);
     if (receipt) return { doc, result: receipt.result as T, now };
@@ -53,8 +57,8 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
       if (opts.readOnlyFallback) return { doc, result: null as T, now };
       throw new Error("Làng đang trong trận đánh. Hãy dùng bảng chỉ huy trận.");
     }
-    // cities from an older engine are replaced by a fresh world (prototype stage, no migration)
-    const c = doc.state.ver === ENGINE_VER ? doc.state : newCity(now);
+    // Version changes require an explicit migration; never replace a saved village.
+    const c = doc.state;
     await resolveDiscoveries(pid, c, now);
     const arrivals = structuredClone(c.trips ?? []);
     settle(c, now);

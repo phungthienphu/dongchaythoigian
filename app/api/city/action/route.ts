@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
-import { applyAction, type Action } from "@/lib/engine";
+import { applyAction } from "@/lib/engine";
+import { isActionInput } from "@/lib/action-input";
 import { playerId, withCity } from "@/lib/city-store";
 
 export async function POST(req: Request) {
   const pid = await playerId();
   if (!pid) return NextResponse.json({ error: "Chưa có thành phố." }, { status: 401 });
-  const action = (await req.json().catch(() => null)) as Action | null;
-  if (!action || typeof action !== "object") return NextResponse.json({ error: "Yêu cầu không hợp lệ." }, { status: 400 });
+  const action: unknown = await req.json().catch(() => null);
+  if (!isActionInput(action)) return NextResponse.json({ error: "Yêu cầu không hợp lệ." }, { status: 400 });
   const requestId = req.headers.get("x-action-id") ?? undefined;
   if (requestId && !/^[a-zA-Z0-9_-]{1,100}$/.test(requestId)) return NextResponse.json({ error: "Mã yêu cầu không hợp lệ." }, { status: 400 });
   try {

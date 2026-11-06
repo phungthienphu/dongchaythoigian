@@ -2,16 +2,21 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { cities } from "@/lib/db";
 import { newCity, score } from "@/lib/engine";
-import { PID_COOKIE, playerId, withCity } from "@/lib/city-store";
+import { PID_COOKIE, playerId, withCity, UnsupportedCityVersionError } from "@/lib/city-store";
 import { currentUser } from "@/lib/auth";
 import { users } from "@/lib/db";
 
 export async function GET() {
   const pid = await playerId();
   if (!pid) return NextResponse.json({ needsName: true }, { status: 404 });
-  const out = await withCity(pid, () => null, { readOnlyFallback: true });
-  if (!out) return NextResponse.json({ needsName: true }, { status: 404 });
-  return NextResponse.json({ name: out.doc.name, state: out.doc.state, serverNow: out.now });
+  try {
+    const out = await withCity(pid, () => null, { readOnlyFallback: true });
+    if (!out) return NextResponse.json({ needsName: true }, { status: 404 });
+    return NextResponse.json({ name: out.doc.name, state: out.doc.state, serverNow: out.now });
+  } catch (error) {
+    if (error instanceof UnsupportedCityVersionError) return NextResponse.json({ error: error.message }, { status: 409 });
+    throw error;
+  }
 }
 
 export async function POST(req: Request) {
