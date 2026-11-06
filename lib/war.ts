@@ -2,15 +2,16 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { ClientSession } from "mongodb";
 import { battles, cities, mongoClient, type CityDoc } from "./db";
-import { RES, UKEYS, W, MARCH_TILES_PER_MIN, MIN, canVisit, derive, stats, score, settle, troopCount, type City, type Troops, type Res } from "./engine";
+import { RES, UKEYS, W, MARCH_TILES_PER_MIN, MIN, canVisit, derive, stats, score, settle, troopPower, troopCount, type City, type Troops, type Res } from "./engine";
 import { createBattle, type BattleState, type BattleResult } from "./battle";
 import { knowsNation } from "./world-discovery";
-import { reserveMarchFood } from "./march-supplies";
+import { reserveMarchFood, marchLogistics } from "./march-supplies";
 import { worldDist } from "./world";
 
 export type BattleDoc = {
   _id: string; attackerId: string; defenderId: string; attackerName: string; defenderName: string;
   from: { x: number; y: number }; to: { x: number; y: number };
+  logisticsVersion?: number; marchSurvivors?: Troops; marchLosses?: number;
   suppliesFood?: number; troops: Troops; depart: number; arrive: number; duration: number; back?: number;
   status: "marching" | "fighting" | "returning" | "completed" | "cancelled";
   createdAt: Date; updatedRecoveryAt?: Date; snapshot?: BattleState; result?: BattleResult; endedAt?: number;
@@ -68,6 +69,7 @@ export function validateTroops(input: unknown, available: Troops): Troops {
     if (n) out[u] = n;
   }
   if (!troopCount(out) || troopCount(out) > 300) throw new Error("Mỗi đoàn cần từ 1 đến 300 lính.");
+  if(!troopPower(out))throw new Error("Cần có chiến binh đi cùng hậu cần và quân y.");
   return out;
 }
 export function attackRestriction(a: City, d: City, target: string, now: number) {
@@ -98,7 +100,7 @@ export async function launchAttack(pid: string, target: unknown, input: unknown)
     const suppliesFood = reserveMarchFood(a.state,troops,duration);
     a.state.provisionedSoldiers=(a.state.provisionedSoldiers??0)+troopCount(troops);
     const w: BattleDoc = { _id: crypto.randomUUID(), attackerId: pid, defenderId: target, attackerName: a.name, defenderName: d.name,
-      from: a.world, to: d.world, troops, suppliesFood, depart: now, arrive: now + duration, duration, status: "marching", createdAt: new Date(now) };
+      from: a.world, to: d.world, troops, suppliesFood, logisticsVersion:1, depart: now, arrive: now + duration, duration, status: "marching", createdAt: new Date(now) };
     addArmy(a.state.army, troops, -1); a.state.deployedArmy ??= {}; addArmy(a.state.deployedArmy, troops);
     a.state.log.unshift({at:now,msg:`Xuất ${troopCount(troops)} lính tới ${d.name}, mang ${suppliesFood} lương thực đủ cho đi và về.`,cls:"good"});
     // Attacking gives up your own protection.
@@ -118,6 +120,7 @@ async function cancelMarch(id: string) {
   await transaction(async (session) => {
     const w = await wars.findOne({ _id: id, status: "marching" }, { session }); if (!w) return;
     const a = await col.findOne({ _id: w.attackerId }, { session }); if (!a) throw new Error("Không tìm thấy làng.");
+    if(!a.state.battleId)settle(a.state,Date.now());
     if(w.suppliesFood!==undefined){
       a.state.provisionedSoldiers=Math.max(0,(a.state.provisionedSoldiers??0)-troopCount(w.troops));
       const cap=stats(a.state,derive(a.state),Date.now()).storage;
@@ -141,17 +144,24 @@ export async function startBattle(id: string) {
     const a = await col.findOne({ _id: w.attackerId }, { session }), d = await col.findOne({ _id: w.defenderId }, { session });
     if (!a || !d || d.incomingBattleId !== id || d.state.battleId) throw new Error("Làng đang bận.");
     settle(d.state, now);
+    const march=w.logisticsVersion ? marchLogistics(w.troops,w.duration) : null;
+    if(march){w.marchSurvivors=march.survivors;w.marchLosses=march.losses;}
+    if(march?.losses){
+      if(!a.state.battleId)settle(a.state,now);
+      a.state.log.unshift({at:now,msg:`Đoàn tới ${w.defenderName}: hao ${march.losses} chiến binh do đường xa. Bổ sung vận tải và quân y cho chuyến sau.`,cls:"warn"});
+      await col.updateOne({_id:a._id},{$set:cityUpdate(a.state,now),$inc:{ver:1}},{session});
+    }
     // A shield or an era change since departure must be checked at arrival too.
     if ((d.state.shieldUntil ?? 0) > now || a.state.era - d.state.era > 1) {
       w.status = "returning"; w.back = now + w.duration;
       await col.updateOne({ _id: d._id }, { $unset: { incomingBattleId: "" }, $inc: { ver: 1 } }, { session });
-      await wars.updateOne({ _id: id }, { $set: { status: w.status, back: w.back } }, { session });
+      await wars.updateOne({ _id: id }, { $set: { status: w.status, back: w.back, ...(march?{marchSurvivors:march.survivors,marchLosses:march.losses}:{}) } }, { session });
       return w;
     }
-    const snapshot = createBattle({ id, attackerId: a._id, defenderId: d._id, attacker: a.state, defender: d.state, troops: w.troops, now, defenderOnline: false });
+    const snapshot = createBattle({ id, attackerId: a._id, defenderId: d._id, attacker: a.state, defender: d.state, troops: w.marchSurvivors??w.troops, now, defenderOnline: false });
     d.state.battleId = id;
     await col.updateOne({ _id: d._id }, { $set: cityUpdate(d.state, now), $inc: { ver: 1 } }, { session });
-    await wars.updateOne({ _id: id }, { $set: { status: "fighting", snapshot } }, { session });
+    await wars.updateOne({ _id: id }, { $set: { status: "fighting", snapshot, ...(march?{marchSurvivors:march.survivors,marchLosses:march.losses}:{}) } }, { session });
     return { ...w, status: "fighting" as const, snapshot };
   });
   if (w?.status === "fighting" && w.snapshot) await workerRequest(`/rooms/${id}`, { battle: w.snapshot });
@@ -193,7 +203,7 @@ export async function finishBattle(id: string, result: BattleResult) {
 }
 function validateResult(w: BattleDoc, defender: City, r: BattleResult) {
   if (!r || !["attacker", "defender"].includes(r.winner) || !Array.isArray(r.burnedTiles)) throw new Error("Kết quả không hợp lệ.");
-  for (const [survivors, baseline] of [[r.attackerSurvivors, w.troops], [r.defenderSurvivors, defender.army]] as [Troops, Troops][]) {
+  for (const [survivors, baseline] of [[r.attackerSurvivors, w.marchSurvivors??w.troops], [r.defenderSurvivors, defender.army]] as [Troops, Troops][]) {
     if (!survivors || Object.keys(survivors).some((key) => !UKEYS.includes(key as typeof UKEYS[number]))) throw new Error("Quân sống sót không hợp lệ.");
     for (const u of UKEYS) if (!Number.isInteger(survivors[u] ?? 0) || (survivors[u] ?? 0) < 0 || (survivors[u] ?? 0) > (baseline[u] ?? 0)) throw new Error("Quân sống sót không hợp lệ.");
   }
@@ -210,7 +220,7 @@ export async function returnArmy(id: string) {
     const c = a.state;
     if (!c.battleId) settle(c, now);
     if(w.suppliesFood!==undefined)c.provisionedSoldiers=Math.max(0,(c.provisionedSoldiers??0)-troopCount(w.troops));
-    addArmy(c.army, w.result?.attackerSurvivors ?? w.troops); addArmy(c.deployedArmy ??= {}, w.troops, -1);
+    addArmy(c.army, w.result?.attackerSurvivors ?? w.marchSurvivors ?? w.troops); addArmy(c.deployedArmy ??= {}, w.troops, -1);
     const cap = stats(c, derive(c), now).storage;
     for (const k of RES) c.res[k] = Math.min(cap, c.res[k] + (w.result?.loot[k] ?? 0));
     c.log.unshift({ at: now, msg: `Đoàn quân từ ${w.defenderName} đã trở về.`, cls: "good" });

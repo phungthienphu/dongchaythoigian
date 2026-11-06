@@ -75,6 +75,8 @@ const DEFS = {
   wall: { n: "Tường thành", era: 1, cost: { wood: 30, stone: 20 }, sec: 30, up: true, d: "Chặn quân địch. Độ bền tăng theo cấp và thời đại." },
   gate: { n: "Cổng làng", era: 1, cost: { wood: 60, stone: 30 }, sec: 60, up: true, d: "Cho quân nhà đi qua tuyến tường, chặn quân địch." },
   watchtower: { n: "Tháp canh", era: 1, cost: { wood: 100, stone: 80 }, sec: 120, up: true, d: "Tự bắn quân địch ở gần khi bảo vệ làng." },
+  logistics: { n: "Trạm hậu cần", era: 2, cost: { wood: 100, stone: 40 }, sec: 90, up: true, max: 2, d: "Đào tạo đoàn vận tải; mỗi đoàn hỗ trợ 20 chiến binh trên đường xa. Nâng cấp tăng tốc đào tạo." },
+  infirmary: { n: "Quân y viện", era: 2, cost: { wood: 80, stone: 60, food: 40 }, sec: 90, up: true, max: 2, d: "Đào tạo quân y; mỗi người chăm sóc 20 chiến binh khi hành quân và chữa thương trong trận." },
   temple: { n: "Đền Sông Mẹ", era: 3, cost: { wood: 800, stone: 1200, copper: 400 }, sec: 4 * 3600, max: 1, d: "Kỳ quan của thành phố." },
 } satisfies Record<string, Def>;
 export type BKey = keyof typeof DEFS;
@@ -83,8 +85,8 @@ export const BKEYS = Object.keys(B) as BKey[];
 export const def = (k: BKey): Def => B[k];
 
 /* ---------- army ---------- */
-export type UKey = "club" | "sling" | "spear" | "bow" | "sword" | "elephant";
-export type Unit = { n: string; era: number; cost: Partial<Res>; sec: number; atk: number; hp: number; space: number; d: string };
+export type UKey = "club" | "sling" | "spear" | "bow" | "sword" | "elephant" | "wagon" | "medic";
+export type Unit = { n: string; era: number; cost: Partial<Res>; sec: number; atk: number; hp: number; space: number; building?: BKey; d: string };
 export const UNITS: Record<UKey, Unit> = {
   club: { n: "Chiến binh gậy", era: 1, cost: { food: 30, wood: 10 }, sec: 30, atk: 4, hp: 20, space: 1, d: "Rẻ, nhanh, đánh gần." },
   sling: { n: "Lính ném đá", era: 1, cost: { food: 25, stone: 10 }, sec: 40, atk: 6, hp: 12, space: 1, d: "Đánh xa, máu mỏng." },
@@ -92,16 +94,50 @@ export const UNITS: Record<UKey, Unit> = {
   bow: { n: "Cung thủ", era: 2, cost: { food: 40, wood: 30 }, sec: 90, atk: 11, hp: 25, space: 1, d: "Bắn xa, sát thương cao." },
   sword: { n: "Kiếm sĩ sắt", era: 3, cost: { food: 80, copper: 25 }, sec: 180, atk: 18, hp: 70, space: 1, d: "Tinh nhuệ thời đồ sắt." },
   elephant: { n: "Voi chiến", era: 3, cost: { food: 300, wood: 50 }, sec: 600, atk: 45, hp: 300, space: 5, d: "Phá trại, chiếm 5 chỗ." },
+  wagon: { n: "Đoàn vận tải", era: 2, cost: { food: 30, wood: 40 }, sec: 25, atk: 0, hp: 50, space: 2, building: "logistics", d: "Xe lương và tùy tùng, hỗ trợ 20 chiến binh, giảm hao quân đường xa; không chiến đấu." },
+  medic: { n: "Quân y", era: 2, cost: { food: 30, wood: 10, copper: 5 }, sec: 25, atk: 0, hp: 25, space: 1, building: "infirmary", d: "Chăm sóc 20 chiến binh trên đường xa, chữa người bị thương trong trận; không hồi sinh người chết." },
 };
 export const UKEYS = Object.keys(UNITS) as UKey[];
 export type Troops = Partial<Record<UKey, number>>;
 export type Camp = { id: number; at: number; power: number; loot: Partial<Res>; cleared: boolean; respawnAt: number | null };
-export type Expedition = { id: number; units: Troops; camp: number; depart: number; arrive: number; back: number; resolved: boolean; won?: boolean; loot?: Partial<Res>; recalled?: boolean };
+export type Expedition = { id: number; units: Troops; camp: number; depart: number; arrive: number; back: number; resolved: boolean; won?: boolean; loot?: Partial<Res>; recalled?: boolean; suppliesFood?: number; logisticsVersion?: number; marchLosses?: number };
 const SOLDIER_FOOD = 2; // per soldier per hour
 export const MARCH_TILES_PER_MIN = 4;
-export const troopPower = (t: Troops) => UKEYS.reduce((a, u) => a + (t[u] ?? 0) * (UNITS[u].atk + UNITS[u].hp / 4), 0);
+export const troopPower = (t: Troops) => UKEYS.reduce((a, u) => a + (t[u] ?? 0) * (UNITS[u].atk>0 ? UNITS[u].atk + UNITS[u].hp / 4 : 0), 0);
 export const troopSpace = (t: Troops) => UKEYS.reduce((a, u) => a + (t[u] ?? 0) * UNITS[u].space, 0);
 export const troopCount = (t: Troops) => UKEYS.reduce((a, u) => a + (t[u] ?? 0), 0);
+
+/** Round-trip food plus a five-minute combat reserve. Elephants use five places. */
+export function marchSupplies(troops: Troops, oneWayMs: number) {
+  const minutes=(2*Math.max(MIN,oneWayMs))/MIN+5;
+  return { food: Math.ceil(troopSpace(troops)*minutes/10), minutes };
+}
+/** Called inside the same transaction that reserves troops; failure changes nothing. */
+export function reserveMarchFood(c: City, troops: Troops, oneWayMs: number) {
+  const {food}=marchSupplies(troops,oneWayMs);
+  if(c.res.food<food)throw new Error(`Cần ${food} lương thực dự trữ cho cả đi và về; hiện có ${Math.floor(c.res.food)}.`);
+  c.res.food-=food;
+  return food;
+}
+
+/** Predictable round-trip fatigue, applied once on arrival. Both support roles
+ * independently cover twenty fighters; short journeys have no attrition. */
+export function marchLogistics(troops: Troops, oneWayMs: number) {
+  const fighters=Object.entries(troops).reduce((n,[u,count])=>n+(u==='wagon'||u==='medic'?0:count??0),0);
+  const transport=Math.min(1,(troops.wagon??0)*20/Math.max(1,fighters));
+  const medical=Math.min(1,(troops.medic??0)*20/Math.max(1,fighters));
+  const base=Math.min(.25,Math.max(0,oneWayMs/MIN-10)*.01);
+  const risk=base*(1-.6*transport)*(1-.75*medical);
+  const survivors:Troops={...troops};let losses=0;
+  // Stable proportional rounding conserves the exact predicted total.
+  let accumulated=0,allocated=0;
+  for(const u of ['club','sling','spear','bow','sword','elephant'] as const){
+    const n=troops[u]??0;accumulated+=n*risk;
+    const loss=Math.min(n,Math.floor(accumulated)-allocated);allocated+=loss;
+    if(n)survivors[u]=n-loss;losses+=loss;
+  }
+  return {fighters,transport,medical,risk,losses,survivors,long:base>0};
+}
 
 const FLOODPROOF = new Set<BKey>(["canal", "levee", "wheel", "stonehouse", "temple"]);
 export const isFloodproof = (k: BKey) => FLOODPROOF.has(k);
@@ -248,6 +284,8 @@ export const BUILDING_ERA_NAMES: Partial<Record<BKey, string[]>> = {
   levee: ["", "Đê", "Đê đất", "Đê kè đá"],
   smelter: ["", "Lò đúc đồng", "Lò đúc đồng", "Lò luyện kim"],
   market: ["", "Chợ", "Chợ làng", "Thương quán"],
+  logistics: ["", "Trạm hậu cần", "Trạm xe lương", "Cục hậu cần mái ngói"],
+  infirmary: ["", "Quân y viện", "Nhà thuốc quân y", "Y viện mái ngói"],
   hall: ["", "Đình làng", "Đình gỗ", "Đình đá"],
 };
 export const buildingName = (c: City, k: BKey) => (k === "envoy" ? ENVOY_HOUSE[c.era] : DEFENSE_NAMES[k]?.[c.era] ?? BUILDING_ERA_NAMES[k]?.[c.era] ?? def(k).n);
@@ -574,7 +612,7 @@ export function stats(c: City, D: Derived, at: number): Stats {
     }
   }
   const copperRate = rate.copper;
-  rate.food -= c.people.length * FOOD_PER_POP + Math.max(0,soldiers(c)-Math.min(troopCount(c.deployedArmy??{}),c.provisionedSoldiers??0)) * SOLDIER_FOOD;
+  rate.food -= c.people.length * FOOD_PER_POP + Math.max(0,soldiers(c)-Math.min(troopCount(c.deployedArmy??{}),c.provisionedSoldiers??0)-c.exps.reduce((n,e)=>n+(e.suppliesFood!==undefined?troopCount(e.units):0),0)) * SOLDIER_FOOD;
   return { rate, woodUse, copperRate, jobs, housing, storage, fires: Math.min(2, cnt.fire ?? 0), drains };
 }
 
@@ -1222,6 +1260,7 @@ function stepArmy(c: City, nt: number) {
     const camp = campById(c, e.camp);
     if (!e.resolved && e.arrive <= nt && !e.recalled) {
       e.resolved = true;
+      if(e.logisticsVersion){const march=marchLogistics(e.units,e.arrive-e.depart);e.units=march.survivors;e.marchLosses=march.losses;if(march.losses)log(c,e.arrive,`Hành quân xa tới trại man rợ: hao ${march.losses} chiến binh do thiếu hỗ trợ.`,"warn");}
       const r = rng(c.seed ^ Math.imul(e.id + 7, 2246822519));
       const A = troopPower(e.units), Dp = camp && !camp.cleared ? camp.power : 0;
       const rollA = A * (0.8 + r() * 0.4), rollD = Dp * (0.8 + r() * 0.4);
@@ -1313,7 +1352,7 @@ export function settle(c: City, now: number) {
     const need = st.woodUse * h;
     const smelt = need > 0 ? Math.max(0, Math.min(1, c.res.wood / need)) : 1;
     c.res.wood = Math.max(0, c.res.wood - need * smelt);
-    c.res.food -= (c.people.length * FOOD_PER_POP + Math.max(0,soldiers(c)-Math.min(troopCount(c.deployedArmy??{}),c.provisionedSoldiers??0)) * SOLDIER_FOOD) * h;
+    c.res.food -= (c.people.length * FOOD_PER_POP + Math.max(0,soldiers(c)-Math.min(troopCount(c.deployedArmy??{}),c.provisionedSoldiers??0)-c.exps.reduce((n,e)=>n+(e.suppliesFood!==undefined?troopCount(e.units):0),0)) * SOLDIER_FOOD) * h;
     for (const r of RES) c.res[r] = Math.min(st.storage, c.res[r]);
     stepHauling(c, nt, hauling, st.storage, smelt);
     for (const herd of c.herds) if (herd.n < herd.max) herd.n = Math.min(herd.max, herd.n + HERD_REGROW * h);
@@ -1440,6 +1479,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if (!u) return "Loại quân không hợp lệ.";
     if (u.era > c.era) return "Chưa tới thời đại của loại quân này.";
     if (!armyCap(c)) return "Cần xây Trại lính trước.";
+    if(u.building && !Object.values(c.b).some(b=>b.k===u.building && isBuildingActive(b)))return `Cần xây ${B[u.building].n} để đào tạo ${u.n}.`;
     const n = Math.max(1, Math.min(50, Math.floor(a.n)));
     if (armyUsed(c) + n * u.space > armyCap(c)) return `Trại lính hết chỗ (${armyUsed(c)}/${armyCap(c)}). Nâng cấp hoặc xây thêm trại.`;
     const cost: Partial<Res> = {};
@@ -1447,7 +1487,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     const err = missing(c, cost);
     if (err) return err;
     pay(c, cost);
-    const lv = Object.values(c.b).reduce((a2, b) => a2 + (b.k === "barracks" && isBuildingActive(b) ? b.lvl : 0), 0);
+    const lv = Object.values(c.b).reduce((a2, b) => a2 + (b.k === (u.building ?? "barracks") && isBuildingActive(b) ? b.lvl : 0), 0);
     const each = (u.sec * 1000) / (1 + 0.5 * (lv - 1));
     let start = Math.max(now, c.queue.length ? c.queue[c.queue.length - 1].doneAt : now);
     for (let k = 0; k < n; k++) { start += each; c.queue.push({ u: a.u, doneAt: start }); }
@@ -1491,9 +1531,12 @@ export function applyAction(c: City, a: Action, now: number): string | null {
       if (n) units[u] = n;
     }
     if (!troopCount(units)) return "Chọn ít nhất một lính.";
+    if(!troopPower(units))return "Cần có chiến binh đi cùng đoàn hỗ trợ.";
+    const ms = marchMs(c.camp, camp.at),suppliesFood=marchSupplies(units,ms).food;
+    if(c.res.food<suppliesFood)return `Cần ${suppliesFood} lương thực dự trữ cho cả đi và về.`;
+    c.res.food-=suppliesFood;
     for (const u of UKEYS) if (units[u]) c.army[u]! -= units[u]!;
-    const ms = marchMs(c.camp, camp.at);
-    c.exps.push({ id: c.nextExp++, units, camp: camp.id, depart: now, arrive: now + ms, back: now + 2 * ms, resolved: false });
+    c.exps.push({ id: c.nextExp++, units, camp: camp.id, depart: now, arrive: now + ms, back: now + 2 * ms, resolved: false, suppliesFood, logisticsVersion:1 });
     log(c, now, `Xuất quân (${troopText(units)}) đánh trại man rợ, tới nơi sau ${Math.round(ms / MIN)} phút.`);
     return null;
   }

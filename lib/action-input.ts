@@ -7,9 +7,9 @@ const BUILDINGS: Record<BKey, true> = {
   fire: true, farm: true, canal: true, levee: true, house: true,
   smelter: true, market: true, stonehouse: true, forge: true, wheel: true,
   hall: true, envoy: true, barracks: true, wall: true, gate: true,
-  watchtower: true, temple: true,
+  watchtower: true, temple: true, logistics: true, infirmary: true,
 };
-const UNITS: Record<UKey, true> = { club: true, sling: true, spear: true, bow: true, sword: true, elephant: true };
+const UNITS: Record<UKey, true> = { club: true, sling: true, spear: true, bow: true, sword: true, elephant: true, wagon: true, medic: true };
 const RESOURCES = ['food', 'wood', 'stone', 'copper'] as const;
 const MAP_SIDE = 96;
 const own = (object: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(object, key);

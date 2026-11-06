@@ -448,8 +448,30 @@ function frontExtras(r: RC, k: BKey, x: number, y: number, lvl: number, i: numbe
 
 export function drawBuilding(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) {
   if (lvl >= 2) backExtras(r, k, x, y, lvl, i);
-  drawBase(r, k, x, y, lvl, i);
+  if(!drawSupportBuilding(r,k,x,y,lvl,i))drawBase(r, k, x, y, lvl, i);
   if (lvl >= 2) frontExtras(r, k, x, y, lvl, i);
+}
+
+function drawSupportBuilding(r:RC,k:BKey,x:number,y:number,lvl:number,i:number){
+  if(k!=="logistics" && k!=="infirmary")return false;
+  const q=tp(r,x,y),c=r.c,s=r.v.s,stone=r.city.era>=3,h=13+lvl*2;
+  shadow(r,x,y,.46);
+  box(r,x,y,-.4,-.34,.3,.18,0,3,"#b7ad96","#99917e","#7e7768");
+  box(r,x,y,-.36,-.3,.26,.14,3,h,stone?"#c4c6b4":"#bc9161",stone?"#a4aea0":"#987047",stone?"#7f9287":"#795530");
+  gable(r,x,y,-.4,-.34,.3,.18,h,9,stone?"#537f80":"#9e7251",stone?"#41696d":"#80573b",stone?"#315158":"#63422d");
+  if(stone)tileRows(r,x,y,-.4,.3,-.34,.18,h,9,"rgba(25,40,40,.4)");
+  box(r,x,y,-.1,.14,.08,.15,3,11,"#49382d","#49382d","#49382d");
+  if(k==="logistics"){
+    box(r,x,y,-.32,.26,.24,.43,4,8,"#9b6f3b","#80562d","#604020");
+    for(const u of [-.24,.18]){const [wx,wy]=q(u,.43,3);c.fillStyle="#493624";c.beginPath();c.arc(wx,wy,3*s,0,Math.PI*2);c.fill();}
+    for(const u of [-.2,.02,.18]){const [sx,sy]=q(u,.33,10);c.fillStyle="#d0bd84";c.beginPath();c.ellipse(sx,sy,3*s,4*s,0,0,Math.PI*2);c.fill();}
+    flag(r,x,y,.32,-.25,0,h+16,"#d1ac4e",i);
+  }else{
+    flag(r,x,y,.32,-.25,0,h+16,"#d5dfca",i);
+    const [sx,sy]=q(.31,-.25,h+10);c.strokeStyle="#4e8762";c.lineWidth=2*s;c.beginPath();c.moveTo(sx,sy-3*s);c.lineTo(sx,sy+3*s);c.moveTo(sx-3*s,sy);c.lineTo(sx+3*s,sy);c.stroke();
+    for(const u of [-.3,-.08,.14]){const [px,py]=q(u,.35,2);c.fillStyle="#805c40";c.fillRect(px-3*s,py-3*s,6*s,3*s);c.strokeStyle="#72a05b";c.beginPath();c.moveTo(px,py-2*s);c.lineTo(px-2*s,py-9*s);c.moveTo(px,py-2*s);c.lineTo(px+2*s,py-7*s);c.stroke();}
+  }
+  return true;
 }
 
 /** Era changes the architecture; levels add size and equipment within that era. */
@@ -1080,7 +1102,8 @@ export function drawEnvoyActor(c: CanvasRenderingContext2D, era: number, x: numb
   c.fillStyle="#5cbed0";c.beginPath();c.moveTo(6*s,-28*s);c.lineTo(15*s,-26*s+Math.sin(anim/220)*s);c.lineTo(11*s,-23*s);c.lineTo(6*s,-23*s);c.closePath();c.fill();c.restore();
 }
 
-const UNIT_LOOK: Record<UKey, { shirt: string; weapon: "club" | "sling" | "spear" | "bow" | "sword" }> = {
+const UNIT_LOOK: Record<UKey, { shirt: string; weapon: "club" | "sling" | "spear" | "bow" | "sword" | "supplies" | "medicine" }> = {
+  wagon: {shirt:"#a67d43",weapon:"supplies"}, medic: {shirt:"#dbdcc6",weapon:"medicine"},
   club: { shirt: "#8a5a2b", weapon: "club" }, sling: { shirt: "#a37a4a", weapon: "sling" },
   spear: { shirt: "#b07a2e", weapon: "spear" }, bow: { shirt: "#4f7a3a", weapon: "bow" },
   sword: { shirt: "#5a6672", weapon: "sword" }, elephant: { shirt: "#8f8f8f", weapon: "spear" },
@@ -1118,7 +1141,18 @@ export function drawSoldier(r: Pick<RC, "c" | "v" | "anim">, u: UKey, fx: number
   const swing = fighting ? Math.sin(r.anim / 120 + seed * 20) : 0;
   const shX = sx + face * 2 * s, shY = sy - 10 * s - bob;
   c.lineWidth = Math.max(1, 1.2 * s);
-  if (look.weapon === "spear") {
+  if(look.weapon==="supplies") {
+    const wx=sx-face*9*s,wy=sy-2*s;
+    c.fillStyle="#704a2a";c.fillRect(wx-5*s,wy-5*s,10*s,4*s);
+    c.strokeStyle="#4a3525";c.lineWidth=1.5*s;c.beginPath();c.moveTo(wx,wy-2*s);c.lineTo(shX,shY+3*s);c.stroke();
+    for(const offset of [-3,3]){c.fillStyle="#4d3b2c";c.beginPath();c.arc(wx+offset*s,wy+1*s,2.4*s,0,Math.PI*2);c.fill();c.strokeStyle="#c5a479";c.beginPath();const a=walking?r.anim/180:0;c.moveTo(wx+offset*s-Math.cos(a)*2*s,wy+s-Math.sin(a)*2*s);c.lineTo(wx+offset*s+Math.cos(a)*2*s,wy+s+Math.sin(a)*2*s);c.stroke();}
+    for(const offset of [-2,2]){c.fillStyle="#c8b37a";c.beginPath();c.ellipse(wx+offset*s,wy-6*s,2.5*s,3.5*s,0,0,Math.PI*2);c.fill();}
+  } else if(look.weapon==="medicine") {
+    c.fillStyle="#527b5b";c.fillRect(shX-2*s,shY+2*s,5*s,5*s);
+    c.strokeStyle="#e6e3c8";c.beginPath();c.moveTo(shX,shY+2*s);c.lineTo(shX,shY+6*s);c.moveTo(shX-2*s,shY+4*s);c.lineTo(shX+2*s,shY+4*s);c.stroke();
+    c.fillStyle="#dddcc6";c.fillRect(sx-2*s,hy-2*s,4*s,s);
+    if(fighting){c.strokeStyle="#9bdc8b";c.beginPath();c.arc(shX+4*s,shY-2*s,3*s+Math.sin(r.anim/180)*s,0,Math.PI*2);c.stroke();}
+  } else if (look.weapon === "spear") {
     c.strokeStyle = "#6b4526"; const tx = shX + face * (3 + swing * 3) * s;
     c.beginPath(); c.moveTo(shX - face * 2 * s, shY + 6 * s); c.lineTo(tx, shY - 10 * s); c.stroke();
     c.fillStyle = "#d9a050"; c.beginPath(); c.moveTo(tx, shY - 13 * s); c.lineTo(tx - 1.3 * s, shY - 9.5 * s); c.lineTo(tx + 1.3 * s, shY - 9.5 * s); c.fill();
@@ -1236,6 +1270,7 @@ function buildingHitShapes(k: BKey, lvl: number, era: number): HitShape[] {
     case "quarry": return [shape(-.34, -.32, .34, .34, 15), ...(era>1?[shape(-.34,-.25,.34,-.18,24)]:[])];
     case "storehouse": return [shape(-.4, -.36, .4, .36, 13 * hs, 10)];
     case "fire": return [shape(-.22, -.22, .22, .22, 1, 20, true)];
+    case "logistics": case "infirmary": return [shape(-.4,-.34,.3,.18,25),shape(-.32,.26,.24,.43,10)];
     case "farm": return [shape(-.46, -.46, .46, .46, 3 * hs)];
     case "canal": return [shape(-.25, -.25, .25, .25, 1)];
     case "levee": return [shape(-.48, -.48, .48, .48, 6)];

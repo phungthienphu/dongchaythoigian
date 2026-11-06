@@ -5,7 +5,7 @@ import {
   B, BKEYS, CAP, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
   DEFAULT_MIX, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
   armyCap, armyUsed, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
-  farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
+  marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
 } from "@/lib/engine";
 import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
@@ -794,6 +794,8 @@ export default function Game() {
   const selI = selected ? idx(selected.x, selected.y) : -1;
   const sel = selected ? c.b[selI] : undefined;
   const selCamp = selected ? campAt(c, selI) : undefined;
+  const campSupply=selCamp?marchSupplies(send,marchMs(c.camp,selCamp.at)):null;
+  const campLogistics=selCamp?marchLogistics(send,marchMs(c.camp,selCamp.at)):null;
   const selTask: { task: TaskInput; label: string } | null = !selected || selCamp ? null
     : sel ? (B[sel.k].jobs && sel.lvl >= 1 && !sel.flooded && !sel.burned ? { task: { t: "work", at: selI }, label: `Làm ở ${buildingName(c,sel.k)}` } : null)
     : taskFor(c, selI);
@@ -937,7 +939,8 @@ export default function Game() {
                         ))}
                       </ul>
                       <p className="small">Quân gửi đi: <b className={sendPower >= selCamp.power ? "ok" : "danger"}>⚔ {fmt(sendPower)}</b> {sendPower >= selCamp.power * 1.2 ? "· nhiều khả năng thắng" : sendPower >= selCamp.power * 0.8 ? "· ngang sức, may rủi" : "· yếu hơn, dễ thua"}</p>
-                      <button className="primary wide" disabled={busy || !troopCount(send)} onClick={async () => { if (await act({ type: "attack", camp: selCamp.id, units: send })) setSelected(null); }}>Xuất quân</button>
+                      <p className="small">Dự trữ cả đi và về: {campSupply?.food} lương thực. {campLogistics?.long?`Đường xa, hiểm trở: dự kiến hao ${campLogistics.losses} chiến binh. Vận tải ${Math.round(campLogistics.transport*100)}%, quân y ${Math.round(campLogistics.medical*100)}%.`:"Chuyến ngắn, không hao quân do đường xa."}</p>
+                      <button className="primary wide" disabled={busy || !troopPower(send) || c.res.food<(campSupply?.food??0)} onClick={async () => { if(campLogistics?.long && (campLogistics.transport<1||campLogistics.medical<1) && !window.confirm(`Chuyến hành quân dài và hiểm trở. Thiếu hậu cần/quân y có thể tổn hại lực lượng; dự kiến hao ${campLogistics.losses} chiến binh. Vẫn xuất quân?`))return;if (await act({ type: "attack", camp: selCamp.id, units: send })) setSelected(null); }}>Xuất quân</button>
                     </>
                   ) : <p className="muted small">Chưa có quân ở nhà. Xây Trại lính trong Cửa hàng rồi luyện quân.</p>}
                 </>
@@ -987,7 +990,7 @@ export default function Game() {
                 <button className="primary" disabled={busy || saving || !envoyCount(c) || envoysAway(c)>=envoyCount(c)} onClick={()=>sendEnvoy()}>Cử sứ giả rảnh đi do thám · 2 phút</button>
                 <button onClick={()=>{setWorldOpen(true);setPanel(null);}}>Xem hành trình trên bản đồ thế giới</button>
               </>}
-              {sel.k === "barracks" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
+              {["barracks","logistics","infirmary"].includes(sel.k) && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
               {sel.k === "hall" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("control")}>{control ? "Trung tâm điều khiển" : "Xem Đình làng"}</button>}
               {(sel.flooded || sel.burned) && <button className="primary" disabled={busy} onClick={() => act({ type: "repair", ...selected })}>Sửa ({costText(repairCost(sel.k, sel.lvl, !!sel.burned))})</button>}
               {B[sel.k].up && sel.lvl >= 1 && sel.lvl < MAX_LVL && sel.lvl >= levelCap(c, sel.k) && (
@@ -1158,13 +1161,13 @@ export default function Game() {
                 )}
                 <ul className="units train">
                   {UKEYS.map((u) => {
-                    const U = UNITS[u], locked = U.era > c.era;
+                    const U = UNITS[u], needsBuilding=U.building && !Object.values(c.b).some(b=>b.k===U.building && b.lvl>0 && !b.burned && !b.flooded), locked = U.era > c.era || !!needsBuilding;
                     return (
                       <li key={u} className={locked ? "locked" : ""}>
                         <div>
                           <b>{U.n}</b> <span className="muted small">· {c.army[u] ?? 0} ở nhà</span>
                           <div className="muted small">⚔ {U.atk} · ❤ {U.hp}{U.space > 1 ? ` · ${U.space} chỗ` : ""} · {costText(U.cost)} · {fmtDur(U.sec * 1000)}</div>
-                          <div className="muted small">{locked ? `Mở ở ${ERA_NAMES[U.era]}` : U.d}</div>
+                          <div className="muted small">{U.era>c.era ? `Mở ở ${ERA_NAMES[U.era]}` : needsBuilding ? `Cần xây ${B[U.building!].n}` : U.d}</div>
                         </div>
                         <div className="tb">
                           <button disabled={locked || !cap || busy} onClick={() => act({ type: "train", u, n: 1 })}>+1</button>
@@ -1254,7 +1257,7 @@ export default function Game() {
                 rate={{ food: st.rate.food, wood: st.rate.wood - st.woodUse, stone: st.rate.stone, copper: st.copperRate }}
                 act={act}
                 pickGroup={(ids) => { setPicked(new Set(ids)); setPanel(null); setMsg({ text: `Đã chọn ${ids.length} người. Bấm lên bản đồ để giao việc mới.` }); }}
-                attackAll={async (campId) => { if (await act({ type: "attack", camp: campId, units: { ...c.army } })) setMsg({ text: "Đã xuất quân." }); }}
+                attackAll={(campId) => { const camp=campById(c,campId);if(!camp)return;setSelected({x:camp.at%W,y:Math.floor(camp.at/W)});setSend({...c.army});setPanel(null);setMsg({text:"Kiểm tra lương thực và hỗ trợ trước khi xuất quân."}); }}
               />
             )}
 

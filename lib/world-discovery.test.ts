@@ -42,8 +42,8 @@ test('visiting a friend or battle cannot leak their world intelligence or a live
  assert.deepEqual(view.log,[]);assert.equal(view.battleId,'active');assert.equal(c.battleId,'private-room');assert.deepEqual(c.discoveries,['secret']);
 });
 test('incoming war hides unknown origins and route duration, but exposes a previously discovered origin',()=>{
- const c=fixture();const w={_id:'war',attackerId:'far',defenderId:'me',attackerName:'Far',defenderName:'Me',from:{x:90,y:90},to:{x:10,y:10},depart:0,arrive:60_000,duration:60_000,troops:{club:1},status:'marching',createdAt:new Date(0)} satisfies BattleDoc;
- const hidden=warView(w,'me',c);for(const k of ['from','depart','duration','snapshot','createdAt','back'])assert.equal(Object.hasOwn(hidden,k),false);
+ const c=fixture();const w={_id:'war',attackerId:'far',defenderId:'me',attackerName:'Far',defenderName:'Me',from:{x:90,y:90},to:{x:10,y:10},depart:0,arrive:60_000,duration:60_000,troops:{club:1},suppliesFood:77,logisticsVersion:1,marchLosses:2,marchSurvivors:{club:1},status:'marching',createdAt:new Date(0)} satisfies BattleDoc;
+ const hidden=warView(w,'me',c);for(const k of ['from','depart','duration','snapshot','createdAt','back','suppliesFood','logisticsVersion','marchLosses','marchSurvivors'])assert.equal(Object.hasOwn(hidden,k),false);
  assert.deepEqual(hidden.to,w.to);assert.equal(hidden.arrive,w.arrive);
  c.discoveries=['far'];assert.deepEqual(warView(w,'me',c).from,w.from);
 });

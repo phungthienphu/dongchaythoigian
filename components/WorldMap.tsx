@@ -5,7 +5,7 @@ import { drawEnvoyActor } from "./draw";
 import { useEffect, useRef, useState } from "react";
 import { ENVOY_NAMES, ERA_NAMES, WORLD, canVisit, envoyCount, envoyMs, envoysAway, UKEYS, UNITS, troopCount, type Troops, type City } from "@/lib/engine";
 import type { WarSummary } from "./useWars";
-import { marchSupplies } from "@/lib/march-supplies";
+import { marchSupplies, marchLogistics } from "@/lib/march-supplies";
 import { MARCH_TILES_PER_MIN, MIN } from "@/lib/engine";
 import type { Nation } from "@/lib/world";
 
@@ -161,6 +161,10 @@ export default function WorldMap({ wars, warEnabled, onAttack, nations, city, no
   const d = sel && me ? dist(me, sel) : 0;
   const marchDuration=Math.max(MIN,d/MARCH_TILES_PER_MIN*MIN);
   const supplies=marchSupplies(army,marchDuration);
+  const logistics=marchLogistics(army,marchDuration);
+  const [riskAccepted,setRiskAccepted]=useState(false);
+  const riskKey=JSON.stringify([sel?.id,army,marchDuration]);
+  useEffect(()=>setRiskAccepted(false),[riskKey]);
   const trip = sel ? (city.trips ?? []).find((x) => x.target === sel.id) : undefined;
 
   return (
@@ -228,8 +232,9 @@ export default function WorldMap({ wars, warEnabled, onAttack, nations, city, no
                       <input type="number" min={0} max={city.army[u] ?? 0} value={army[u] ?? 0} onChange={(e) => setArmy((a) => ({ ...a, [u]: Math.max(0, Math.min(city.army[u] ?? 0, Math.floor(Number(e.target.value) || 0))) }))} />
                     </label>
                   ))}
-                  {troopCount(army)>0 && <p className={city.res.food<supplies.food?"err small":"small"}>Dự trữ: <b>{supplies.food} lương thực</b> · {fmtMin(marchDuration)} mỗi chiều, gồm đường về và dự phòng chiến đấu. Trừ một lần khi xuất quân; đoàn đã cấp dự trữ không bị trừ tiền ăn thêm tại kho khi đang đi.{city.res.food<supplies.food?` Còn thiếu ${Math.ceil(supplies.food-city.res.food)} lương thực.`:""}</p>}
-                  <button disabled={city.res.food<supplies.food || busy || !warEnabled || sel.registered === false || !troopCount(army) || city.era - sel.era > 1 || (sel.shieldUntil ?? 0) > t || wars.some((w) => w.status !== "completed" && w.status !== "cancelled")} onClick={() => onAttack(sel.id, army)}>Xuất {troopCount(army)} lính</button>
+                  {troopCount(army)>0 && <p className={city.res.food<supplies.food?"err small":"small"}>Dự trữ: <b>{supplies.food} lương thực</b> · {fmtMin(marchDuration)} mỗi chiều, gồm đường về và dự phòng chiến đấu. Trừ một lần khi xuất quân, không tính thêm khẩu phần ở kho cho đoàn đang đi.{city.res.food<supplies.food?` Còn thiếu ${Math.ceil(supplies.food-city.res.food)} lương thực.`:""}</p>}
+                  {logistics.long && logistics.fighters>0 && <div className="small"><p className={logistics.losses?"err":""}>Đường xa, hiểm trở: vận tải đáp ứng {Math.round(logistics.transport*100)}%, quân y {Math.round(logistics.medical*100)}%. Dự kiến hao {logistics.losses}/{logistics.fighters} chiến binh trên toàn chuyến (tính khi tới nơi). Có thể xuất quân thiếu hỗ trợ.</p>{(logistics.transport<1||logistics.medical<1) && <label><input type="checkbox" checked={riskAccepted} onChange={e=>setRiskAccepted(e.target.checked)}/> Tôi hiểu nguy cơ và vẫn muốn đi</label>}</div>}
+                  <button disabled={(logistics.long&&(logistics.transport<1||logistics.medical<1)&&!riskAccepted) || city.res.food<supplies.food || busy || !warEnabled || sel.registered === false || !logistics.fighters || city.era - sel.era > 1 || (sel.shieldUntil ?? 0) > t || wars.some((w) => w.status !== "completed" && w.status !== "cancelled")} onClick={() => onAttack(sel.id, army)}>Xuất {troopCount(army)} lính</button>
                 </div>
               )}
             </>

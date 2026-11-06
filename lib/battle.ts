@@ -85,6 +85,15 @@ function tick(s:BattleState){
   for(const g of s.groups){if(!living(g))continue;
     const enemy=s.groups.filter(e=>e.side!==g.side&&living(e)).sort((a,b)=>dist(g,a)-dist(g,b)||a.id.localeCompare(b.id))[0];
     if(g.order.type==='retreat'){move(s,g,{x:0,y:g.y});if(g.x<=.3)g.escaped=true;continue;}
+    if(g.u==='wagon'||g.u==='medic'){
+      const allies=s.groups.filter(a=>a.side===g.side&&living(a)&&UNITS[a.u].atk>0);
+      const wounded=allies.filter(a=>a.hp<a.count*UNITS[a.u].hp).sort((a,b)=>dist(g,a)-dist(g,b))[0];
+      const lead=(g.u==='medic'?wounded:undefined)??allies.sort((a,b)=>dist(g,a)-dist(g,b))[0];
+      if(g.u==='medic'&&wounded&&dist(g,wounded)<=3)wounded.hp=Math.min(wounded.count*UNITS[wounded.u].hp,wounded.hp+g.count*.4);
+      if(g.order.type==='move')move(s,g,g.order);
+      else if(lead&&dist(g,lead)>2)move(s,g,{x:Math.max(.5,Math.min(W-.5,lead.x+(g.side==='attacker'?-2:2))),y:lead.y});
+      continue;
+    }
     if(enemy&&dist(g,enemy)<=range(g.u)){strike(s,g.id,g.u==='bow'?'arrow':g.u==='sling'?'stone':'melee',g,enemy);damage(enemy,UNITS[g.u].atk*g.count/10);continue;}
     if(g.side==='defender'){
       if(enemy&&(s.status==='retreating'||dist(g,enemy)<10)){move(s,g,enemy);continue;}
