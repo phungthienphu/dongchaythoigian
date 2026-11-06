@@ -186,7 +186,40 @@ export type City = {
   alarm?: boolean; // bell rung for the incoming raid
 };
 
-export type EnvoyTrip = { id: number; target: string; targetName: string; depart: number; arrive: number; back: number; arrived?: boolean; scouting?: boolean };
+export type EnvoyTrip = { id: number; target: string; targetName: string; depart: number; arrive: number; back: number; arrived?: boolean; scouting?: boolean; villageRoute?: number[] };
+/** Village leg of a diplomatic journey uses the same walkable terrain as villagers. */
+export function envoyVillageRoute(c: City): number[] {
+  const house=buildings(c).find(([,b])=>b.k==="envoy"&&isBuildingActive(b));
+  if(!house)return [];
+  const from=house[0],prev=new Int32Array(W*H).fill(-1),queue=[from];prev[from]=from;
+  for(let head=0;head<queue.length;head++){
+    const i=queue[head],x=i%W,y=Math.floor(i/W);
+    if(i!==from&&(x===0||y===0||x===W-1||y===H-1)){
+      const route=[i];for(let tile=i;tile!==from;){tile=prev[tile];route.push(tile);}return route.reverse();
+    }
+    for(const [dx,dy] of N8){
+      const nx=x+dx,ny=y+dy;if(!inb(nx,ny))continue;const next=idx(nx,ny);
+      if(prev[next]!==-1||!haulPassable(c,next,-1,false))continue;
+      if(dx&&dy&&(!haulPassable(c,idx(nx,y),-1,false)||!haulPassable(c,idx(x,ny),-1,false)))continue;
+      prev[next]=i;queue.push(next);
+    }
+  }
+  return [];
+}
+export function envoyVillagePosition(tr: EnvoyTrip, at: number) {
+  const route=tr.villageRoute;if(!route?.length || at<tr.depart || at>=tr.back)return null;
+  const length=routeLength(route),leg=Math.max(1,Math.min(length*HAUL_TILE_MS,(tr.arrive-tr.depart)*.8,(tr.back-tr.arrive)*.8));
+  let distance:number,returning=false;
+  if(at<tr.depart+leg)distance=(at-tr.depart)/leg*length;
+  else if(at>=tr.back-leg){distance=(tr.back-at)/leg*length;returning=true;}
+  else return null;
+  for(let i=1;i<route.length;i++){
+    const a=route[i-1],b=route[i],dx=b%W-a%W,dy=Math.floor(b/W)-Math.floor(a/W),d=Math.hypot(dx,dy);
+    if(distance<=d){const f=d?distance/d:1;return {x:a%W+.5+dx*f,y:Math.floor(a/W)+.5+dy*f,face:((dx-dy)*(returning?-1:1)>=0?1:-1) as 1|-1,returning};}distance-=d;
+  }
+  return {x:route[0]%W+.5,y:Math.floor(route[0]/W)+.5,face:1 as const,returning};
+}
+
 export const VISIT_MS = 3 * 24 * HOUR;
 export const WORLD = 200; // world map is WORLD × WORLD cells
 const ENVOY_CELLS_PER_MIN = 2;
@@ -1126,6 +1159,8 @@ function stepWildlife(c: City, at: number): boolean {
 function stepEnvoys(c: City, nt: number) {
   let changed = false;
   for (const tr of [...(c.trips ?? [])]) {
+    const local=envoyVillagePosition(tr,nt);
+    if(local && reveal(c,idx(Math.floor(local.x),Math.floor(local.y)),2)) changed=true;
     // Exploration is resolved by the server; clients cannot predict a hidden target.
     if (tr.scouting && !tr.target) continue;
     if (!tr.arrived && tr.arrive <= nt) {
@@ -1150,9 +1185,11 @@ export function sendEnvoy(c: City, target: string, targetName: string, cells: nu
   if (!envoyCount(c)) return `Cần xây ${ENVOY_HOUSE[c.era]} trước.`;
   if (envoysAway(c) >= envoyCount(c)) return `Tất cả ${ENVOY_NAMES[c.era].toLowerCase()} đang đi vắng.`;
   if ((c.trips ?? []).some((t) => t.target === target)) return `Đã có ${ENVOY_NAMES[c.era].toLowerCase()} đang đi tới đó.`;
+  const villageRoute=envoyVillageRoute(c);
+  if(villageRoute.length<2)return "Nhà sứ giả chưa có đường ra ngoài. Hãy mở lối trên đất, tránh núi đá, sông và tường kín.";
   const ms = envoyMs(c, cells);
   const id = (c.trips ?? []).reduce((a, t) => Math.max(a, t.id), 0) + 1;
-  c.trips = [...(c.trips ?? []), { id, target, targetName, depart: now, arrive: now + ms, back: now + 2 * ms }];
+  c.trips = [...(c.trips ?? []), { id, target, targetName, depart: now, arrive: now + ms, back: now + 2 * ms, villageRoute }];
   log(c, now, `${ENVOY_NAMES[c.era]} lên đường tới ${targetName}, tới nơi sau ${Math.max(1, Math.round(ms / MIN))} phút.`);
   return null;
 }

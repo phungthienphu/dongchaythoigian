@@ -1,6 +1,6 @@
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
-import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
+import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
 import { placementTiles } from "@/lib/build-placement";
 import type { Fx, Villager } from "./villagers";
 
@@ -1487,6 +1487,12 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       for(let n=0;n<count;n++){const fx=embassy[0]%W+1.1+n*.3,fy=Math.floor(embassy[0]/W)+.8;
         if(onScreen(fx-.5,fy-.5))items.push({d:fx+fy,f:()=>{const [sx,sy]=P(r.v,fx,fy);drawEnvoyActor(r.c,city.era,sx,sy,r.v.s,r.anim,false);}});
       }
+    }
+    for (const tr of city.trips??[]) {
+      const actor=envoyVillagePosition(tr,o.now);if(!actor)continue;
+      const {x:fx,y:fy}=actor,ti=idx(Math.floor(fx),Math.floor(fy));
+      if(!seen[ti]||!onScreen(fx-.5,fy-.5))continue;
+      items.push({d:fx+fy,f:()=>{const [sx,sy]=P(r.v,fx,fy);drawEnvoyActor(r.c,city.era,sx,sy,r.v.s,r.anim,true,actor.face);}});
     }
     // soldiers at home stand in rows beside the first barracks
     const bar = buildings(city).find(([, b]) => b.k === "barracks" && b.lvl >= 1 && !b.burned && !b.flooded);

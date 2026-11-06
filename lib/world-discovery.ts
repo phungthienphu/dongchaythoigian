@@ -1,4 +1,4 @@
-import { canVisit, ENVOY_NAMES, envoysAway, envoyCount, MIN, type City, type EnvoyTrip } from './engine';
+import { canVisit, envoyVillageRoute, ENVOY_NAMES, envoysAway, envoyCount, MIN, type City, type EnvoyTrip } from './engine';
 
 export const SCOUT_MS = 2 * MIN;
 /** Legacy envoy visits count as prior discoveries, even after their report expires. */
@@ -11,9 +11,11 @@ export function canViewVillage(c: Pick<City, 'visits'>, id: string, friend: bool
 export function beginDiscovery(c: City, now: number): string | null {
   if (!envoyCount(c)) return 'Cần xây Nhà sứ giả trước.';
   if (envoysAway(c) >= envoyCount(c)) return 'Tất cả sứ giả đang đi vắng.';
+  const villageRoute=envoyVillageRoute(c);
+  if(villageRoute.length<2)return "Nhà sứ giả chưa có đường ra ngoài. Hãy mở lối trên đất, tránh núi đá, sông và tường kín.";
   const id = (c.trips ?? []).reduce((n,t) => Math.max(n,t.id),0)+1;
   // No hidden target ID, name, coordinate or distance is sent to the browser.
-  const trip: EnvoyTrip = { id, target:'', targetName:'Vùng chưa biết', scouting:true, depart:now, arrive:now+SCOUT_MS, back:now+2*SCOUT_MS };
+  const trip: EnvoyTrip = { id, target:'', targetName:'Vùng chưa biết', scouting:true, depart:now, arrive:now+SCOUT_MS, back:now+2*SCOUT_MS, villageRoute };
   c.trips = [...(c.trips ?? []),trip];
   c.log = [{at:now,msg:`${ENVOY_NAMES[c.era]} lên đường dò tìm nước mới. Có tin sau 2 phút, trở về sau 4 phút.`},...c.log].slice(0,60);
   return null;
