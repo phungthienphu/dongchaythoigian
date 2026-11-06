@@ -17,7 +17,7 @@ try {
   fs.writeFileSync(path.join(temp, 'package.json'), '{"type":"module"}');
   const { visibleTileBounds, fitView, camView, focusOn, pickBuilding, pickVillageTarget, pickHomeSoldier } = await import(pathToFileURL(path.join(temp, 'draw.js')).href);
   const { Crowd } = await import(pathToFileURL(path.join(temp, 'villagers.js')).href);
-  const { newCity, G, idx, homeSoldiers, applyAction, haulPosition, updateRefuges, refugePosition } = await import(pathToFileURL(path.join(temp, 'engine.js')).href);
+  const { newCity, G, R, idx, homeSoldiers, applyAction, haulPosition, updateRefuges, refugePosition } = await import(pathToFileURL(path.join(temp, 'engine.js')).href);
 let checked=0,minReduction=Infinity;
 for(const [w,h] of [[390,844],[1440,900]]) for(const zoom of [1,3,8,18]) for(const [cx,cy] of [[1,1],[48,48],[95,95]]) {
  const f=fitView(w,h),cam={zoom:1,px:0,py:0};focusOn(f,cam,cx,cy,zoom);
@@ -157,6 +157,20 @@ const lonePerson={...blockingPerson,fx:15.5,fy:15.5};
 assert.equal(pickVillageTarget(pickView,pickCity,[lonePerson],1,...project(15.5,15.5,10))?.type,'person','people on empty terrain remain selectable');
 console.log('PASS: building click survives actor overlap; modifier selects person; empty-ground people remain selectable.');
 console.log('PASS: roof/base building picking, adjacent empty/fog/air rejection, frontmost overlap and three-era envoy heights.');
+
+// Canal floors sit below ground and their connected arms extend beyond the center box.
+const canalCity=newCity(0,123);canalCity.t.fill(G);canalCity.seen.fill(1);canalCity.b={};canalCity.people=[];
+const center=idx(10,10),directions=[[1,0],[-1,0],[0,1],[0,-1]];
+for(const era of [2,3])for(const [dx,dy]of directions){
+ canalCity.era=era;canalCity.b={[center]:{k:'canal',lvl:1,doneAt:null}};canalCity.t.fill(G);canalCity.t[idx(10+dx,10+dy)]=R;
+ const point=project(10.5+dx*.49,10.5+dy*.49,-3);
+ assert.deepEqual(pickBuilding(pickView,canalCity,...point),{x:10,y:10},`canal era ${era} submerged arm ${dx},${dy}`);
+ assert.deepEqual(pickVillageTarget(pickView,canalCity,[],1,...point)?.cell,{x:10,y:10},'lowered canal floor must not fall through to the neighbouring cell');
+ canalCity.t.fill(G);canalCity.b[idx(10+dx,10+dy)]={k:'canal',lvl:1,doneAt:null};
+ assert.deepEqual(pickBuilding(pickView,canalCity,...project(10.5+dx*.35,10.5+dy*.35,-3)),{x:10,y:10},`disconnected dry arm ${dx},${dy}`);
+ assert.equal(pickBuilding(pickView,canalCity,...project(10.9,10.9)),null,'empty canal tile corner remains empty');
+}
+console.log('PASS: wet/dry canal branches and recessed floors are clickable in all four directions and both eras.');
 
 const fleeingCity=newCity(0,123);fleeingCity.t.fill(G);fleeingCity.seen.fill(1);fleeingCity.b={};fleeingCity.people=fleeingCity.people.slice(0,1);fleeingCity.camp=idx(10,10);
 fleeingCity.b[idx(12,10)]={k:'house',lvl:1,doneAt:null};

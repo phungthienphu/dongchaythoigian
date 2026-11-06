@@ -709,21 +709,11 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
     case "canal": {
       const wet = r.D.wet[i], z = -3;
       const water = wet ? (r.season === 3 ? "#6a9fc2" : "#4796cc") : "#86704f";
-      const w = 0.2, links: [number, number][] = [];
-      for (const [dx, dy] of N4) {
-        if (!inb(x + dx, y + dy)) continue;
-        const j = idx(x + dx, y + dy);
-        if (r.city.t[j] === R || r.city.b[j]?.k === "canal") links.push([dx, dy]);
-      }
       const rect = (u0: number, v0: number, u1: number, v1: number) => {
         poly(c, [q(u0, v0, 1), q(u1, v0, 1), q(u1, v1, 1), q(u0, v1, 1)], r.city.era===3 ? "#b3c0b6" : "#a28a62");
         poly(c, [q(u0 + 0.05, v0 + 0.05, z), q(u1 - 0.05, v0 + 0.05, z), q(u1 - 0.05, v1 - 0.05, z), q(u0 + 0.05, v1 - 0.05, z)], water);
       };
-      rect(-w - 0.05, -w - 0.05, w + 0.05, w + 0.05);
-      for (const [dx, dy] of links) {
-        if (dx) rect(dx > 0 ? 0 : -0.5, -w - 0.05, dx > 0 ? 0.5 : 0, w + 0.05);
-        else rect(-w - 0.05, dy > 0 ? 0 : -0.5, w + 0.05, dy > 0 ? 0.5 : 0);
-      }
+      for(const bounds of canalFootprints(r.city,x,y))rect(...bounds);
       break;
     }
     case "levee": {
@@ -1297,6 +1287,17 @@ export function herdAnimals(city: City, h: { id: number; at: number; n: number }
 
 type HitShape = { u0: number; v0: number; u1: number; v1: number; wall: number; roof?: number; pyramid?: boolean; z?: number };
 
+/** Share canal geometry between painting and picking, including disconnected dry branches. */
+function canalFootprints(city:City,x:number,y:number):[number,number,number,number][]{
+  const rects:[number,number,number,number][]=[[-.25,-.25,.25,.25]];
+  for(const [dx,dy]of N4){
+    if(!inb(x+dx,y+dy))continue;const tile=idx(x+dx,y+dy);
+    if(city.t[tile]!==R&&city.b[tile]?.k!=="canal")continue;
+    rects.push(dx?[dx>0?0:-.5,-.25,dx>0?.5:0,.25]:[-.25,dy>0?0:-.5,.25,dy>0?.5:0]);
+  }
+  return rects;
+}
+
 /** Match the main solid silhouettes; ignore smoke, shadows and thin waving flags. */
 function buildingHitShapes(k: BKey, lvl: number, era: number): HitShape[] {
   const hs = 1 + .2 * Math.max(0, lvl - 1);
@@ -1314,7 +1315,7 @@ function buildingHitShapes(k: BKey, lvl: number, era: number): HitShape[] {
     case "fire": return [shape(-.22, -.22, .22, .22, 1, 20, true)];
     case "logistics": case "infirmary": return [shape(-.4,-.34,.3,.18,25),shape(-.32,.26,.24,.43,10)];
     case "farm": return [shape(-.46, -.46, .46, .46, 3 * hs)];
-    case "canal": return [shape(-.25, -.25, .25, .25, 1)];
+    case "canal": return [{...shape(-.25, -.25, .25, .25, 4),z:-3}];
     case "levee": return [shape(-.48, -.48, .48, .48, 6)];
     case "smelter": return [shape(-.3, -.3, .3, .3, 12, 8, true), shape(.05, -.15, .2, 0, 34)];
     case "builderhouse": return [shape(-.4,-.38,.29,.2,(era===1?9:era===2?14:19)*hs,era===1?8:11),shape(-.25,.26,.3,.4,7)];
@@ -1348,7 +1349,10 @@ export function pickBuilding(v: View, city: City, sx: number, sy: number): { x: 
   const candidates = buildings(city).filter(([tile]) => city.seen[tile]).sort(([a], [b]) => (b % W + Math.floor(b / W)) - (a % W + Math.floor(a / W)) || Math.floor(b / W) - Math.floor(a / W));
   for (const [tile, building] of candidates) {
     const x = tile % W, y = Math.floor(tile / W);
-    for (const h of buildingHitShapes(building.k, Math.max(1, building.lvl), city.era)) {
+    const shapes:HitShape[]=building.k==='canal'
+      ?canalFootprints(city,x,y).map(([u0,v0,u1,v1])=>({u0,v0,u1,v1,wall:4,z:-3}))
+      :buildingHitShapes(building.k, Math.max(1, building.lvl), city.era);
+    for (const h of shapes) {
       const q = (u: number, w: number, z: number): Pt => P(v, x + .5 + u, y + .5 + w, z * v.s);
       const z = h.z ?? 0, top = z + h.wall;
       const a = q(h.u0, h.v0, z), b = q(h.u1, h.v0, z), c = q(h.u1, h.v1, z), d = q(h.u0, h.v1, z);
