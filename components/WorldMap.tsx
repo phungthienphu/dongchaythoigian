@@ -1,6 +1,8 @@
 "use client";
 
 // World map: every nation is a fortress on a WORLD × WORLD board. Envoys travel between them.
+import { envoyWorldRoutes } from "@/lib/envoy-world";
+import { worldWarMessage, type WarLoadStatus } from "@/lib/world-service-status";
 import FriendSearch, { addFriend } from "./FriendSearch";
 import { drawEnvoyActor } from "./draw";
 import { useEffect, useRef, useState } from "react";
@@ -15,6 +17,10 @@ type Props = {
   onFriendsChanged: () => Promise<void>;
   wars: WarSummary[];
   warEnabled: boolean;
+  warStatus?: WarLoadStatus;
+  warError?: string | null;
+  onRetryWar?: () => void;
+  feedback?: {text:string;err?:boolean} | null;
   onAttack: (id: string, troops: Troops) => void;
   nations: Nation[];
   city: City;
@@ -37,7 +43,7 @@ function hash(n: number) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled, onAttack, nations, city, now, busy, onEnvoy, onVisit, onClose }: Props) {
+export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled, warStatus="ready", warError, onRetryWar, feedback, onAttack, nations, city, now, busy, onEnvoy, onVisit, onClose }: Props) {
   const cv = useRef<HTMLCanvasElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const me = nations.find((n) => n.me);
@@ -97,21 +103,6 @@ export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled,
       ctx.strokeStyle = "rgba(255,255,255,.06)"; ctx.lineWidth = 1; ctx.beginPath();
       for (let g = 0; g <= WORLD; g += 10) { const [a] = S(g, 0); ctx.moveTo(a, y0); ctx.lineTo(a, y1); const [, b] = S(0, g); ctx.moveTo(x0, b); ctx.lineTo(x1, b); }
       ctx.stroke();
-      const mine = ns.find((n) => n.me);
-      // envoy routes
-      for (const tr of my.trips ?? []) {
-        const to = ns.find((n) => n.id === tr.target);
-        if (!mine || !to) continue;
-        const [ax, ay] = S(mine.x, mine.y), [bx, by] = S(to.x, to.y);
-        ctx.setLineDash([6, 5]); ctx.strokeStyle = "rgba(127,224,255,.8)"; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
-        const tn = now(), going = tn < tr.arrive;
-        const p = going ? (tn - tr.depart) / (tr.arrive - tr.depart) : 1 - (tn - tr.arrive) / (tr.back - tr.arrive);
-        const q = Math.max(0, Math.min(1, p)), ex = ax + (bx - ax) * q, ey = ay + (by - ay) * q;
-        ctx.fillStyle = "#7fe0ff"; ctx.beginPath(); ctx.arc(ex, ey, 5 + Math.sin(t / 200) * 1, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "#0b2a33"; ctx.font = "600 11px system-ui, sans-serif"; ctx.textAlign = "center";
-        drawEnvoyActor(ctx,my.era,ex,ey-3,.7,t,true,going?1:-1);
-      }
       // Outgoing and incoming armies follow authoritative departure/return times.
       for (const march of state.current.wars) {
         if (!["marching", "returning", "fighting"].includes(march.status)) continue;
@@ -150,6 +141,19 @@ export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled,
           ctx.fillStyle = n.me ? "#f0c766" : n.friend ? "#bdefff" : "#ebe5d2"; ctx.fillText(label, sx, sy + r * 0.75 + 12.5);
         }
       }
+      // Route overlays must sit above fortresses: close neighbours otherwise hide the entire line.
+      for (const journey of envoyWorldRoutes(my,ns,now())) {
+        const [ax,ay]=S(journey.from.x,journey.from.y),[bx,by]=S(journey.to.x,journey.to.y),[ex,ey]=S(journey.x,journey.y);
+        ctx.setLineDash([6,5]);ctx.strokeStyle="rgba(127,224,255,.95)";ctx.lineWidth=2.5;
+        ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke();ctx.setLineDash([]);
+        ctx.fillStyle="#7fe0ff";ctx.beginPath();ctx.arc(ex,ey,5+Math.sin(t/200),0,Math.PI*2);ctx.fill();
+        drawEnvoyActor(ctx,my.era,ex,ey-3,.7,t,true,journey.returning?-1:1);
+        const label=`Sứ giả của bạn · ${journey.returning?"đang về":"đang đi"}`;
+        ctx.font="600 11px system-ui, sans-serif";ctx.textAlign="center";
+        const width=ctx.measureText(label).width+10;
+        ctx.fillStyle="rgba(12,20,18,.9)";ctx.fillRect(ex-width/2,ey-40,width,17);
+        ctx.fillStyle="#bdefff";ctx.fillText(label,ex,ey-28);
+      }
       raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
@@ -173,6 +177,7 @@ export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled,
   const [riskAccepted,setRiskAccepted]=useState(false);
   const riskKey=JSON.stringify([sel?.id,army,marchDuration]);
   useEffect(()=>setRiskAccepted(false),[riskKey]);
+  const battleMessage=worldWarMessage(signedIn,warStatus,warEnabled,warError);
   const trip = sel ? (city.trips ?? []).find((x) => x.target === sel.id) : undefined;
 
   return (
@@ -209,6 +214,8 @@ export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled,
         <button onClick={onClose}>Về làng</button>
       </header>
       <aside className="wm-discovery" aria-label="Khám phá thế giới">
+        <p>Nét đứt xanh và chấm di chuyển: sứ giả của bạn, đang đi hoặc đang về.</p>
+        {feedback && <p role={feedback.err?"alert":"status"} className={feedback.err?"err":"ok"}>{feedback.text}</p>}
         <p>Chỉ hiện nước đã được sứ giả tìm thấy. Bạn bè có thể xem làng qua danh sách, nhưng vị trí vẫn giữ kín.</p>
         {(city.trips ?? []).map(tr=><p key={tr.id}>{!tr.target ? `Đang dò vùng chưa biết · có tin sau ${fmtMin(tr.arrive-t)}` : `${tr.targetName} · ${t<tr.arrive?`tới sau ${fmtMin(tr.arrive-t)}`:`đang trở về, còn ${fmtMin(tr.back-t)}`}`}</p>)}
       </aside>
@@ -237,7 +244,7 @@ export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled,
                 }}>{sel.registered === false ? "Chưa có tài khoản để kết bạn" : friendBusy ? "Đang kết bạn…" : "Kết bạn"}</button> : <a href="/api/auth/login">Đăng nhập để kết bạn</a>}
                 {(sel.friend || canVisit(city, sel.id, t)) && <button className="primary" onClick={() => onVisit(sel.id)}>Xem làng của họ</button>}
                 <button disabled={busy || !myEnvoys || away >= myEnvoys || !!trip} onClick={() => onEnvoy(sel.id)}>
-                  {!myEnvoys ? "Cần xây nhà sứ giả" : trip ? `${en} đang đi` : away >= myEnvoys ? `Hết ${en.toLowerCase()} ở nhà` : `Cử ${en.toLowerCase()} tới đây`}
+                  {busy ? "Đang xử lý…" : !myEnvoys ? "Cần xây nhà sứ giả" : trip ? `${en} đang đi` : away >= myEnvoys ? `Hết ${en.toLowerCase()} ở nhà` : `Cử ${en.toLowerCase()} tới đây`}
                 </button>
               </div>
               {canVisit(city, sel.id, t) && (
@@ -245,7 +252,9 @@ export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled,
                   <h3>Xuất quân</h3>
                   {wars.some((w) => w.status !== "completed" && w.status !== "cancelled") && <p className="muted small">Hoàn tất đoàn quân hoặc trận hiện tại trước khi xuất quân tiếp.</p>}
                   {sel.registered === false && <p className="muted small">Nước này cần đăng nhập Google để tham gia trận đánh.</p>}
-                  {!warEnabled && <p className="muted small">Máy chủ trận đánh chưa được kết nối.</p>}
+                  {battleMessage && <p className="muted small" role="status">{battleMessage}</p>}
+                  {warStatus==="error" && onRetryWar && <button onClick={onRetryWar}>Thử kết nối lại</button>}
+                  <p className="muted small">Đối phương không cần online; quân và công trình tự phòng thủ.</p>
                   {(sel.shieldUntil ?? 0) > t && <p className="small">Đang có khiên bảo vệ: {fmtMin(sel.shieldUntil! - t)}.</p>}
                   {city.era - sel.era > 1 && <p className="small">Không đánh nước kém mình quá một thời đại.</p>}
                   {UKEYS.filter((u) => (city.army[u] ?? 0) > 0).map((u) => (
@@ -255,7 +264,7 @@ export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled,
                   ))}
                   {troopCount(army)>0 && <p className={city.res.food<supplies.food?"err small":"small"}>Dự trữ: <b>{supplies.food} lương thực</b> · {fmtMin(marchDuration)} mỗi chiều, gồm đường về và dự phòng chiến đấu. Trừ một lần khi xuất quân, không tính thêm khẩu phần ở kho cho đoàn đang đi.{city.res.food<supplies.food?` Còn thiếu ${Math.ceil(supplies.food-city.res.food)} lương thực.`:""}</p>}
                   {logistics.long && logistics.fighters>0 && <div className="small"><p className={logistics.losses?"err":""}>Đường xa, hiểm trở: vận tải đáp ứng {Math.round(logistics.transport*100)}%, quân y {Math.round(logistics.medical*100)}%. Dự kiến hao {logistics.losses}/{logistics.fighters} chiến binh trên toàn chuyến (tính khi tới nơi). Có thể xuất quân thiếu hỗ trợ.</p>{(logistics.transport<1||logistics.medical<1) && <label><input type="checkbox" checked={riskAccepted} onChange={e=>setRiskAccepted(e.target.checked)}/> Tôi hiểu nguy cơ và vẫn muốn đi</label>}</div>}
-                  <button disabled={(logistics.long&&(logistics.transport<1||logistics.medical<1)&&!riskAccepted) || city.res.food<supplies.food || busy || !warEnabled || sel.registered === false || !logistics.fighters || city.era - sel.era > 1 || (sel.shieldUntil ?? 0) > t || wars.some((w) => w.status !== "completed" && w.status !== "cancelled")} onClick={() => onAttack(sel.id, army)}>Xuất {troopCount(army)} lính</button>
+                  <button disabled={(logistics.long&&(logistics.transport<1||logistics.medical<1)&&!riskAccepted) || city.res.food<supplies.food || busy || !!battleMessage || !warEnabled || sel.registered === false || !logistics.fighters || city.era - sel.era > 1 || (sel.shieldUntil ?? 0) > t || wars.some((w) => w.status !== "completed" && w.status !== "cancelled")} onClick={() => onAttack(sel.id, army)}>Xuất {troopCount(army)} lính</button>
                 </div>
               )}
             </>

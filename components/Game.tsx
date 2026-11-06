@@ -391,8 +391,13 @@ export default function Game() {
         },
       });
       publish(data.state);
-    } else actionQueue.current.setAuthoritative(data.state);
+    } else {
+      const accepted=actionQueue.current.setAuthoritative(data.state);
+      if(data.name)setName(data.name);
+      return accepted;
+    }
     if (data.name) setName(data.name);
+    return true;
   }, []);
 
   const loadCity = useCallback(async () => {
@@ -561,19 +566,22 @@ export default function Game() {
       return;
     }
     setBusy(true);
+    setMsg({text:"Đang cử sứ giả…"});
     try {
       const res = await fetch("/api/world/envoy", {
-        method: "POST", headers: { "content-type": "application/json" },
+        method: "POST", signal:AbortSignal.timeout(15000), headers: { "content-type": "application/json" },
         body: JSON.stringify(id ? { target: id } : { explore: true }),
       });
       const data = await res.json();
-      if (data.state) accept(data);
+      const accepted=data.state ? accept(data) : false;
+      if(!res.ok || data.error){setMsg({text:data.error??"Không cử được sứ giả. Hãy thử lại.",err:true});return;}
+      if(!accepted)await loadCity();
       void loadWorld();
-      setMsg(data.error ? { text: data.error, err: true } : {
-        text: id ? `${ENVOY_NAMES[city.era]} đã lên đường.` : "Sứ giả đang dò tìm nước mới. Có tin sau 2 phút; trở về sau 4 phút.",
+      setMsg({
+        text: id ? `${ENVOY_NAMES[city.era]} đã lên đường. Tuyến đi hiển thị bằng nét đứt xanh trên bản đồ.` : "Sứ giả đang dò tìm nước mới. Có tin sau 2 phút; trở về sau 4 phút.",
       });
     } catch {
-      setMsg({ text: "Mất kết nối khi cử sứ giả. Thử lại sau.", err: true });
+      setMsg({ text: "Chưa nhận được xác nhận cử sứ giả. Hãy tải lại làng để kiểm tra trước khi cử tiếp.", err: true });
     } finally { setBusy(false); }
   };
 
@@ -1111,6 +1119,10 @@ export default function Game() {
           onFriendsChanged={async () => { await Promise.all([loadMe(), loadWorld()]); }}
           wars={war.wars}
           warEnabled={war.enabled}
+          warStatus={war.status}
+          warError={war.error}
+          onRetryWar={()=>void war.refresh()}
+          feedback={msg}
           onAttack={async (id, troops) => {
             if (busy || actionQueue.current?.isPending) { setMsg({ text: "Đang lưu thao tác, chờ giây lát trước khi xuất quân." }); return; }
             setBusy(true);
