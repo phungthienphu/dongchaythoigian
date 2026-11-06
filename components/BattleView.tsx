@@ -240,7 +240,7 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
     </header>
     {!finished && <p className={styles.hint}>Dân đang chạy tìm chỗ trú, tạm ngừng làm việc. Dân không tham chiến; trú ẩn không bảo đảm an toàn nếu làng bị tàn phá.</p>}
     {error && <div className={styles.error} role="alert">{error} <button type="button" onClick={() => setRetry((n) => n + 1)}>Kết nối lại</button></div>}
-    {finished && <div className={styles.result} role="status"><strong>{packet?.war.status === "cancelled" ? "Đoàn quân đã quay về." : winner === packet?.side ? "Bạn đã thắng trận." : "Trận đánh đã kết thúc."}</strong>{winner === "attacker" && <p>{MERCY}</p>}<p>Dân mất: {battle?.populationLoss ?? packet?.war.result?.populationLoss ?? 0} · Nhà cháy: {battle?.buildings.filter((b) => b.burned && !b.initiallyBurned).length ?? packet?.war.result?.burnedTiles.length ?? 0}</p></div>}
+    {finished && <div className={styles.result} role="status"><strong>{packet?.war.status === "cancelled" ? "Đoàn quân đã quay về." : winner === packet?.side ? "Bạn đã thắng trận." : winner ? "Bạn đã thua trận." : "Trận đánh đã kết thúc."}</strong>{winner === "attacker" && <p>{MERCY}</p>}<p>Dân mất: {battle?.populationLoss ?? packet?.war.result?.populationLoss ?? 0} · Nhà cháy: {battle?.buildings.filter((b) => b.burned && !b.initiallyBurned).length ?? packet?.war.result?.burnedTiles.length ?? 0}</p></div>}
     <div className={styles.map}>
       <canvas ref={canvas} tabIndex={0} onKeyDown={(e) => {
         const f = baseView.current; if (!f) return;

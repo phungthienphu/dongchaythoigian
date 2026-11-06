@@ -7,6 +7,7 @@ import { createBattle, type BattleState, type BattleResult } from "./battle";
 import { knowsNation } from "./world-discovery";
 import { reserveMarchFood, marchLogistics } from "./march-supplies";
 import { worldDist } from "./world";
+import { battleReport } from "./battle-report";
 
 export type BattleDoc = {
   _id: string; attackerId: string; defenderId: string; attackerName: string; defenderName: string;
@@ -194,8 +195,13 @@ export async function finishBattle(id: string, result: BattleResult) {
     updateRefuges(c,now);
     c.haulAt = now;
     c.last = now; // battle simulation owns the frozen interval
-    c.log.unshift({ at: now, msg: result.winner === "attacker" ? "Làng bị đánh bại. Khiên bảo vệ có hiệu lực trong 6 giờ." : "Đã bảo vệ được làng. Khiên bảo vệ có hiệu lực trong 6 giờ.", cls: result.winner === "attacker" ? "warn" : "good" });
+    c.log.unshift({ at: now, msg: battleReport(result,"defender",w.attackerName)+" Khiên bảo vệ có hiệu lực trong 6 giờ.", cls: result.winner === "attacker" ? "warn" : "good" });
     await col.updateOne({ _id: d._id }, { $set: cityUpdate(c, now), $unset: { incomingBattleId: "" }, $inc: { ver: 1 } }, { session });
+    const a=await col.findOne({_id:w.attackerId},{session});
+    if(a){
+      a.state.log.unshift({at:now,msg:battleReport(result,"attacker",w.defenderName),cls:result.winner==='attacker'?'good':'warn'});
+      await col.updateOne({_id:a._id},{$set:cityUpdate(a.state,now),$inc:{ver:1}},{session});
+    }
     const back = now + w.duration;
     await wars.updateOne({ _id: id }, { $set: { status: "returning", result, endedAt: now, back }, $unset: { snapshot: "" } }, { session });
     return { ...w, status: "returning" as const, result, back };

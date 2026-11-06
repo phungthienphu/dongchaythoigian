@@ -16,6 +16,7 @@ import HowToPlay from "./HowToPlay";
 import { buildAvailability } from "@/lib/build-availability";
 import { placementHint, placementTiles } from "@/lib/build-placement";
 import BattleView from "./BattleView";
+import BattleReports from "./BattleReports";
 import DiplomacyMessages, { diplomacyText } from "./DiplomacyMessages";
 import { useDiplomacy } from "./useDiplomacy";
 import { useWars } from "./useWars";
@@ -1089,6 +1090,7 @@ export default function Game() {
       </div>
 
       {helpOpen && <HowToPlay onClose={()=>setHelpOpen(false)} />}
+      {!worldOpen && !battleOpen && panel!=="log" && me.user && <BattleReports wars={war.wars} playerId={me.user.id} />}
       {battleOpen && <BattleView id={battleOpen} onClose={() => { setBattleOpen(null); void loadCity(); void war.refresh(); }} onSettled={() => { void loadCity(); void war.refresh(); }} />}
       {!worldOpen && !battleOpen && readNotice.key===noticeKey && notices[0]?.at>readNotice.at && panel!=="log" && <div className="war-alerts" role="status"><span>{notices[0].cls==="warn"?"⚠ ":"✉ "}{notices[0].msg}</span><button onClick={()=>openPanel("log")}>Xem thông báo</button></div>}
       {!worldOpen && !battleOpen && (war.wars.some((w) => w.status !== "completed") || war.error) && (
@@ -1290,7 +1292,7 @@ export default function Game() {
             ))}
 
             {panel === "log" && (
-              <><DiplomacyMessages messages={diplomacy.messages} busy={diplomacy.busy} error={diplomacy.error} onAction={diplomacy.act} /><ol className="log">
+              <>{me.user && <BattleReports wars={war.wars} playerId={me.user.id} history />}<DiplomacyMessages messages={diplomacy.messages} busy={diplomacy.busy} error={diplomacy.error} onAction={diplomacy.act} /><ol className="log">
                 {[...c.log].sort((a,b)=>b.at-a.at).map((l, i) => (
                   <li key={i} className={l.cls ?? ""}><span className="t">{stamp(c, l.at)}</span>{l.msg}</li>
                 ))}
