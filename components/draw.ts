@@ -1,6 +1,7 @@
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
 import { B, CAP, F, G, H, HL, N4, N8, O, R, UKEYS, W, wildlifePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
+import { placementTiles } from "@/lib/build-placement";
 import type { Fx, Villager } from "./villagers";
 
 export type View = { TW: number; TH: number; ox: number; oy: number; width: number; height: number; s: number };
@@ -1389,6 +1390,12 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     c.strokeStyle = col; c.lineWidth = 2;
     c.beginPath(); pts.forEach((p, k) => (k ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]))); c.closePath(); c.stroke();
   };
+  if (o.tool) {
+    const allowed = placementTiles(city,D,o.tool);
+    for (const i of visible) if (seen[i] && allowed(i)) {
+      outline({x:i%W,y:Math.floor(i/W)}, "rgba(170,245,130,.75)", "rgba(120,220,90,.25)");
+    }
+  }
   let ghostOk = false;
   if (o.selected) outline(o.selected, "#f0c766", "rgba(240,199,102,.18)");
   if (o.hover) {

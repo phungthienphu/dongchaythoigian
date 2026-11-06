@@ -11,6 +11,7 @@ import {
 import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHerd, pickVillager, pickBuilding, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import { Crowd } from "./villagers";
 import WorldMap from "./WorldMap";
+import { placementHint, placementTiles } from "@/lib/build-placement";
 import BattleView from "./BattleView";
 import { useWars } from "./useWars";
 import { OptimisticCityQueue } from "@/lib/optimistic-city";
@@ -1017,13 +1018,22 @@ export default function Game() {
         {tool && (
           <div className="pickbar">
             <b>Đang xây {buildingName(c, tool)}</b>
-            <span>Bấm ô trống để đặt</span>
+            <span>Ô xanh: xây được · ô đỏ: không hợp lệ. {placementHint(tool)}</span>
+            <button onClick={()=>{
+              const allowed=placementTiles(c,D,tool);
+              let best=-1,distance=Infinity;
+              for(let i=0;i<W*W;i++)if(allowed(i)){const d=cheb(c.camp,i);if(d<distance){best=i;distance=d;}}
+              if(best<0){setMsg({text:"Chưa có ô xây được: kiểm tra vật liệu, thợ rảnh, giới hạn công trình và điều kiện vị trí. "+placementHint(tool),err:true});return;}
+              focusOn(fitRef.current,camRef.current,best%W+.5,Math.floor(best/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));
+              setHover({x:best%W,y:Math.floor(best/W)});
+            }}>Tìm ô xây được</button>
             <button onClick={() => pickTool(null)}>Xong</button>
           </div>
         )}
         <div className={"status" + (status?.err ? " err" : "")}>{saving && <span className="save-state">Đang lưu… · </span>}{status?.text ?? "Bấm vào dân để chọn rồi bấm vào rừng, đồi, đàn thú hoặc sương mù để giao việc. Mở Cửa hàng để xây nhà."}</div>
       </div>
 
+      {helpOpen && <HowToPlay onClose={()=>setHelpOpen(false)} />}
       {battleOpen && <BattleView id={battleOpen} onClose={() => { setBattleOpen(null); void loadCity(); void war.refresh(); }} onSettled={() => { void loadCity(); void war.refresh(); }} />}
       {!worldOpen && !battleOpen && readNotice.key===noticeKey && notices[0]?.at>readNotice.at && panel!=="log" && <div className="war-alerts" role="status"><span>{notices[0].cls==="warn"?"⚠ ":"✉ "}{notices[0].msg}</span><button onClick={()=>openPanel("log")}>Xem thông báo</button></div>}
       {!worldOpen && !battleOpen && (war.wars.some((w) => w.status !== "completed") || war.error) && (

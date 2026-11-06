@@ -9,9 +9,9 @@ import { stripTypeScriptTypes } from 'node:module';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dong-render-check-'));
 try {
-  for (const [input, name] of [['lib/action-input.ts', 'action-input'], ['lib/engine.ts', 'engine'], ['components/draw.ts', 'draw'], ['components/villagers.ts', 'villagers']]) {
+  for (const [input, name] of [['lib/action-input.ts', 'action-input'], ['lib/engine.ts', 'engine'], ['lib/build-placement.ts', 'build-placement'], ['components/draw.ts', 'draw'], ['components/villagers.ts', 'villagers']]) {
     const output = stripTypeScriptTypes(fs.readFileSync(path.join(root, input), 'utf8'))
-      .replaceAll('"./action-input"', '"./action-input.js"').replaceAll('"@/lib/engine"', '"./engine.js"').replaceAll('"./draw"', '"./draw.js"').replaceAll('"./villagers"', '"./villagers.js"');
+      .replaceAll('"./action-input"', '"./action-input.js"').replaceAll('"@/lib/engine"', '"./engine.js"').replaceAll('"@/lib/build-placement"', '"./build-placement.js"').replaceAll("'./engine'", "'./engine.js'").replaceAll('"./draw"', '"./draw.js"').replaceAll('"./villagers"', '"./villagers.js"');
     fs.writeFileSync(path.join(temp, `${name}.js`), output);
   }
   fs.writeFileSync(path.join(temp, 'package.json'), '{"type":"module"}');
