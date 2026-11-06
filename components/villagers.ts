@@ -1,11 +1,12 @@
 // Client-side animation of the people stored on the server. Positions are visual only;
 // what each person does (their task) comes from the server.
-import { B, H, HL, O, R, W, buildings, farmRemaining, cheb, explorerPos, haulPosition, herdById, idx, inb, type City, type Haul, type Person, type ResKey } from "@/lib/engine";
+import { B, H, HL, O, R, W, buildings, refugePosition, farmRemaining, cheb, explorerPos, haulPosition, herdById, idx, inb, type City, type Haul, type Person, type ResKey } from "@/lib/engine";
 import { herdAnimals } from "./draw";
 
 export type Job = "wood" | "quarry" | "gather" | "farm" | "build" | "smith" | "trade" | "hunt" | "explore" | "idle" | "other";
 
 export type Villager = {
+  fleeing?: boolean;
   key: string;
   id: number | null; // person id; null for builders (not people)
   name: string;
@@ -276,13 +277,25 @@ export class Crowd {
     const tnow = performance.now();
     this.fx = this.fx.filter((f) => tnow - f.t0 < f.dur * 1000);
     this.chopping.clear();
-    const alarm = !!(city.raid && city.alarm);
+
     const people = new Map(city.people.map((p) => [p.id, p]));
     for (const v of this.list) {
       v.visible = true;
       v.moving = false;
       v.swing = Math.max(0, v.swing - dt * 3);
       const person = v.id === null ? undefined : people.get(v.id);
+      const refuge=person?refugePosition(person,now):null;
+      if(refuge){
+        v.fleeing=true;
+        const dx=refuge.x-v.fx,dy=refuge.y-v.fy;
+        if(Math.abs(dx-dy)>1e-4)v.face=dx-dy>=0?1:-1;
+        v.fx=refuge.x;v.fy=refuge.y;v.visible=!refuge.hidden || !city.b[person!.refuge!.building!]?.lvl || !!city.b[person!.refuge!.building!]?.burned || !!city.b[person!.refuge!.building!]?.flooded;v.moving=refuge.moving;v.run=refuge.moving;
+        v.state=refuge.moving?(refuge.returning?"toWork":"toHome"):"rest";
+        v.cargo=person?.haul?.carried??0;v.carrying=v.cargo>0;v.carry=person?.haul?.resource??null;v.swing=0;
+        continue;
+      }
+      if(v.fleeing){delete v.fleeing;v.run=false;if(person && !person.haul)this.start(v,city,false);}
+      if(v.id===null && (city.battleId || city.raid)){v.visible=false;continue;}
       if (person?.haul) { this.haulVisual(v, city, person, dt, now, tnow); continue; }
       if (person && person.task.t !== "idle" && person.task.t !== "explore") {
         // A newly assigned worker waits for the engine's first haul tick; no decorative income cycle.
@@ -292,15 +305,6 @@ export class Crowd {
       }
       if (v.haulPhase && person) this.start(v, city, person.task.t === "idle" && person.task.at !== undefined);
       v.haulPhase = undefined; v.cargo = 0;
-      if (alarm && v.id !== null) {
-        // bell rung: everyone runs to the nearest house and stays inside
-        if (v.state === "rest") { v.visible = false; v.t = Math.max(v.t, 1); continue; }
-        if (v.state !== "toHome" || !v.run) {
-          v.home = this.nearestHome(city, tileOf(v.fx, v.fy));
-          this.go(v, city, tileOf(v.fx, v.fy), v.home, "toHome", true);
-          v.carrying = false;
-        }
-      }
       switch (v.state) {
         case "explore": {
           const p = city.people.find((q) => q.id === v.id);

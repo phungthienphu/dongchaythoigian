@@ -17,7 +17,7 @@ try {
   fs.writeFileSync(path.join(temp, 'package.json'), '{"type":"module"}');
   const { visibleTileBounds, fitView, camView, focusOn, pickBuilding, pickVillageTarget } = await import(pathToFileURL(path.join(temp, 'draw.js')).href);
   const { Crowd } = await import(pathToFileURL(path.join(temp, 'villagers.js')).href);
-  const { newCity, G, idx, haulPosition } = await import(pathToFileURL(path.join(temp, 'engine.js')).href);
+  const { newCity, G, idx, haulPosition, updateRefuges, refugePosition } = await import(pathToFileURL(path.join(temp, 'engine.js')).href);
 let checked=0,minReduction=Infinity;
 for(const [w,h] of [[390,844],[1440,900]]) for(const zoom of [1,3,8,18]) for(const [cx,cy] of [[1,1],[48,48],[95,95]]) {
  const f=fitView(w,h),cam={zoom:1,px:0,py:0};focusOn(f,cam,cx,cy,zoom);
@@ -112,5 +112,17 @@ const lonePerson={...blockingPerson,fx:15.5,fy:15.5};
 assert.equal(pickVillageTarget(pickView,pickCity,[lonePerson],1,...project(15.5,15.5,10))?.type,'person','people on empty terrain remain selectable');
 console.log('PASS: building click survives actor overlap; modifier selects person; empty-ground people remain selectable.');
 console.log('PASS: roof/base building picking, adjacent empty/fog/air rejection, frontmost overlap and three-era envoy heights.');
+
+const fleeingCity=newCity(0,123);fleeingCity.t.fill(G);fleeingCity.seen.fill(1);fleeingCity.b={};fleeingCity.people=fleeingCity.people.slice(0,1);fleeingCity.camp=idx(10,10);
+fleeingCity.b[idx(12,10)]={k:'house',lvl:1,doneAt:null};
+const fleeingPerson=fleeingCity.people[0];fleeingPerson.pos=idx(20,10);fleeingPerson.task={t:'chop',at:idx(20,10)};
+fleeingPerson.haul={phase:'return',at:0,nextAt:10000,tile:idx(20,10),route:[idx(20,10),idx(10,10)],routeStart:0,carried:10,capacity:10,resource:'wood',taskKey:'fixture'};
+fleeingCity.raid={warn:0,at:20000,power:1,from:idx(30,10)};updateRefuges(fleeingCity,0);
+const fleeingCrowd=new Crowd();fleeingCrowd.sync(fleeingCity);fleeingCrowd.update(fleeingCity,.1,1000);
+const fleeingActor=fleeingCrowd.list.find(v=>v.id===fleeingPerson.id),expectedFlee=refugePosition(fleeingPerson,1000);
+assert.equal(fleeingActor.run,true);assert.equal(fleeingActor.cargo,10);assert.equal(fleeingActor.fx,expectedFlee.x);assert.equal(fleeingActor.fy,expectedFlee.y);
+fleeingCrowd.update(fleeingCity,.1,10000);assert.equal(fleeingActor.visible,false);assert.equal(fleeingActor.swing,0);
+delete fleeingCity.raid;updateRefuges(fleeingCity,10000);fleeingCrowd.update(fleeingCity,.1,11000);assert.equal(fleeingActor.visible,true);assert.equal(fleeingActor.run,true);
+console.log('PASS: a loaded worker runs to shelter before hauling logic, hides only on arrival and returns with cargo intact.');
 
 } finally { fs.rmSync(temp, { recursive: true, force: true }); }

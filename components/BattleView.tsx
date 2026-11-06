@@ -5,6 +5,7 @@ import type { BattleCommand, BattleSide, BattleState } from "@/lib/battle";
 import type { WarView } from "@/lib/war-view";
 import { derive, UNITS, W, type City, type Derived } from "@/lib/engine";
 import { camView, clampCam, drawCity, fitView, focusOn, screenToCell, zoomAt, type Cam, type View } from "./draw";
+import { Crowd } from "./villagers";
 import { drawBattleStrikes, drawSoldier } from "./battle-actors";
 import styles from "./BattleView.module.css";
 
@@ -127,6 +128,8 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
     const ctx = cv.getContext("2d");
     if (!ctx) return;
     let frame = 0, previousPaint = 0, snapshotTime = 0;
+    const crowd = new Crowd();
+    let crowdAt=0;
     let snapshot: BattleState | null = null;
     let original: City | null = null, burnedKey = "", rendered: City | null = null, derived: Derived | null = null;
     const resize = () => {
@@ -150,6 +153,7 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
         rendered = { ...p.village, b: { ...p.village.b }, army: {}, exps: [], raid: null, guardPosts: [], seen: new Array(W * W).fill(1) };
         for (const building of b?.buildings ?? []) if (rendered.b[building.tile]) rendered.b[building.tile] = { ...rendered.b[building.tile], burned: building.burned };
         derived = derive(rendered);
+        crowd.sync(rendered);
       }
       if (!rendered || !derived) return;
       if (!focused.current) {
@@ -158,7 +162,8 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
         focused.current = true;
       }
       const v = camView(f, camera.current);
-      drawCity(ctx, rendered, derived, { v, now: Date.now(), anim: time, hover: null, selected: null, tool: null, villagers: [], picked: EMPTY_PICKED, fx: [], chopping: EMPTY_CHOPPING });
+      crowd.update(rendered,Math.min(.1,Math.max(0,(time-crowdAt)/1000)),Date.now());crowdAt=time;
+      drawCity(ctx, rendered, derived, { v, now: Date.now(), anim: time, hover: null, selected: null, tool: null, villagers: crowd.list, picked: EMPTY_PICKED, fx: [], chopping: EMPTY_CHOPPING });
       const project = (x: number, y: number) => ({ x: v.ox + (x - y) * v.TW / 2, y: v.oy + (x + y) * v.TH / 2 });
       for (const building of b?.buildings ?? []) {
         if (building.k === "watchtower" && !building.burned && !building.inactive) {
@@ -233,6 +238,7 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
       <div><h2 id="battle-title">{packet ? `${packet.war.attackerName} → ${packet.war.defenderName}` : "Trận đánh"}</h2><p role="status">{finished ? "Trận đã kết thúc" : connection}{battle && !finished ? ` · Tàn phá ${Math.round(battle.devastation * 100)}%` : ""}</p></div>
       <button type="button" onClick={onClose} aria-label="Đóng phòng trận" autoFocus>Đóng</button>
     </header>
+    {!finished && <p className={styles.hint}>Dân đang chạy tìm chỗ trú, tạm ngừng làm việc. Dân không tham chiến; trú ẩn không bảo đảm an toàn nếu làng bị tàn phá.</p>}
     {error && <div className={styles.error} role="alert">{error} <button type="button" onClick={() => setRetry((n) => n + 1)}>Kết nối lại</button></div>}
     {finished && <div className={styles.result} role="status"><strong>{packet?.war.status === "cancelled" ? "Đoàn quân đã quay về." : winner === packet?.side ? "Bạn đã thắng trận." : "Trận đánh đã kết thúc."}</strong>{winner === "attacker" && <p>{MERCY}</p>}<p>Dân mất: {battle?.populationLoss ?? packet?.war.result?.populationLoss ?? 0} · Nhà cháy: {battle?.buildings.filter((b) => b.burned && !b.initiallyBurned).length ?? packet?.war.result?.burnedTiles.length ?? 0}</p></div>}
     <div className={styles.map}>

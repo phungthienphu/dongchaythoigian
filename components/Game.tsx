@@ -962,7 +962,7 @@ export default function Game() {
                 {sel.tendUntil ? <p className="small">Đang cải tạo & gieo lại: {fmtDur(sel.tendUntil-t)}</p> : <button disabled={busy || !!sel.doneAt || !!sel.burned || !!sel.flooded || farmRemaining(sel)>=farmCapacity(sel)} onClick={()=>act({type:"tendFarm",x:selI%W,y:Math.floor(selI/W)})}>Cải tạo & gieo lại · {costText(farmTendCost(sel))} · 30 giây</button>}
                 {farmRemaining(sel)<=0 && <p className="err small">Ruộng bạc màu. Người đã giao đang nghỉ, cần cải tạo để tiếp tục thu hoạch.</p>}
               </>}
-              {sel.k==="farm" && <p className="small">Đã giao {onTarget.length}/{B.farm.jobs} người: {onTarget.filter(p=>p.haul?.phase==="work").length} đang làm trên ruộng; {onTarget.filter(p=>p.haul?.phase!=="work").length} đang đi hoặc chở/chờ nộp hàng. Người về kho vẫn giữ chỗ, không cần cử thêm.</p>}
+              {sel.k==="farm" && <p className="small">Đã giao {onTarget.length}/{B.farm.jobs} người ({onTarget.filter(p=>p.refuge).length} đang tránh địch): {onTarget.filter(p=>!p.refuge && p.haul?.phase==="work").length} đang làm trên ruộng; {onTarget.filter(p=>!p.refuge && p.haul?.phase!=="work").length} đang đi hoặc chở/chờ nộp hàng. Người về kho vẫn giữ chỗ, không cần cử thêm.</p>}
               {B[sel.k].jobs ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{B[sel.k].jobs}</b>. {workersAt(c,selI) ? "Gom đủ một chuyến rồi mang về nộp; chỉ khi nộp xong kho mới tăng." : "Chưa có người làm nên chưa tạo tài nguyên. Bấm Giao người rảnh bên dưới."}</p> : null}
             </>
           ) : (
@@ -1018,7 +1018,7 @@ export default function Game() {
       {c.raid && (
         <div className="raidbar" role="alert">
           <b>⚠ Man rợ ⚔ {c.raid.power} đang kéo đến</b>
-          <span>tới sau {fmtDur(c.raid.at - t)} · quân ở nhà ⚔ {fmt(homePower)}</span>
+          <span>tới sau {fmtDur(c.raid.at - t)} · quân ở nhà ⚔ {fmt(homePower)} · dân tự chạy tìm chỗ trú</span>
           {control ? (
             <button className="primary" disabled={busy || !!c.alarm} onClick={() => act({ type: "alarm" })}>{c.alarm ? "Đã đánh kẻng" : "Đánh kẻng"}</button>
           ) : <span className="muted small">Đình làng cấp 3 mới đánh kẻng được</span>}

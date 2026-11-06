@@ -175,7 +175,8 @@ export type Haul = {
   source?: { kind: "tile" | "herd" | "building"; key: number };
   taskKey: string; workRate?: number; drop?: number;
 };
-export type Person = { id: number; name: string; task: Task; pos?: number; haul?: Haul }; // pos: tile they last headed to
+export type Refuge = { route: number[]; at: number; arrive: number; pausedAt: number; x: number; y: number; building?: number; returnAt?: number; back?: number; returnProgress?: number };
+export type Person = { refuge?: Refuge; id: number; name: string; task: Task; pos?: number; haul?: Haul }; // pos: tile they last headed to
 export type Herd = { id: number; at: number; kind: "deer" | "boar"; n: number; max: number };
 export type LogEntry = { at: number; msg: string; cls?: "warn" | "good" };
 export type City = {
@@ -568,7 +569,7 @@ export function stats(c: City, D: Derived, at: number): Stats {
     cnt[b.k] = (cnt[b.k] ?? 0) + 1;
   }
   const workers = new Map<number, number>();
-  for (const p of c.people) if (p.task.t === "work") workers.set(p.task.at, (workers.get(p.task.at) ?? 0) + 1);
+  for (const p of c.people) if (!p.refuge && p.task.t === "work") workers.set(p.task.at, (workers.get(p.task.at) ?? 0) + 1);
   const mult = 1 + 0.1 * Math.min(3, cnt.market ?? 0);
   const tools = 1 + 0.25 * buildings(c).reduce((n, [, b]) => n + (b.k === "forge" && built(b) && !b.flooded ? b.lvl : 0), 0);
   const winter = seasonAt(c, at) === 3;
@@ -597,6 +598,7 @@ export function stats(c: City, D: Derived, at: number): Stats {
   // hand gathering by assigned people
   const drains: Drain[] = [];
   for (const p of c.people) {
+    if(p.refuge)continue;
     const tk = p.task;
     if (tk.t === "chop" || tk.t === "mine") {
       const ore = c.t[tk.at] === O;
@@ -636,7 +638,7 @@ function nearestTile(c: City, from: number, ok: (i: number) => boolean, rad: num
 /** Control centre: give idle people jobs so the workforce matches the chosen mix. */
 function autoAssign(c: City, now: number) {
   if (!c.auto?.on || !hasControl(c)) return false;
-  const idle = c.people.filter((p) => p.task.t === "idle");
+  const idle = c.people.filter((p) => !p.refuge && p.task.t === "idle");
   if (!idle.length) return false;
   const resOf = (p: Person): ResKey | null => {
     const tk = p.task;
@@ -680,7 +682,7 @@ function autoTarget(c: City, r: ResKey): TaskInput | null {
 
 /** Fill open job slots in finished buildings with idle people. */
 function autoStaff(c: City) {
-  const idle = c.people.filter((p) => p.task.t === "idle");
+  const idle = c.people.filter((p) => !p.refuge && p.task.t === "idle");
   if (!idle.length) return;
   for (const [i, b] of buildings(c)) {
     const jobs = def(b.k).jobs ?? 0;
@@ -769,7 +771,7 @@ function stepExplorers(c: City, at: number) {
   let changed = false;
   for (const p of c.people) {
     const tk = p.task;
-    if (tk.t !== "explore" || p.haul?.carried && !p.haul.resting) continue;
+    if (p.refuge || tk.t !== "explore" || p.haul?.carried && !p.haul.resting) continue;
     const [, , prog] = explorerPos(tk, at);
     // reveal every tile along the stretch walked since the last step, not just the end point
     const fx = tk.from % W, fy = (tk.from / W) | 0, tx = tk.to % W, ty = (tk.to / W) | 0;
@@ -907,6 +909,59 @@ export function expeditionPosition(e:Expedition,at:number,lag=0){
   return {x,y,going,face:((next[0]-x)-(next[1]-y)>=0?1:-1) as 1|-1};
 }
 
+/** Villagers keep their task and cargo while taking a real route to shelter and back. */
+export function refugePosition(p:Person,now:number){
+  const f=p.refuge;if(!f)return null;
+  const duration=Math.max(1,f.arrive-f.at);
+  const progress=f.returnAt===undefined ? Math.min(1,Math.max(0,(now-f.at)/duration)) : (f.returnProgress??1)*Math.max(0,1-(now-f.returnAt)/Math.max(1,f.back!-f.returnAt));
+  let length=0,px=f.x,py=f.y;
+  for(let i=1;i<f.route.length;i++){const tile=f.route[i],nx=tile%W+.5,ny=Math.floor(tile/W)+.5;length+=Math.hypot(nx-px,ny-py);px=nx;py=ny;}
+  let distance=length*progress,x=f.x,y=f.y;px=f.x;py=f.y;
+  for(let i=1;i<f.route.length;i++){const tile=f.route[i],nx=tile%W+.5,ny=Math.floor(tile/W)+.5,d=Math.hypot(nx-px,ny-py);if(distance<=d){const q=d?distance/d:1;x=px+(nx-px)*q;y=py+(ny-py)*q;break;}distance-=d;x=nx;y=ny;px=nx;py=ny;}
+  const returning=f.returnAt!==undefined;
+  return {x,y,hidden:!returning && progress>=1 && f.building!==undefined,moving:returning?now<f.back!:progress<1,returning};
+}
+export function updateRefuges(c:City,at:number){
+  const danger=!!c.battleId || !!(c.raid && c.raid.warn<=at && at<c.raid.at);
+  let changed=false,started=0,returning=0;
+  let ctx:HaulContext|undefined;
+  for(const p of c.people){
+    let f=p.refuge;
+    if(danger && (!f || f.returnAt!==undefined)){
+      const old=refugePosition(p,at),haul=haulPosition(p,at),explore=p.task.t==="explore"?explorerPos(p.task,at):null;
+      const x=old?.x??haul?.x??explore?.[0]??((p.pos??c.camp)%W+.5),y=old?.y??haul?.y??explore?.[1]??(Math.floor((p.pos??c.camp)/W)+.5);
+      const from=idx(Math.max(0,Math.min(W-1,Math.floor(x))),Math.max(0,Math.min(H-1,Math.floor(y))));
+      ctx??=haulingContext(c,derive(c));
+      let route:number[]|null=null,building:number|undefined;
+      const homes=buildings(c).filter(([,b])=>["hall","hut","house","stonehouse"].includes(b.k)&&isBuildingActive(b)).sort(([a],[b])=>cheb(a,from)-cheb(b,from)||a-b);
+      for(const [tile] of homes){
+        for(const [dx,dy] of N8){const tx=tile%W+dx,ty=Math.floor(tile/W)+dy;if(!inb(tx,ty))continue;const to=idx(tx,ty);if(!haulPassable(c,to,-1,false))continue;const path=haulPath(c,from,to,ctx);if(path){route=path;building=tile;break;}}
+        if(route)break;
+      }
+      if(!route && haulPassable(c,c.camp,-1,false))route=haulPath(c,from,c.camp,ctx);
+      route??=[from];
+      const length=routeLength(route);
+      p.refuge={route,at,arrive:at+length/1.9*1000,pausedAt:f?.pausedAt??at,x,y,...(building!==undefined?{building}:{})};
+      f=p.refuge;started++;changed=true;
+    }
+    if(!f)continue;
+    if(!danger && f.returnAt===undefined){
+      const duration=Math.max(0,f.arrive-f.at),walked=Math.min(duration,Math.max(0,at-f.at));
+      f.returnAt=at;f.returnProgress=duration?walked/duration:0;f.back=at+walked;
+      returning++;changed=true;
+    }
+    if(f.back!==undefined && f.back<=at){
+      const pause=f.back-f.pausedAt;
+      if(p.haul){p.haul.at+=pause;p.haul.nextAt+=pause;p.haul.routeStart+=pause;}
+      if(p.task.t==="explore")p.task.start+=pause;
+      delete p.refuge;changed=true;
+    }
+  }
+  if(started)log(c,at,"Có địch! Dân ngừng làm việc, giữ hàng đang mang và chạy tìm chỗ trú gần nhất.","warn");
+  if(returning)log(c,at,"Đã an toàn. Dân rời chỗ trú, quay lại vị trí cũ rồi tiếp tục công việc.","good");
+  return changed;
+}
+
 function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob | null {
   const tk = p.task;
   if (tk.t === "chop" || tk.t === "mine") {
@@ -967,6 +1022,7 @@ function returnCargo(c: City, p: Person, at: number, ctx: HaulContext) {
   return true;
 }
 function beginHaul(c: City, p: Person, at: number, ctx: HaulContext) {
+  if(p.refuge)return;
   let job = haulingJob(c, p, at, ctx);
   if (!job && (p.task.t === "chop" || p.task.t === "mine")) {
     const task = p.task;
@@ -1025,7 +1081,7 @@ function takeCargo(c: City, h: Haul, at: number): number {
 function refreshHauling(c: City, at: number, ctx: HaulContext) {
   for (const p of c.people) {
     const h = p.haul;
-    if (!h) continue;
+    if (!h || p.refuge) continue;
     if (h.phase === "work") {
       if ([HL, O].includes(c.t[h.tile])) { p.pos = h.tile; delete p.haul; beginHaul(c, p, at, ctx); continue; }
       const job = haulingJob(c, p, at, ctx);
@@ -1053,6 +1109,7 @@ function refreshHauling(c: City, at: number, ctx: HaulContext) {
  * exactly once, at unload, never by the rates displayed in stats(). */
 function stepHauling(c: City, at: number, ctx: HaulContext, storage: number, smelt: number) {
   for (const p of c.people) {
+    if(p.refuge)continue;
     if (!p.haul) { beginHaul(c, p, at, ctx); continue; }
     const h = p.haul;
     if (h.resting) {
@@ -1402,6 +1459,7 @@ export function settle(c: City, now: number) {
   }
   let D = derive(c), st = stats(c, D, t), dirty = false;
   let hauling = haulingContext(c, D);
+  updateRefuges(c,t);
   refreshHauling(c, t, hauling);
   for (const p of c.people) if (!p.haul) beginHaul(c, p, t, hauling);
   while (t < end) {
@@ -1426,6 +1484,7 @@ export function settle(c: City, now: number) {
     if (t < c.boostUntil && c.boostUntil <= nt) dirty = true;
     const si = seasonIndexAt(c, nt);
     while (c.seasonIdx < si) { c.seasonIdx++; onSeason(c, c.seasonIdx); dirty = true; }
+    if (updateRefuges(c,nt)) dirty=true;
     if (stepExplorers(c, nt)) dirty = true;
     if (stepArmy(c, nt)) dirty = true;
     if (stepEnvoys(c, nt)) dirty = true;
@@ -1473,7 +1532,7 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number): st
   if (d.era > c.era) return "Chưa tới thời đại này.";
   if (c.b[i]) return "Ô này đã có công trình.";
   if (t === R) return "Không xây được trên sông.";
-  if(!["farm","canal","levee","gate"].includes(k) && c.exps.some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân đang dùng lối này. Chờ quân về hoặc chọn ô khác để không chặn đường.";
+  if(!["farm","canal","levee","gate"].includes(k) && [...c.exps,...c.people.flatMap(p=>p.refuge?[p.refuge]:[])].some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân hoặc dân tránh địch đang dùng lối này. Chờ họ trở về hoặc chọn ô khác để không chặn đường.";
   if (k === "quarry") { if (t !== HL) return "Bãi đá phải đặt trên đồi."; }
   else if (t === HL || t === O) return "Đồi đá chỉ đặt được bãi đá.";
   else if (t === F) return "Rừng rậm: cho người chặt hết cây trước, hoặc chọn ô cỏ.";
@@ -1646,6 +1705,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
       if (!people.length) return "Không còn ai rảnh. Chọn người đang làm việc khác để đổi việc.";
     }
     if (!people.length) return "Chưa chọn người.";
+    if(people.some(p=>p.refuge))return "Dân đang tránh địch hoặc quay lại chỗ làm. Chờ an toàn để giao việc mới.";
     const moving = tk.t === "work" ? people.filter((p) => !(p.task.t === "work" && p.task.at === tk.at)).length : 0;
     const err = taskError(c, tk, moving);
     if (err) return err;

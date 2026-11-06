@@ -2,7 +2,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { ClientSession } from "mongodb";
 import { battles, cities, mongoClient, type CityDoc } from "./db";
-import { RES, UKEYS, W, MARCH_TILES_PER_MIN, MIN, canVisit, derive, stats, score, settle, troopPower, troopCount, type City, type Troops, type Res } from "./engine";
+import { RES, UKEYS, W, MARCH_TILES_PER_MIN, MIN, canVisit, derive, stats, score, settle, updateRefuges, troopPower, troopCount, type City, type Troops, type Res } from "./engine";
 import { createBattle, type BattleState, type BattleResult } from "./battle";
 import { knowsNation } from "./world-discovery";
 import { reserveMarchFood, marchLogistics } from "./march-supplies";
@@ -158,6 +158,8 @@ export async function startBattle(id: string) {
       await wars.updateOne({ _id: id }, { $set: { status: w.status, back: w.back, ...(march?{marchSurvivors:march.survivors,marchLosses:march.losses}:{}) } }, { session });
       return w;
     }
+    d.state.battleId = id;
+    updateRefuges(d.state,now);
     const snapshot = createBattle({ id, attackerId: a._id, defenderId: d._id, attacker: a.state, defender: d.state, troops: w.marchSurvivors??w.troops, now, defenderOnline: false });
     d.state.battleId = id;
     await col.updateOne({ _id: d._id }, { $set: cityUpdate(d.state, now), $inc: { ver: 1 } }, { session });
@@ -186,9 +188,10 @@ export async function finishBattle(id: string, result: BattleResult) {
     delete c.battleId; c.shieldUntil = now + SHIELD_MS;
     // Pause hauling clocks during the combat freeze, preserving carried cargo.
     const frozenFor = Math.max(0, now - c.last);
-    for (const person of c.people) if (person.haul) {
+    for (const person of c.people) if (person.haul && !person.refuge) {
       person.haul.at += frozenFor; person.haul.nextAt += frozenFor; person.haul.routeStart += frozenFor;
     }
+    updateRefuges(c,now);
     c.haulAt = now;
     c.last = now; // battle simulation owns the frozen interval
     c.log.unshift({ at: now, msg: result.winner === "attacker" ? "Làng bị đánh bại. Khiên bảo vệ có hiệu lực trong 6 giờ." : "Đã bảo vệ được làng. Khiên bảo vệ có hiệu lực trong 6 giờ.", cls: result.winner === "attacker" ? "warn" : "good" });
