@@ -12,6 +12,7 @@ import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pic
 import { Crowd } from "./villagers";
 import WorldMap from "./WorldMap";
 import HowToPlay from "./HowToPlay";
+import { buildAvailability } from "@/lib/build-availability";
 import { placementHint, placementTiles } from "@/lib/build-placement";
 import BattleView from "./BattleView";
 import { useWars } from "./useWars";
@@ -656,7 +657,10 @@ export default function Game() {
       const cell = cellAt(e);
       if (!cell) return;
       const ok = await act({ type: "build", k: tool, x: cell.x, y: cell.y });
-      if (ok) setMsg({ text: `Thợ bắt đầu xây ${buildingName(c, tool)}.` });
+      if (ok) {
+        if(cityRef.current && buildAvailability(cityRef.current,tool).capped)pickTool(null);
+        setMsg({ text: `Thợ bắt đầu xây ${buildingName(c, tool)}.` });
+      }
       return;
     }
     const target = pickVillageTarget(view(),c,crowdRef.current.list,performance.now(),p.x,p.y,e.shiftKey||e.ctrlKey||e.metaKey);
@@ -1127,12 +1131,14 @@ export default function Game() {
                 {shopEra > c.era && <p className="muted small">Lên {ERA_NAMES[shopEra]} để mở các công trình này.</p>}
                 <div className="shopgrid">
                   {BKEYS.filter((k) => B[k].era === shopEra).map((k) => {
-                    const locked = B[k].era > c.era;
+                    const availability=buildAvailability(c,k),locked=availability.locked;
                     const poor = RES.some((r) => (B[k].cost[r] ?? 0) > c.res[r]);
                     return (
-                      <button key={k} className="shopcard" aria-pressed={tool === k} disabled={locked} onClick={() => pickTool(k)}>
+                      <button key={k} className="shopcard" aria-pressed={tool === k} disabled={locked} title={availability.reason??undefined} onClick={() => pickTool(k)}>
                         <Thumb city={c} D={D} k={k} />
                         <span className="n">{buildingName(c, k)}</span>
+                        {availability.limit!==undefined && <span className={availability.capped?"err small":"small"}>Đã đặt {availability.count}/{availability.limit}{availability.capped?" · Đã đủ giới hạn":""}</span>}
+                        {availability.reason && <span className="ds">{availability.reason}</span>}
                         <span className={"c" + (poor && !locked ? " no" : "")}>{costText(B[k].cost)}</span>
                         <span className="tm">⏱ {fmtDur(buildMs(k, 1))}</span>
                         <span className="ds">{B[k].d}</span>
