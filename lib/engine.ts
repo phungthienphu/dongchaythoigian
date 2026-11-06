@@ -166,6 +166,7 @@ export type City = {
   shift: { warn: number; at: number; xs: number[] | null; done: boolean } | null;
   templeAt: number | null;
   log: LogEntry[];
+  provisionedSoldiers?: number; // deployed soldiers whose food was prepaid for this expedition
   deployedArmy?: Troops; // world marches / multiplayer battle, maintained by server
   shieldUntil?: number;
   battleId?: string; // active defending battle
@@ -573,7 +574,7 @@ export function stats(c: City, D: Derived, at: number): Stats {
     }
   }
   const copperRate = rate.copper;
-  rate.food -= c.people.length * FOOD_PER_POP + soldiers(c) * SOLDIER_FOOD;
+  rate.food -= c.people.length * FOOD_PER_POP + Math.max(0,soldiers(c)-Math.min(troopCount(c.deployedArmy??{}),c.provisionedSoldiers??0)) * SOLDIER_FOOD;
   return { rate, woodUse, copperRate, jobs, housing, storage, fires: Math.min(2, cnt.fire ?? 0), drains };
 }
 
@@ -1301,7 +1302,7 @@ export function settle(c: City, now: number) {
     const need = st.woodUse * h;
     const smelt = need > 0 ? Math.max(0, Math.min(1, c.res.wood / need)) : 1;
     c.res.wood = Math.max(0, c.res.wood - need * smelt);
-    c.res.food -= (c.people.length * FOOD_PER_POP + soldiers(c) * SOLDIER_FOOD) * h;
+    c.res.food -= (c.people.length * FOOD_PER_POP + Math.max(0,soldiers(c)-Math.min(troopCount(c.deployedArmy??{}),c.provisionedSoldiers??0)) * SOLDIER_FOOD) * h;
     for (const r of RES) c.res[r] = Math.min(st.storage, c.res[r]);
     stepHauling(c, nt, hauling, st.storage, smelt);
     for (const herd of c.herds) if (herd.n < herd.max) herd.n = Math.min(herd.max, herd.n + HERD_REGROW * h);

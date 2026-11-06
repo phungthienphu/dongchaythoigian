@@ -5,12 +5,13 @@ import { battles, cities, mongoClient, type CityDoc } from "./db";
 import { RES, UKEYS, W, MARCH_TILES_PER_MIN, MIN, canVisit, derive, stats, score, settle, troopCount, type City, type Troops, type Res } from "./engine";
 import { createBattle, type BattleState, type BattleResult } from "./battle";
 import { knowsNation } from "./world-discovery";
+import { reserveMarchFood } from "./march-supplies";
 import { worldDist } from "./world";
 
 export type BattleDoc = {
   _id: string; attackerId: string; defenderId: string; attackerName: string; defenderName: string;
   from: { x: number; y: number }; to: { x: number; y: number };
-  troops: Troops; depart: number; arrive: number; duration: number; back?: number;
+  suppliesFood?: number; troops: Troops; depart: number; arrive: number; duration: number; back?: number;
   status: "marching" | "fighting" | "returning" | "completed" | "cancelled";
   createdAt: Date; updatedRecoveryAt?: Date; snapshot?: BattleState; result?: BattleResult; endedAt?: number;
 };
@@ -94,9 +95,12 @@ export async function launchAttack(pid: string, target: unknown, input: unknown)
     if (d.incomingBattleId || d.state.battleId) throw new Error("Nước này đã có đoàn quân tiến đánh.");
     const troops = validateTroops(input, a.state.army);
     const duration = Math.max(MIN, worldDist(a.world, d.world) / MARCH_TILES_PER_MIN * MIN);
+    const suppliesFood = reserveMarchFood(a.state,troops,duration);
+    a.state.provisionedSoldiers=(a.state.provisionedSoldiers??0)+troopCount(troops);
     const w: BattleDoc = { _id: crypto.randomUUID(), attackerId: pid, defenderId: target, attackerName: a.name, defenderName: d.name,
-      from: a.world, to: d.world, troops, depart: now, arrive: now + duration, duration, status: "marching", createdAt: new Date(now) };
+      from: a.world, to: d.world, troops, suppliesFood, depart: now, arrive: now + duration, duration, status: "marching", createdAt: new Date(now) };
     addArmy(a.state.army, troops, -1); a.state.deployedArmy ??= {}; addArmy(a.state.deployedArmy, troops);
+    a.state.log.unshift({at:now,msg:`Xuất ${troopCount(troops)} lính tới ${d.name}, mang ${suppliesFood} lương thực đủ cho đi và về.`,cls:"good"});
     // Attacking gives up your own protection.
     delete a.state.shieldUntil;
     await col.updateOne({ _id: pid }, { $set: { ...cityUpdate(a.state, now), outboundBattleId: w._id }, $inc: { ver: 1 } }, { session });
@@ -114,6 +118,12 @@ async function cancelMarch(id: string) {
   await transaction(async (session) => {
     const w = await wars.findOne({ _id: id, status: "marching" }, { session }); if (!w) return;
     const a = await col.findOne({ _id: w.attackerId }, { session }); if (!a) throw new Error("Không tìm thấy làng.");
+    if(w.suppliesFood!==undefined){
+      a.state.provisionedSoldiers=Math.max(0,(a.state.provisionedSoldiers??0)-troopCount(w.troops));
+      const cap=stats(a.state,derive(a.state),Date.now()).storage;
+      const refund=Math.min(w.suppliesFood,Math.max(0,cap-a.state.res.food));a.state.res.food+=refund;
+      a.state.log.unshift({at:Date.now(),msg:`Hủy xuất quân vì máy chủ trận chưa sẵn sàng; quân đã về, hoàn ${refund} lương thực vào kho.`,cls:"warn"});
+    }
     addArmy(a.state.army, w.troops); addArmy(a.state.deployedArmy ??= {}, w.troops, -1);
     await col.updateOne({ _id: a._id }, { $set: cityUpdate(a.state, Date.now()), $unset: { outboundBattleId: "" }, $inc: { ver: 1 } }, { session });
     await col.updateOne({ _id: w.defenderId, incomingBattleId: id }, { $unset: { incomingBattleId: "" }, $inc: { ver: 1 } }, { session });
@@ -199,6 +209,7 @@ export async function returnArmy(id: string) {
     const a = await col.findOne({ _id: w.attackerId }, { session }); if (!a) throw new Error("Không tìm thấy làng.");
     const c = a.state;
     if (!c.battleId) settle(c, now);
+    if(w.suppliesFood!==undefined)c.provisionedSoldiers=Math.max(0,(c.provisionedSoldiers??0)-troopCount(w.troops));
     addArmy(c.army, w.result?.attackerSurvivors ?? w.troops); addArmy(c.deployedArmy ??= {}, w.troops, -1);
     const cap = stats(c, derive(c), now).storage;
     for (const k of RES) c.res[k] = Math.min(cap, c.res[k] + (w.result?.loot[k] ?? 0));
