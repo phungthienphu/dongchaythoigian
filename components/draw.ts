@@ -1466,11 +1466,15 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     const q = tp(r, x, y), e = 0.5 - inset;
     return [q(-e, -e), q(e, -e), q(e, e), q(-e, e)] as Pt[];
   };
-  if (r.season === 1 || r.season === 2) {
+  if (r.season === 1 || r.season === 2 || city.disaster?.kind==='flood'&&city.disaster.warned) {
     for (const i of visible) {
       if (!seen[i] || D.rd[i] !== 1 || D.prot[i] || city.t[i] === R) continue;
       poly(c, diamond(i % W, (i / W) | 0), "rgba(90,165,225,.22)");
     }
+  }
+  if(city.disaster?.kind==='earthquake'&&city.disaster.warned){
+    const center=city.disaster.center;c.strokeStyle='rgba(245,142,80,.9)';c.lineWidth=1.5*v.s;
+    for(const i of visible)if(seen[i]&&Math.max(Math.abs(i%W-center%W),Math.abs(Math.floor(i/W)-Math.floor(center/W)))<=3){const pts=diamond(i%W,Math.floor(i/W),.06);poly(c,pts,'rgba(210,104,48,.2)');c.beginPath();pts.forEach(([x,y],n)=>n?c.lineTo(x,y):c.moveTo(x,y));c.closePath();c.stroke();}
   }
   const s = city.shift;
   if (s && s.xs && !s.done) {
@@ -1523,7 +1527,11 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
           if (b.lvl === 0 || b.burned) c.globalAlpha = 0.5;
           drawBuilding(r, b.k, x, y, Math.max(1, b.lvl), i);
           c.globalAlpha = 1;
-          if (b.burned) {
+          if(b.burned&&b.damageCause==='earthquake'){
+            const q=tp(r,x,y);const [sx,sy]=q(0,0,15);
+            c.strokeStyle='#342b24';c.lineWidth=2*v.s;c.beginPath();c.moveTo(sx-8*v.s,sy-12*v.s);c.lineTo(sx+2*v.s,sy-4*v.s);c.lineTo(sx-3*v.s,sy+2*v.s);c.lineTo(sx+9*v.s,sy+10*v.s);c.stroke();
+            for(let k=0;k<3;k++)box(r,x,y,-.36+k*.22,.28,-.23+k*.22,.4,0,3,'#b0a28d','#807565','#6e6253');
+          }else if (b.burned) {
             const q = tp(r, x, y);
             for (let f = 0; f < 3; f++) {
               const h = 12 + 6 * Math.sin(o.anim / 140 + i + f), u = (f - 1) * 0.2;

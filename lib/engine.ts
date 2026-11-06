@@ -162,7 +162,7 @@ const ERA_UP: Record<number, string> = {
 
 export const storageLevel = (b: Building, r: ResKey) => b.storageLevels?.[r] ?? b.lvl;
 
-export type Building = { shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
+export type Building = { damageCause?: 'earthquake'; shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
 export type Task =
   | { t: "idle"; at?: number } // at = where they stand and wait
   | { t: "work"; at: number }
@@ -210,6 +210,9 @@ export type City = {
   last: number;
   haulAt?: number; // last complete authoritative one-second economy tick (lazy migration)
   seasonIdx: number;
+  wildernessAt?: number;
+  wildernessWarned?: number;
+  disaster?: { kind:'flood'|'earthquake'; at:number; level:number; center:number; warned?:boolean };
   boostUntil: number;
   shift: { warn: number; at: number; xs: number[] | null; done: boolean } | null;
   templeAt: number | null;
@@ -1342,6 +1345,97 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: Res, smelt:
   }
 }
 
+/* ---------- wilderness renewal and expansion hazards ---------- */
+export const WILDERNESS_MS=30*MIN;
+export const FRONTIER_WARNING_MS=5*MIN;
+/** Permanent land is the starter clearing plus two tiles around every structure.
+ * Active actors pin their route/source until the next cycle, never their cargo. */
+export function wildernessKeep(c:City,at:number){
+  const keep=new Uint8Array(W*H);
+  const around=(tile:number,rad=1)=>{if(tile<0||tile>=W*H)return;const x=tile%W,y=Math.floor(tile/W);for(let dy=-rad;dy<=rad;dy++)for(let dx=-rad;dx<=rad;dx++)if(inb(x+dx,y+dy))keep[idx(x+dx,y+dy)]=1;};
+  const route=(tiles:number[]|undefined)=>{for(const i of tiles??[])around(i);};
+  around(c.camp,START_SIGHT);
+  for(const [i]of buildings(c))around(i,2);
+  for(const p of c.people){
+    around(p.pos??c.camp);const tk=p.task;
+    if(tk.t==='explore'){
+      route(tk.route);around(tk.from);around(tk.to);
+      if(!tk.route?.length){const steps=Math.max(1,cheb(tk.from,tk.to));for(let n=0;n<=steps;n++)around(idx(Math.round(tk.from%W+(tk.to%W-tk.from%W)*n/steps),Math.round(Math.floor(tk.from/W)+(Math.floor(tk.to/W)-Math.floor(tk.from/W))*n/steps)));}
+    }
+    else if(tk.t==='idle'&&tk.at!==undefined)around(tk.at);
+    else if(tk.t==='work'||tk.t==='mine'||tk.t==='chop')around(tk.at);
+    else if(tk.t==='hunt'){const herd=herdById(c,tk.herd);if(herd)around(herd.at);}
+    if(p.haul){around(p.haul.tile);route(p.haul.route);if(p.haul.source?.kind==='tile')around(p.haul.source.key);if(p.haul.drop!==undefined)around(p.haul.drop);}
+    if(p.refuge)route(p.refuge.route);
+  }
+  for(const s of homeSoldiers(c,at)){around(idx(Math.floor(s.x),Math.floor(s.y)));if(s.moving)route(c.homeOrders?.[s.id]?.route);}
+  for(const e of c.exps)route(e.route);
+  for(const e of c.trips??[])if(e.back>at)route(e.villageRoute);
+  for(const e of c.merchantJourneys??[])if(e.back>at)route(e.villageRoute);
+  for(const e of c.ferryBookings??[])if(e.back>at)route(e.route);
+  for(const p of c.guardPosts??[])around(idx(p.x,p.y));
+  if(c.wildlife&&c.wildlife.end>at)route(c.wildlife.route);
+  return keep;
+}
+export function expansionRisk(c:City){
+  const area=c.seen.reduce((n,s,i)=>n+(s&&c.t[i]!==R?1:0),0);
+  const level=area>=3200?3:area>=1600?2:area>=700?1:0;
+  return {area,level,interval:[6*HOUR,3*HOUR,90*MIN,HOUR][level]};
+}
+function scheduleDisaster(c:City,at:number){
+  const risk=expansionRisk(c);
+  if(c.disaster&&(c.disaster.warned||c.disaster.at<=at+risk.interval))return;
+  const r=rng(c.seed^Math.imul(Math.floor(at/MIN)+71,2246822519));
+  const targets=buildings(c).filter(([,b])=>isBuildingActive(b)).sort(([a],[b])=>cheb(b,c.camp)-cheb(a,c.camp)||a-b);
+  c.disaster={kind:r()<.5?'flood':'earthquake',at:at+risk.interval,level:risk.level,center:targets[0]?.[0]??c.camp};
+}
+/** Seeded land patches; rivers retain their channel until a warned river shift. */
+export function renewWilderness(c:City,at:number){
+  const keep=wildernessKeep(c,at),terrainKeep=keep.slice();
+  const pin=(tile:number)=>{for(const [dx,dy]of [[0,0],...N8]){const x=tile%W+dx,y=Math.floor(tile/W)+dy;if(inb(x,y))terrainKeep[idx(x,y)]=1;}};
+  for(const k of c.camps)pin(k.at);for(const h of c.herds)pin(h.at);
+  const random=rng(c.seed^Math.imul(Math.floor(at/WILDERNESS_MS)+1,3266489917));
+  const forest=valueNoise(random,12),hill=valueNoise(random,15);
+  let hidden=0,changed=0;
+  for(let i=0;i<W*H;i++){
+    if(keep[i])continue;
+    if(c.seen[i])hidden++;c.seen[i]=0;
+    if(terrainKeep[i]||c.t[i]===R)continue;
+    const x=i%W,y=Math.floor(i/W),h=hill(x,y),f=forest(x,y),roll=random();
+    const next=h>.64?(roll<.035?DIAMOND:roll<.13?GOLD:roll<.34?O:HL):f>.55?F:G;
+    if(next!==c.t[i]||c.dep[i])changed++;c.t[i]=next;delete c.dep[i];
+  }
+  c.oldbed=c.oldbed.filter(i=>terrainKeep[i]||c.t[i]===R);
+  log(c,at,`Sương phủ đất hoang: che lại ${hidden} ô, tái tạo ${changed} ô rừng/mỏ/đất. Công trình, vùng đệm 2 ô, điểm tập kết và tuyến đang dùng được giữ nguyên. Khám phá lại để tìm nguồn mới.`);
+  return {hidden,changed};
+}
+function stepFrontier(c:City,at:number){
+  let changed=false;
+  if(c.battleId)return false;
+  if(at>=c.wildernessAt!-FRONTIER_WARNING_MS&&c.wildernessWarned!==c.wildernessAt){
+    c.wildernessWarned=c.wildernessAt;
+    log(c,at,'Còn 5 phút: đất hoang chưa có công trình sẽ phủ sương và tái tạo. Công trình cùng vùng đệm và tuyến đang có người đi được giữ nguyên.','warn');
+  }
+  if(at>=c.wildernessAt!){
+    scheduleDisaster(c,at);renewWilderness(c,at);c.wildernessAt=at+WILDERNESS_MS;changed=true;
+  }
+  const d=c.disaster!;
+  if(!d.warned&&at>=d.at-FRONTIER_WARNING_MS){
+    d.warned=true;log(c,at,d.kind==='flood'?'Cảnh báo: lũ bất thường tới sau 5 phút. Kiểm tra đê và công trình sát sông.':`Cảnh báo: động đất sau 5 phút quanh ô (${d.center%W+1},${Math.floor(d.center/W)+1}). Chuẩn bị tài nguyên sửa công trình.`,'warn');
+  }
+  if(at>=d.at){
+    const random=rng(c.seed^Math.imul(Math.floor(d.at/MIN)+19,2654435761));
+    if(d.kind==='flood')flood(c,derive(c),at,random,true);
+    else{
+      const targets=buildings(c).filter(([i,b])=>isBuildingActive(b)&&!b.doneAt&&cheb(i,d.center)<=3).sort(([a],[b])=>cheb(a,d.center)-cheb(b,d.center)||a-b).slice(0,d.level+1);
+      for(const [,b]of targets){b.burned=true;b.damageCause='earthquake';}
+      log(c,at,`Động đất làm hư ${targets.length} công trình quanh ô (${d.center%W+1},${Math.floor(d.center/W)+1}). Công trình vẫn giữ vị trí và cấp; bấm Sửa để hoạt động lại.`,'warn');
+    }
+    delete c.disaster;scheduleDisaster(c,at);changed=true;
+  }
+  return changed;
+}
+
 /* ---------- seasons, floods, river shift ---------- */
 
 function newCourse(c: City, r: () => number) {
@@ -1362,8 +1456,8 @@ function newCourse(c: City, r: () => number) {
   return c.xs.slice();
 }
 
-function flood(c: City, D: Derived, at: number, r: () => number) {
-  if (r() > 0.6) { log(c, at, "Mùa thu êm, sông không tràn bờ."); return; }
+function flood(c: City, D: Derived, at: number, r: () => number, extra=false) {
+  if (!extra && r() > 0.6) { log(c, at, "Mùa thu êm, sông không tràn bờ."); return; }
   const hit: string[] = [];
   for (const [i, b] of buildings(c)) {
     if (!b.flooded && D.rd[i] === 1 && !isFloodproof(b.k) && !D.prot[i] && r() < 0.45) {
@@ -1375,7 +1469,7 @@ function flood(c: City, D: Derived, at: number, r: () => number) {
   c.boostUntil = at + 4 * SEASON_MS;
   const tail = "Phù sa mới: hái lượm và ruộng trên đất phù sa +50% trong một năm.";
   log(c, at, hit.length
-    ? `Lũ mùa thu làm ngập ${hit.length} công trình (${[...new Set(hit)].join(", ")}). Bấm vào để sửa. ${tail}`
+    ? `${extra?'Lũ bất thường':'Lũ mùa thu'} làm ngập ${hit.length} công trình (${[...new Set(hit)].join(", ")}). Bấm vào để sửa. ${tail}`
     : `Lũ tràn bờ nhưng không gây hại. ${tail}`, hit.length ? "warn" : "good");
 }
 
@@ -1552,6 +1646,7 @@ function finishCampCombat(c:City,e:Expedition,camp:Camp|undefined,at:number){
 }
 
 function stepArmy(c: City, nt: number) {
+  if(c.merchantJourneys?.some(j=>j.back<=nt))c.merchantJourneys=c.merchantJourneys.filter(j=>j.back>nt);
   if(c.ferryBookings)c.ferryBookings=c.ferryBookings.filter(b=>b.back>nt);
   for(const [,b]of buildings(c))if(b.k==="dock"){
     if(b.lvl<1||b.burned||b.flooded){if(b.shipQueue)b.shipQueue=b.shipQueue.map(done=>done+HAUL_TILE_MS);continue;}
@@ -1670,10 +1765,11 @@ function completeBuilding(c:City,b:Building,at:number){
 /** Advance the city to `now`: finish construction, run seasons, produce, grow. Mutates `c`. */
 export function settle(c: City, now: number) {
   normalizeResources(c);
-  if(c.merchantJourneys)c.merchantJourneys=c.merchantJourneys.filter(j=>j.back>now);
   if (now <= c.last) return;
   let t = c.haulAt ?? c.last;
   c.haulAt = t;
+  c.wildernessAt??=t+WILDERNESS_MS;
+  if(!c.disaster)scheduleDisaster(c,t);
   const end = t + Math.floor((now - t) / HAUL_TILE_MS) * HAUL_TILE_MS;
   if (end - t > MAX_SETTLE_MS) {
     t = end - MAX_SETTLE_MS;
@@ -1699,6 +1795,7 @@ export function settle(c: City, now: number) {
     if (t < c.boostUntil && c.boostUntil <= nt) dirty = true;
     const si = seasonIndexAt(c, nt);
     while (c.seasonIdx < si) { c.seasonIdx++; onSeason(c, c.seasonIdx); dirty = true; }
+    if(stepFrontier(c,nt))dirty=true;
     if (updateRefuges(c,nt)) dirty=true;
     if (stepExplorers(c, nt)) dirty = true;
     if (stepArmy(c, nt)) dirty = true;
@@ -1987,6 +2084,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     pay(c, cost);
     b.flooded = false;
     b.burned = false;
+    delete b.damageCause;
     autoStaff(c);
     return null;
   }

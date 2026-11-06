@@ -21,6 +21,7 @@ import DiplomacyMessages, { diplomacyText } from "./DiplomacyMessages";
 import { useDiplomacy } from "./useDiplomacy";
 import CaravanNoticeLink from "./CaravanNoticeLink";
 import DockPanel from "./DockPanel";
+import FrontierStatus from "./FrontierStatus";
 import MarketPanel from "./MarketPanel";
 import { useMarket } from "./useMarket";
 import { useWars } from "./useWars";
@@ -903,6 +904,7 @@ export default function Game() {
               Năm {Math.floor(si / 4) + 1} · {SEASONS[season]}{season === 2 ? " (lũ)" : ""} · còn {fmtDur(nextSeasonIn)}
             </span>
           </div>
+          <FrontierStatus city={c} now={t}/>
         </div>
         <div className="chips">
           <div className="chip" tabIndex={0} title="Dân số hiện tại / sức chứa nhà ở. Đầy chỗ thì dân ngừng tăng; xây hoặc nâng cấp nhà. Dân cần đủ lương thực để tiếp tục tăng. Dòng dưới là số dân rảnh hoặc cảnh báo cần nhà.">
@@ -1003,7 +1005,7 @@ export default function Game() {
               {sel.doneAt && <p className="small">{sel.lvl === 0 ? "Đang xây" : sel.storageUpgrade ? `Đang nâng ngăn ${RN[sel.storageUpgrade]}` : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
               {c.cropDamage?.tile===selI && c.cropDamage.until>t && <p className="err small">Ruộng bị thú rừng giẫm: năng suất còn 50%, phục hồi sau {fmtDur(c.cropDamage.until-t)}.</p>}
               {sel.doneAt && <button disabled={busy||c.res.diamond<speedBuildCost(sel,t)} onClick={()=>act({type:"speedBuild",...selected})}>Hoàn tất ngay · {speedBuildCost(sel,t)} kim cương (30 giây / viên)</button>}
-              {(sel.flooded || sel.burned) && <p className="err small">{sel.burned ? "Bị cháy, cần sửa để hoạt động lại." : "Bị ngập, không hoạt động."}</p>}
+              {(sel.flooded || sel.burned) && <p className="err small">{sel.damageCause==='earthquake'?"Hư hại do động đất, cần sửa để hoạt động lại.":sel.burned ? "Bị cháy, cần sửa để hoạt động lại." : "Bị ngập, không hoạt động."}</p>}
               {sel.k==="farm" && <>
                 <p className={farmRemaining(sel)<=0?"err small":"small"}>Dinh dưỡng: {Math.ceil(farmRemaining(sel))}/{farmCapacity(sel)} · giảm theo lượng lương thực thực sự thu hoạch.</p>
                 {sel.tendUntil ? <p className="small">Đang cải tạo & gieo lại: {fmtDur(sel.tendUntil-t)}</p> : <button disabled={busy || !!sel.doneAt || !!sel.burned || !!sel.flooded || farmRemaining(sel)>=farmCapacity(sel)} onClick={()=>act({type:"tendFarm",x:selI%W,y:Math.floor(selI/W)})}>Cải tạo & gieo lại · {costText(farmTendCost(sel,c.era))} · 30 giây</button>}
