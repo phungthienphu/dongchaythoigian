@@ -86,18 +86,24 @@ export class BattleRoom {
     });
     commandBattle(this.battle, 'defender', { type: 'presence', online });
   }
+  /** Navigation buffers stay on the server; clients render positions and orders. */
+  private snapshot(includeTerrain = false) {
+    const { terrain, ...battle } = this.battle!;
+    const groups = battle.groups.map(({ path: _path, pathGoal: _goal, pathVersion: _version, breachRetryAt: _retry, retreatExit: _exit, resumeOrder: _resume, ...group }) => group);
+    return { ...battle, groups, ...(includeTerrain ? { terrain } : {}) };
+  }
   private broadcast() {
-    const { terrain: _terrain, ...snapshot } = this.battle!;
-    const message = JSON.stringify({ type: 'state', battle: snapshot });
-    for (const socket of this.ctx.getWebSockets()) {
-      if (!this.validSocket(socket)) continue;
+    const sockets=this.ctx.getWebSockets().filter(socket=>this.validSocket(socket));
+    if(!sockets.length)return;
+    const message = JSON.stringify({ type: 'state', battle: this.snapshot() });
+    for (const socket of sockets) {
       try { socket.send(message); } catch { socket.close(1011, 'Connection lost'); }
     }
   }
   private async callback(path: string, body: unknown): Promise<boolean> {
     try {
       const response = await fetch(`${this.env.APP_URL.replace(/\/$/, '')}${path}`, {
-        method: 'POST', headers: { Authorization: `Bearer ${this.env.BATTLE_SERVER_SECRET}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        method: 'POST', headers: { Authorization: `Bearer ${this.env.BATTLE_SERVER_SECRET}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
       });
       return response.ok;
     } catch { return false; }
@@ -160,11 +166,11 @@ export class BattleRoom {
       pair[1].serializeAttachment({ ...user, active: true, closed: false });
       this.ctx.acceptWebSocket(pair[1]);
       this.refreshPresence();
-      pair[1].send(JSON.stringify(this.battle ? { type: 'state', battle: this.battle } : { type: 'update' }));
+      pair[1].send(JSON.stringify(this.battle ? { type: 'state', battle: this.snapshot() } : { type: 'update' }));
       return new Response(null, { status: 101, webSocket: pair[0] } as ResponseInit & { webSocket: WebSocket });
     }
     if (!authorized(request, this.env)) return json({ error: 'Unauthorized' }, 401);
-    if (request.method === 'GET' && !action) return this.battle ? json({ battle: this.battle }) : json({ scheduled: this.scheduled });
+    if (request.method === 'GET' && !action) return this.battle ? json({ battle: this.snapshot(true) }) : json({ scheduled: this.scheduled });
     if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
     let body: Record<string, unknown>;
     try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
@@ -191,14 +197,14 @@ export class BattleRoom {
       return json({ accepted });
     }
     if (action) return json({ error: 'Not found' }, 404);
-    if (this.battle) return json({ ok: true, battle: this.battle });
+    if (this.battle) return json({ ok: true, battle: this.snapshot(true) });
     if (!body.battle || typeof body.battle !== 'object' || (body.battle as Record<string, unknown>).id !== roomId) return json({ error: 'Invalid battle' }, 400);
     this.roomId = roomId; this.battle = body.battle as Battle; this.scheduled = null;
     await this.ctx.storage.put({ roomId, battle: this.battle, delivered: false });
     await this.ctx.storage.delete('scheduled');
     await this.ctx.storage.setAlarm(Date.now() + 1000); this.start();
-    for (const socket of this.ctx.getWebSockets()) { if (this.validSocket(socket)) socket.send(JSON.stringify({ type: 'state', battle: this.battle })); }
-    return json({ ok: true, battle: this.battle }, 201);
+    for (const socket of this.ctx.getWebSockets()) { if (this.validSocket(socket)) socket.send(JSON.stringify({ type: 'state', battle: this.snapshot() })); }
+    return json({ ok: true, battle: this.snapshot(true) }, 201);
   }
   async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
     const user = socket.deserializeAttachment() as Identity | null;

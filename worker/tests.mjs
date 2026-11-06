@@ -61,3 +61,32 @@ test('two defender tabs aggregate active presence across blur, close and expiry'
   second.serializeAttachment({ ...user, exp: 1 });
   await h.room.tick(); assert.equal(h.data.get('battle').defenderOnline, false); assert.ok(second.closed);
 });
+
+test('network snapshots omit navigation buffers but durable state keeps routes and resume orders',async()=>{
+  const state=battle();
+  for(const group of state.groups){group.path=Array.from({length:9000},(_,i)=>i);group.pathGoal=7000;group.pathVersion=10;group.resumeOrder={type:'move',x:30,y:30};group.retreatExit={x:0,y:20};}
+  const h=harness({battle:state,roomId:'one'});await h.ready;
+  const good=socket({roomId:'one',playerId:'a',side:'attacker',exp:Date.now()/1000+60});h.sockets.push(good);
+  h.room.broadcast();const frame=good.frames[0].battle;
+  for(const group of frame.groups){for(const key of ['path','pathGoal','pathVersion','resumeOrder','retreatExit'])assert.equal(group[key],undefined);}
+  assert.equal(state.groups[0].path.length,9000);assert.equal(state.groups[0].resumeOrder.type,'move');
+  const {terrain:_terrain,...old}=state;
+  const before=JSON.stringify(old).length,after=JSON.stringify(frame).length;
+  assert.ok(after<before*.1);console.log(`Navigation stress fixture: snapshot ${before} -> ${after} bytes`);
+  const initial=await(await h.room.fetch(request('one',null))).json();assert.equal(initial.battle.terrain.length,96*96);assert.equal(initial.battle.groups[0].path,undefined);
+});
+
+test('a stalled result callback times out, releases the busy flag and schedules retry',async()=>{
+  const originalFetch=globalThis.fetch,originalTimeout=AbortSignal.timeout;
+  let aborted=false;const state=battle();state.status='finished';state.winner='defender';
+  const h=harness({battle:state,roomId:'one'});await h.ready;
+  AbortSignal.timeout=()=>originalTimeout(5);
+  globalThis.fetch=async(_url,init)=>new Promise((_resolve,reject)=>{
+    assert.ok(init.signal);init.signal.addEventListener('abort',()=>{aborted=true;reject(init.signal.reason);},{once:true});
+    // Keep this test process alive while the unref'ed abort timer runs.
+    setTimeout(()=>reject(new Error('Timeout guard failed')),100).unref?.();
+  });
+  const keepAlive=setTimeout(()=>{},200);
+  try{await h.room.tick();assert.equal(aborted,true);assert.equal(h.room.busy,false);assert.equal(h.data.get('delivered'),false);assert.ok(h.alarm>Date.now());}
+  finally{clearTimeout(keepAlive);globalThis.fetch=originalFetch;AbortSignal.timeout=originalTimeout;}
+});
