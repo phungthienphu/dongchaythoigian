@@ -72,6 +72,16 @@ const resourcesBefore = { ...hauling.res };
 haulingCrowd.update(hauling, 10, 9000);
 assert.equal(visual.cargo, 10); assert.equal(visual.moving, false);
 assert.deepEqual(hauling.res, resourcesBefore, 'renderer must never deposit cargo');
+const farmers=newCity(0,123);farmers.t.fill(G);farmers.seen.fill(1);farmers.b={};const farm=idx(20,20);
+farmers.b[farm]={k:'farm',lvl:1,doneAt:null};farmers.people=farmers.people.slice(0,2);
+for(const p of farmers.people){p.task={t:'work',at:farm};p.haul={phase:'work',at:0,nextAt:10000,tile:farm,route:[farm],routeStart:0,carried:0,capacity:10,workRate:5400,resource:'food',source:{kind:'building',key:farm},taskKey:'farm'};}
+const farmCrowd=new Crowd();farmCrowd.sync(farmers);farmCrowd.update(farmers,.1,1000);
+const farmActors=farmCrowd.list.filter(v=>v.id!==null);
+assert.equal(farmActors.length,2);assert.ok(farmActors.every(v=>v.visible&&v.job==='farm'&&v.state==='work'));
+assert.notDeepEqual([farmActors[0].fx,farmActors[0].fy],[farmActors[1].fx,farmActors[1].fy],'farmers must not overlap in one spot');
+assert.ok(farmActors.every(v=>Math.floor(v.fx)===20&&Math.floor(v.fy)===20),'working actors stay within their actual farm');
+console.log('PASS: two working farmers are visible, separated and remain inside their assigned field.');
+
 console.log('PASS: authoritative hauling movement/cargo, response sync continuity, reassignment cargo retention, and no renderer deposits.');
 
 

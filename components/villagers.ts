@@ -380,6 +380,13 @@ export class Crowd {
     const dx = position.x - v.fx, dy = position.y - v.fy;
     if (Math.abs(dx - dy) > 1e-5) v.face = dx - dy >= 0 ? 1 : -1;
     v.fx = position.x; v.fy = position.y;
+    // Distinct places in the front crop rows, only while actually farming.
+    if (h.phase === "work" && p.task.t === "work" && city.b[p.task.at]?.k === "farm") {
+      const tile=p.task.at;
+      const workers=city.people.filter(q=>q.task.t==="work"&&q.task.at===tile).sort((a,b)=>a.id-b.id);
+      const slot=workers.findIndex(q=>q.id===p.id)%2;
+      v.fx += slot===0 ? -.14 : .32; v.fy += slot===0 ? .32 : -.14;
+    }
     v.shirt = SHIRT[v.job];
     v.haulPhase = h.phase; v.cargo = h.carried;
     v.carry = h.resource ?? null; v.carrying = h.carried > 0;
