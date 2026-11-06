@@ -138,3 +138,13 @@ test('villagers keep the land preference but ford when the dry detour is much lo
  const crossing=fixture();for(let y=0;y<96;y++)crossing.t[idx(25,y)]=R;
  assign(crossing);assert.ok(crossing.people[0].haul!.route.some(i=>crossing.t[i]===R));
 });
+test('mining a rock barrier invalidates shared route decisions and preserves offline/online delivery timing',()=>{
+ const c=fixture(),opening=idx(25,20),tree=idx(30,20);c.manualWorkforce=true;
+ for(let y=17;y<=23;y++)c.t[idx(25,y)]=HL;
+ c.dep[opening]=CAP.hill-10;c.t[tree]=F;
+ applyAction(c,{type:'assign',ids:[c.people[0].id],task:{t:'mine',at:opening}},0);
+ applyAction(c,{type:'assign',ids:[c.people[1].id],task:{t:'chop',at:tree}},0);
+ const online=structuredClone(c);settle(c,180000);
+ for(let t=731;t<180000;t+=8911)settle(online,t);settle(online,180000);
+ assert.equal(c.t[opening],G);assert.deepEqual(online,c);assert.ok(c.res.wood>0);
+});

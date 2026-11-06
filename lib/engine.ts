@@ -1022,7 +1022,9 @@ export const HAUL_CAPACITY = 10;
 export const HAUL_TILE_MS = 1000;
 const HAUL_UNLOAD_MS = 1000;
 type HaulJob = { tile: number; resource: ResKey; rate: number; source: NonNullable<Haul["source"]> };
-type HaulContext = { paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number };
+type DropRoute = { route: number[]; drop: number; length: number };
+type RouteTree = { prev: Int32Array; rank: Uint16Array; queue: Int32Array; head: number; size: number };
+type HaulContext = { pass?: Uint8Array; trees: BoundedCache<string, RouteTree>; drops: BoundedCache<string, DropRoute | null>; paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number };
 const taskKey = (p: Person) => JSON.stringify(p.task);
 
 /** Tile-centre position along the persisted authoritative route. No client RNG. */
@@ -1067,22 +1069,54 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredL
   const arrived = (tile: number) => rockyTarget ? tile !== to && cheb(tile, to) === 1 && haulPassable(c, tile, -1, true) : tile === to;
   if (arrived(from)) { const path = [from]; ctx.paths.set(key, path); return path; }
   const find = (water: boolean) => {
-    const prev = new Int32Array(W * H).fill(-1), queue = [from]; prev[from] = from;
-    let goal = -1;
-    for (let head = 0; head < queue.length; head++) {
-      const tile = queue[head]; if (arrived(tile)) { goal = tile; break; }
-      const x = tile % W, y = Math.floor(tile / W);
-      for (const [dx, dy] of N8) {
-        if (!inb(x + dx, y + dy)) continue;
-        const next = idx(x + dx, y + dy);
+    const endpoint = !rockyTarget && !haulPassable(c,to,-1,water);
+    if (!rockyTarget && (!haulPassable(c,to,to,water) || exploredLand && !c.seen[to])) return null;
+    const goals: number[] = [];
+    if (!rockyTarget && !endpoint) goals.push(to);
+    else {
+      const x = to % W, y = Math.floor(to / W);
+      for (const [dx,dy] of N8) {
+        if (!inb(x+dx,y+dy)) continue;
+        const next = idx(x+dx,y+dy);
+        if (rockyTarget) { if (!arrived(next)) continue; }
+        else if (dx && dy && (!haulPassable(c,idx(x+dx,y),to,water) || !haulPassable(c,idx(x,y+dy),to,water))) continue;
+        goals.push(next);
+      }
+    }
+    const pass = ctx.pass ??= Uint8Array.from(c.t, (_,i) => (haulPassable(c,i,-1,true) ? 1 : 0) | (haulPassable(c,i,-1,false) ? 2 : 0));
+    const mode = water ? 1 : 2;
+    const treeKey = `${from}:${water}:${exploredLand}`;
+    let tree = ctx.trees.get(treeKey);
+    if (!tree) {
+      const prev = new Int32Array(W * H).fill(-1), rank = new Uint16Array(W * H), queue = new Int32Array(W * H);
+      queue[0] = from; prev[from] = from; rank[from] = 1;
+      tree = {prev,rank,queue,head:0,size:1}; ctx.trees.set(treeKey,tree);
+    }
+    const {prev,rank,queue} = tree;
+    const choose = () => goals.reduce((best,tile)=>rank[tile] && (best<0 || rank[tile]<rank[best]) ? tile : best,-1);
+    let goal = choose();
+    const targets = new Set(goals);
+    // Extend a shared BFS prefix only as far as this target requires. Queue
+    // order and predecessor ties remain identical to a fresh search.
+    while (goal < 0 && tree.head < tree.size) {
+      const tile = queue[tree.head++], x = tile % W, y = Math.floor(tile / W);
+      for (const [dx,dy] of N8) {
+        if (!inb(x+dx,y+dy)) continue;
+        const next = idx(x+dx,y+dy);
         if (exploredLand && !c.seen[next]) continue;
-        if (prev[next] !== -1 || !haulPassable(c, next, to, water)) continue;
-        if (dx && dy && (!haulPassable(c, idx(x + dx, y), to, water) || !haulPassable(c, idx(x, y + dy), to, water))) continue;
-        prev[next] = tile; queue.push(next);
+        if (prev[next] !== -1 || !(pass[next] & mode)) continue;
+        if (dx && dy && (!(pass[idx(x+dx,y)] & mode) || !(pass[idx(x,y+dy)] & mode))) continue;
+        prev[next] = tile; rank[next] = tree.size+1; queue[tree.size++] = next;
+        if (goal < 0 && targets.has(next)) goal = next;
       }
     }
     if (goal < 0) return null;
-    const route = [goal]; for (let tile = goal; tile !== from;) { tile = prev[tile]; route.push(tile); }
+    // Opening an endpoint building cannot change its first predecessor: any
+    // extra diagonal it enables starts from a cardinal neighbor which already
+    // has a legal direct edge to that endpoint. Mining uses the earliest
+    // adjacent goal in the same BFS order.
+    const route = endpoint ? [to,goal] : [goal];
+    for (let tile = goal; tile !== from;) { tile = prev[tile]; route.push(tile); }
     return route.reverse();
   };
   const land = find(false);
@@ -1096,7 +1130,7 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredL
 }
 function haulingContext(c: City, D: Derived): HaulContext {
   const active = Object.values(c.b).filter(b => built(b) && !b.flooded);
-  return { paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: 1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length) };
+  return { trees: new BoundedCache<string,RouteTree>(32,884736,tree=>tree.prev.length+tree.rank.length+tree.queue.length), drops: new BoundedCache<string,DropRoute|null>(512,65536,drop=>drop?.route.length??1), paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: 1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length) };
 }
 export const SHIP_CAPACITY=10;
 export const shipCost=(era:number):Partial<Res>=>eraCost({wood:400,copper:100,gold:40,food:80},era,3);
@@ -1319,24 +1353,35 @@ function activeDrop(c: City, tile: number, resource: ResKey) {
 function returnCargo(c: City, p: Person, at: number, ctx: HaulContext) {
   const h = p.haul!;
   if (!h.resource || !h.carried) return false;
-  const candidates = [...buildings(c).filter(([i]) => i !== c.camp && activeDrop(c, i, h.resource!)).map(([i]) => i), c.camp];
-  let best: number[] | null = null, drop = -1, length = Infinity;
-  for (const tile of candidates) {
+  // Workers sharing a source/resource choose the same drop until topology or
+  // building state changes. Cache the decision separately so many rejected
+  // candidate paths cannot evict the winning route and force another BFS sweep.
+  const key = `${h.tile}:${h.resource}`;
+  if (ctx.drops.has(key)) return useDrop(ctx.drops.get(key)!);
+  const candidates = [...buildings(c).filter(([i]) => i !== c.camp && activeDrop(c, i, h.resource!)).map(([i]) => i), c.camp]
+    .map((tile,order)=>({tile,order,lowerBound:Math.max(0,Math.hypot(h.tile % W-tile % W,Math.floor(h.tile / W)-Math.floor(tile / W))-(isRock(c.t[tile])?Math.SQRT2:0))}))
+    .sort((a,b)=>a.tile===c.camp?1:b.tile===c.camp?-1:a.lowerBound-b.lowerBound||a.order-b.order);
+  let best: number[] | null = null, drop = -1, length = Infinity, bestOrder = Infinity;
+  for (const {tile,order,lowerBound} of candidates) {
     // Use the starter stockpile only when no dedicated drop site is reachable.
     if (tile === c.camp && best) continue;
     // Even a straight route cannot improve the current drop. Candidate order
-    // and strict tie-breaking stay unchanged, including starter-camp fallback.
-    const lowerBound = Math.max(0, Math.hypot(h.tile % W - tile % W, Math.floor(h.tile / W) - Math.floor(tile / W)) - (isRock(c.t[tile]) ? Math.SQRT2 : 0));
+    // and original tie-breaking stay unchanged, including starter-camp fallback.
     if (lowerBound > length + 1e-9) continue;
     const path = haulPath(c, h.tile, tile, ctx);
     const d = path ? routeLength(path) : Infinity;
-    if (d < length) { length = d; best = path; drop = tile; }
+    if (path && (d < length || d === length && order < bestOrder)) { length = d; best = path; drop = tile; bestOrder = order; }
   }
-  if (!best) { h.phase = "unload"; h.nextAt = at + HAUL_TILE_MS; delete h.drop; return false; }
-  h.drop = drop; h.route = best; h.routeStart = at; h.at = at;
-  h.phase = best.length === 1 ? "unload" : "return";
-  h.nextAt = at + (best.length === 1 ? HAUL_UNLOAD_MS : Math.max(HAUL_TILE_MS, Math.ceil(length) * HAUL_TILE_MS));
-  return true;
+  const choice = best ? { route: best, drop, length } : null;
+  ctx.drops.set(key, choice);
+  return useDrop(choice);
+  function useDrop(choice: DropRoute | null) {
+    if (!choice) { h.phase = "unload"; h.nextAt = at + HAUL_TILE_MS; delete h.drop; return false; }
+    h.drop = choice.drop; h.route = choice.route; h.routeStart = at; h.at = at;
+    h.phase = choice.route.length === 1 ? "unload" : "return";
+    h.nextAt = at + (choice.route.length === 1 ? HAUL_UNLOAD_MS : Math.max(HAUL_TILE_MS, Math.ceil(choice.length) * HAUL_TILE_MS));
+    return true;
+  }
 }
 function beginHaul(c: City, p: Person, at: number, ctx: HaulContext) {
   if(p.refuge)return;
@@ -1453,7 +1498,10 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: Res, smelt:
       h.nextAt = at + Math.ceil(h.capacity / job.rate * HOUR / HAUL_TILE_MS) * HAUL_TILE_MS;
     } else if (h.phase === "work") {
       if (taskKey(p) !== h.taskKey || !haulingJob(c, p, at, ctx)) { delete p.haul; beginHaul(c, p, at, ctx); continue; }
+      const sourceTile = h.source?.kind === "tile" ? h.source.key : undefined;
+      const beforeTerrain = sourceTile === undefined ? undefined : c.t[sourceTile];
       h.carried = takeCargo(c, h, at);
+      if (sourceTile !== undefined && beforeTerrain !== undefined && isRock(beforeTerrain) && beforeTerrain !== c.t[sourceTile]) { ctx.pass = undefined; ctx.trees.clear(); ctx.drops.clear(); ctx.paths.clear(); }
       if (h.carried > 0) returnCargo(c, p, at, ctx);
       else { delete p.haul; beginHaul(c, p, at, ctx); }
     } else if (h.phase === "return") {
