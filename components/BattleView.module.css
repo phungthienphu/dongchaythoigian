@@ -21,3 +21,5 @@
 .result { padding: 10px 16px; background: #59492d; border-bottom: 1px solid #ac945a; }
 .result p { margin: 5px 0 0; font-size: 13px; line-height: 1.5; }
 @media (max-width: 600px) { .header { padding: 10px; }.header h2 { font-size: 14px; }.footer { padding-left: 10px; padding-right: 10px; }.footer p { font-size: 11px; }.result { max-height: 24vh; overflow: auto; } }
+
+.hint { margin: 0; padding: 6px 16px; background: #25352d; color: #d7ccb1; font-size: 12px; line-height: 1.4; }
