@@ -12,7 +12,7 @@ export default function Page(){
  const [city,setCity]=useState(initial),[at,setAt]=useState(0),[message,setMessage]=useState('Bản thử giao diện; không dùng tài khoản hay dữ liệu thật.');
  const nations=[home,...(knowsNation(city,friend.id)?[friend]:[])];
  return <main style={{position:'fixed',inset:0}}>
-  <WorldMap wars={[]} warEnabled={false} onAttack={()=>{}} nations={nations} city={city} now={()=>at} busy={false}
+  <WorldMap signedIn={false} onFriendsChanged={async () => {}} wars={[]} warEnabled={false} onAttack={()=>{}} nations={nations} city={city} now={()=>at} busy={false}
    onEnvoy={()=>{const c=structuredClone(city);const error=beginDiscovery(c,at);setCity(c);setMessage(error??'Đã cử sứ giả dò tìm; chưa biết nước nào.');}}
    onVisit={()=>setMessage('Đã bấm xem làng.')} onClose={()=>setMessage('Đã bấm về làng.')}/>
   <aside style={{position:'absolute',bottom:14,left:14,zIndex:20,maxWidth:'90vw',padding:8,background:'#14201d'}}>

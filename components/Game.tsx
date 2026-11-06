@@ -11,6 +11,7 @@ import {
 import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import { Crowd } from "./villagers";
 import WorldMap from "./WorldMap";
+import FriendSearch from "./FriendSearch";
 import HowToPlay from "./HowToPlay";
 import { buildAvailability } from "@/lib/build-availability";
 import { placementHint, placementTiles } from "@/lib/build-placement";
@@ -176,6 +177,7 @@ function FriendsPanel({ me, reload, onVisit }: { me: Me; reload: () => Promise<v
         {note && <p className={"small " + (note.err ? "err" : "ok")}>{note.text}</p>}
       </form>
       <p className="muted small">Xem làng bạn bè không tiết lộ vị trí. Cần sứ giả dò tìm để hiện nước của họ trên bản đồ thế giới.</p>
+      <FriendSearch onChanged={reload} />
       <h3>Bạn bè ({me.friends.length})</h3>
       {me.friends.length ? (
         <ul className="friends">
@@ -1079,6 +1081,8 @@ export default function Game() {
       {worldOpen && (
         <WorldMap
           nations={nations}
+          signedIn={!!me.user}
+          onFriendsChanged={async () => { await Promise.all([loadMe(), loadWorld()]); }}
           wars={war.wars}
           warEnabled={war.enabled}
           onAttack={async (id, troops) => {

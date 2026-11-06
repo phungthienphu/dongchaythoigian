@@ -1,6 +1,7 @@
 "use client";
 
 // World map: every nation is a fortress on a WORLD × WORLD board. Envoys travel between them.
+import FriendSearch, { addFriend } from "./FriendSearch";
 import { drawEnvoyActor } from "./draw";
 import { useEffect, useRef, useState } from "react";
 import { ENVOY_NAMES, ERA_NAMES, WORLD, canVisit, envoyCount, envoyMs, envoysAway, UKEYS, UNITS, troopCount, type Troops, type City } from "@/lib/engine";
@@ -10,6 +11,8 @@ import { MARCH_TILES_PER_MIN, MIN } from "@/lib/engine";
 import type { Nation } from "@/lib/world";
 
 type Props = {
+  signedIn: boolean;
+  onFriendsChanged: () => Promise<void>;
   wars: WarSummary[];
   warEnabled: boolean;
   onAttack: (id: string, troops: Troops) => void;
@@ -34,12 +37,17 @@ function hash(n: number) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-export default function WorldMap({ wars, warEnabled, onAttack, nations, city, now, busy, onEnvoy, onVisit, onClose }: Props) {
+export default function WorldMap({ signedIn, onFriendsChanged, wars, warEnabled, onAttack, nations, city, now, busy, onEnvoy, onVisit, onClose }: Props) {
   const cv = useRef<HTMLCanvasElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const me = nations.find((n) => n.me);
   const cam = useRef({ x: me?.x ?? WORLD / 2, y: me?.y ?? WORLD / 2, z: 7 }); // z = pixels per cell
   const [sel, setSel] = useState<Nation | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [friendBusy, setFriendBusy] = useState(false);
+  const [friendNote, setFriendNote] = useState("");
+  useEffect(() => { setFriendNote(""); }, [sel?.id]);
+  useEffect(() => { setSel(previous => previous ? nations.find(n => n.id === previous.id) ?? null : null); }, [nations]);
   const [army, setArmy] = useState<Troops>({});
   useEffect(() => { setArmy({}); }, [sel?.id]);
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
@@ -197,13 +205,19 @@ export default function WorldMap({ wars, warEnabled, onAttack, nations, city, no
           <option value="" disabled>Tìm nước…</option>
           {nations.map(n => <option key={n.id} value={n.id}>{n.me ? "Bạn · " : n.friend ? "★ " : ""}{n.name}</option>)}
         </select>
+        <button onClick={() => setSearchOpen(value => !value)} aria-expanded={searchOpen}>Tìm bạn bè</button>
         <button onClick={onClose}>Về làng</button>
       </header>
       <aside className="wm-discovery" aria-label="Khám phá thế giới">
         <p>Chỉ hiện nước đã được sứ giả tìm thấy. Bạn bè có thể xem làng qua danh sách, nhưng vị trí vẫn giữ kín.</p>
         {(city.trips ?? []).map(tr=><p key={tr.id}>{!tr.target ? `Đang dò vùng chưa biết · có tin sau ${fmtMin(tr.arrive-t)}` : `${tr.targetName} · ${t<tr.arrive?`tới sau ${fmtMin(tr.arrive-t)}`:`đang trở về, còn ${fmtMin(tr.back-t)}`}`}</p>)}
       </aside>
-      {sel && (
+      {searchOpen && <aside className="hud-card wm-friends">
+        <button className="x" onClick={() => setSearchOpen(false)} aria-label="Đóng tìm bạn">×</button>
+        <h2>Tìm bạn bè</h2>
+        {signedIn ? <FriendSearch onChanged={onFriendsChanged} /> : <a className="google" href="/api/auth/login">Đăng nhập Google để kết bạn</a>}
+      </aside>}
+      {sel && !searchOpen && (
         <div className="hud-card wm-card">
           <button className="x" onClick={() => setSel(null)} aria-label="Đóng">×</button>
           <h2>{sel.friend ? "★ " : ""}{sel.name}</h2>
@@ -213,8 +227,15 @@ export default function WorldMap({ wars, warEnabled, onAttack, nations, city, no
               <p className="muted small">Cách {d} dặm · {en} đi {myEnvoys ? fmtMin(envoyMs(city, d)) : "?"} mỗi chiều.</p>
               {canVisit(city, sel.id, t) && <p className="ok small">Được phép thăm và xuất quân tới đây thêm {fmtMin((city.visits?.[sel.id] ?? t) - t)}.</p>}
               {trip && <p className="small">{en} {t < trip.arrive ? `đang tới, còn ${fmtMin(trip.arrive - t)}` : `đang về, còn ${fmtMin(trip.back - t)}`}.</p>}
+              {friendNote && <p className="small" role="status">{friendNote}</p>}
               <div className="actions">
-                {canVisit(city, sel.id, t) && <button className="primary" onClick={() => onVisit(sel.id)}>Xem làng của họ</button>}
+                {sel.friend ? <span className="ok small">★ Đã là bạn bè</span> : signedIn ? <button disabled={friendBusy || sel.registered === false} onClick={async () => {
+                  setFriendBusy(true); setFriendNote("");
+                  try { const result = await addFriend({ cityId: sel.id }); setFriendNote(`Đã kết bạn với ${result.name}.`); await onFriendsChanged(); }
+                  catch (error) { setFriendNote((error as Error).message); }
+                  finally { setFriendBusy(false); }
+                }}>{sel.registered === false ? "Chưa có tài khoản để kết bạn" : friendBusy ? "Đang kết bạn…" : "Kết bạn"}</button> : <a href="/api/auth/login">Đăng nhập để kết bạn</a>}
+                {(sel.friend || canVisit(city, sel.id, t)) && <button className="primary" onClick={() => onVisit(sel.id)}>Xem làng của họ</button>}
                 <button disabled={busy || !myEnvoys || away >= myEnvoys || !!trip} onClick={() => onEnvoy(sel.id)}>
                   {!myEnvoys ? "Cần xây nhà sứ giả" : trip ? `${en} đang đi` : away >= myEnvoys ? `Hết ${en.toLowerCase()} ở nhà` : `Cử ${en.toLowerCase()} tới đây`}
                 </button>

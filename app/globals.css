@@ -352,3 +352,15 @@ a.google.small { padding: 4px 10px; font-size: 12.5px; }
 .wm-discovery p { margin: 3px 0; }
 .wm-top { flex-wrap: wrap; }
 @media(max-width:700px) { .wm-discovery { top: 150px; max-width: calc(100vw - 32px); font-size: 11px; } }
+
+.friend-search { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+.friend-search form { display: flex; gap: 8px; align-items: end; }
+.friend-search label { flex: 1; min-width: 0; font-size: 12px; }
+.friend-search input { display: block; width: 100%; box-sizing: border-box; font: inherit; margin-top: 5px; padding: 8px; color: var(--fg); background: #1a2624; border: 1px solid var(--line); border-radius: 6px; }
+.friend-search ul { list-style: none; padding: 0; }
+.friend-search li { display: flex; justify-content: space-between; gap: 8px; align-items: center; border-top: 1px solid var(--line); padding: 8px 0; }
+.friend-search li div { min-width: 0; overflow-wrap: anywhere; }
+.friend-search li span { display: block; }
+.friend-search button { flex-shrink: 0; }
+.wm-friends { right: 16px; top: 90px; bottom: 16px; width: min(420px, calc(100vw - 64px)); overflow-y: auto; }
+@media(max-width:700px) { .wm-friends { top: 150px; } }
