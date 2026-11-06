@@ -70,3 +70,51 @@ test('coastal entry allows retreat without crossing the river',()=>{
  advanceBattle(s,1000);commandBattle(s,'attacker',{type:'retreat'});advanceBattle(s,5000);
  assert.equal(s.status,'finished');assert.equal(s.groups[0].escaped,true);assert.ok(s.groups[0].x>30);
 });
+
+test('online defender obeys a move away from a nearby enemy across the river',()=>{
+ const c=city();c.army={sword:20};const s=createBattle({id:'manual',attackerId:'a',defenderId:'d',attacker:city(),defender:c,troops:{club:1},now:0,defenderOnline:true});
+ const a=s.groups.find(g=>g.side==='attacker')!,g=s.groups.find(g=>g.side==='defender')!;
+ s.buildings=[];for(let y=0;y<96;y++)s.terrain[y*96+7]=3;
+ a.x=8.5;a.y=5.5;a.order={type:'guard',x:a.x,y:a.y};g.x=5.5;g.y=5.5;
+ assert.equal(commandBattle(s,'defender',{type:'move',groupId:g.id,x:2.5,y:5.5}),true);
+ advanceBattle(s,2000);assert.equal(g.x,2.5);assert.equal(g.y,5.5);assert.equal(g.order.type,'guard');
+});
+test('unreachable defender moves preserve the previous order and return a useful reason',async()=>{
+ const {battleCommandError}=await import('./battle');const c=city();c.army={sword:20};
+ const s=createBattle({id:'blocked-defense',attackerId:'a',defenderId:'d',attacker:city(),defender:c,troops:{club:1},now:0,defenderOnline:true});
+ const g=s.groups.find(g=>g.side==='defender')!;g.x=5.5;g.y=5.5;g.order={type:'guard',x:5.5,y:5.5};
+ for(let y=0;y<96;y++)s.terrain[y*96+7]=3;
+ const before=structuredClone(g),command={type:'move' as const,groupId:g.id,x:10.5,y:5.5};
+ assert.match(battleCommandError(s,'defender',command)!,/Không có đường/);
+ assert.equal(commandBattle(s,'defender',command),false);assert.deepEqual(g,before);
+ g.naval=true;assert.equal(battleCommandError(s,'defender',command),null);assert.equal(commandBattle(s,'defender',command),true);
+ advanceBattle(s,3000);assert.ok(g.x>7);
+});
+test('defender explicit attack follows the selected enemy rather than the nearest one',()=>{
+ const c=city();c.army={sword:20};const s=createBattle({id:'target',attackerId:'a',defenderId:'d',attacker:city(),defender:c,troops:{club:1,bow:1},now:0,defenderOnline:true});
+ s.buildings=[];const g=s.groups.find(g=>g.side==='defender')!,a=s.groups.find(g=>g.u==='club')!,b=s.groups.find(g=>g.u==='bow')!;
+ g.x=20.5;g.y=20.5;a.x=25.5;a.y=20.5;b.x=20.5;b.y=30.5;
+ a.order={type:'guard',x:a.x,y:a.y};b.order={type:'guard',x:b.x,y:b.y};
+ assert.equal(commandBattle(s,'defender',{type:'attack',groupId:g.id,targetId:b.id}),true);
+ advanceBattle(s,100);assert.ok(g.y>20.5);assert.equal(g.x,20.5);
+});
+
+test('battle keeps same-type guards on both river banks and conserves survivors',()=>{
+ const c=city();c.army={sword:4};c.b={};c.camp=5*96+5;
+ for(let y=0;y<96;y++)c.t[y*96+7]=3;
+ c.homeOrders={
+ 'sword:0':{route:[5*96+5],at:0,x:5.3,y:5.5},'sword:1':{route:[5*96+5],at:0,x:5.7,y:5.5},
+ 'sword:2':{route:[5*96+9],at:0,x:9.5,y:5.5},'sword:3':{route:[6*96+9],at:0,x:9.5,y:6.5},
+ };
+ const s=createBattle({id:'guards',attackerId:'a',defenderId:'d',attacker:city(),defender:c,troops:{club:1},now:0});
+ const guards=s.groups.filter(g=>g.side==='defender');assert.equal(guards.length,3);
+ assert.deepEqual(guards.map(g=>[g.count,g.x,g.y]),[[2,5.5,5.5],[1,9.5,5.5],[1,9.5,6.5]]);
+ assert.equal(new Set(s.groups.map(g=>g.id)).size,s.groups.length);
+ s.status='finished';s.winner='defender';assert.equal(battleResult(s)!.defenderSurvivors.sword,4);
+ guards[0].count=1;guards[0].hp=70;assert.equal(battleResult(s)!.defenderSurvivors.sword,3);assert.equal(battleResult(s)!.defenderCasualties,1);
+});
+test('combat snapshots a guard part way through a home movement order',()=>{
+ const c=city();c.army={club:1};c.b={};c.homeOrders={'club:0':{route:[5*96+5,5*96+6,5*96+7],at:0,x:5.5,y:5.5}};
+ const s=createBattle({id:'walking',attackerId:'a',defenderId:'d',attacker:city(),defender:c,troops:{club:1},now:500});
+ const g=s.groups.find(g=>g.side==='defender')!;assert.ok(Math.abs(g.x-6.45)<1e-8);assert.equal(g.y,5.5);assert.equal(g.count,1);
+});

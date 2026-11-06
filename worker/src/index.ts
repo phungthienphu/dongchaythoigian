@@ -1,4 +1,4 @@
-import { advanceBattle, commandBattle, battleResult } from '../../lib/battle';
+import { advanceBattle, commandBattle, battleResult, battleCommandError } from '../../lib/battle';
 
 type Battle = Parameters<typeof advanceBattle>[0];
 type Command = Parameters<typeof commandBattle>[2];
@@ -191,10 +191,11 @@ export class BattleRoom {
     if (action === 'command') {
       if (!this.battle) return json({ error: 'Battle not started' }, 404);
       if ((body.side !== 'attacker' && body.side !== 'defender') || !validCommand(body.command)) return json({ error: 'Invalid command' }, 400);
-      const accepted = body.command.type === 'presence' ? body.side === 'defender' : commandBattle(this.battle, body.side, body.command);
+      const error=battleCommandError(this.battle,body.side,body.command);
+      const accepted = !error && (body.command.type === 'presence' ? body.side === 'defender' : commandBattle(this.battle, body.side, body.command));
       this.refreshPresence();
       await this.ctx.storage.put('battle', this.battle); this.broadcast();
-      return json({ accepted });
+      return json({ accepted, ...(error?{error}:{}) });
     }
     if (action) return json({ error: 'Not found' }, 404);
     if (this.battle) return json({ ok: true, battle: this.snapshot(true) });
@@ -217,11 +218,12 @@ export class BattleRoom {
       const frame = JSON.parse(message);
       const command = frame?.type === 'command' ? frame.command : frame;
       if (!validCommand(command)) { socket.send(JSON.stringify({ type: 'error', error: 'Invalid command' })); return; }
-      const accepted = command.type === 'presence' ? user.side === 'defender' : commandBattle(this.battle, user.side, command);
+      const error=battleCommandError(this.battle,user.side,command);
+      const accepted = !error && (command.type === 'presence' ? user.side === 'defender' : commandBattle(this.battle, user.side, command));
       if (command.type === 'presence' && user.side === 'defender') socket.serializeAttachment({ ...user, active: command.online });
       this.refreshPresence();
       await this.ctx.storage.put('battle', this.battle);
-      socket.send(JSON.stringify({ type: 'ack', accepted })); this.broadcast();
+      socket.send(JSON.stringify({ type: 'ack', accepted, ...(error?{error}:{}) })); this.broadcast();
     } catch { socket.send(JSON.stringify({ type: 'error', error: 'Invalid message' })); }
   }
   async webSocketClose(socket: WebSocket, code: number, reason: string) {

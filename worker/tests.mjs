@@ -102,3 +102,16 @@ test('market feed sends only invalidations and rejects mutations or unauthentica
  assert.deepEqual(good.frames,[{type:'update'}]);assert.ok(expired.closed);
  await h.room.webSocketMessage(good,JSON.stringify({type:'retreat'}));assert.equal(h.data.get('battle'),undefined);
 });
+test('defender socket reports unreachable moves and applies valid moves during combat',async()=>{
+ const b=battle();b.terrain.fill(0);b.buildings=[];
+ b.groups=[{id:'attacker:club',u:'club',side:'attacker',count:1,initial:1,hp:20,x:8.5,y:5.5,order:{type:'guard',x:8.5,y:5.5}},{id:'defender:sword',u:'sword',side:'defender',count:20,initial:20,hp:1400,x:5.5,y:5.5,order:{type:'guard',x:5.5,y:5.5}}];
+ for(let y=0;y<96;y++)b.terrain[y*96+7]=3;
+ const h=harness({battle:b,roomId:'one'});await h.ready;
+ const ws=socket({roomId:'one',playerId:'d',side:'defender',exp:Date.now()/1000+60,active:true});h.sockets.push(ws);
+ await h.room.webSocketMessage(ws,JSON.stringify({type:'command',command:{type:'move',groupId:'defender:sword',x:10.5,y:5.5}}));
+ const rejected=ws.frames.find(f=>f.type==='ack');assert.equal(rejected.accepted,false);assert.match(rejected.error,/Không có đường/);
+ await h.room.webSocketMessage(ws,JSON.stringify({type:'command',command:{type:'move',groupId:'defender:sword',x:3.5,y:5.5}}));
+ assert.equal(ws.frames.filter(f=>f.type==='ack').at(-1).accepted,true);
+ const {advanceBattle}=await import(pathToFileURL(join(out,'lib/battle.js')));advanceBattle(b,b.lastTick+2000);
+ assert.equal(b.groups[1].x,3.5);assert.equal(b.groups[1].order.type,'guard');
+});

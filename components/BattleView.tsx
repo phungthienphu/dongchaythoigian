@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { BattleCommand, BattleSide, BattleState } from "@/lib/battle";
+import { advanceBattle, battleCommandError, commandBattle, type BattleCommand, type BattleSide, type BattleState } from "@/lib/battle";
 import type { WarView } from "@/lib/war-view";
 import { derive, UNITS, W, R, type City, type Derived } from "@/lib/engine";
 import { camView, clampCam, drawCity, fitView, focusOn, screenToCell, zoomAt, type Cam, type View } from "./draw";
@@ -14,7 +14,7 @@ type Packet = { war: WarView; battle: BattleState | null; village: City | null; 
 const MERCY = "Thí chủ hãy giữ cho mình chút nhân tánh, hãy cho những người lương thiện một con đường sống…";
 const EMPTY_PICKED = new Set<number>(), EMPTY_CHOPPING = new Set<number>();
 
-export default function BattleView({ id, onClose, onSettled }: { id: string; onClose: () => void; onSettled?: () => void }) {
+export default function BattleView({ id, onClose, onSettled, preview }: { id: string; onClose: () => void; onSettled?: () => void; preview?: Packet }) {
   const [packet, setPacket] = useState<Packet | null>(null);
   const [battle, setBattle] = useState<BattleState | null>(null);
   const [connection, setConnection] = useState("Đang mở phòng trận…");
@@ -35,13 +35,26 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
   const pinch = useRef<{ distance: number; zoom: number } | null>(null);
 
   const send = useCallback((command: BattleCommand) => {
+    const current=latest.current;
+    if(preview&&current.battle){
+      const next=structuredClone(current.battle),error=battleCommandError(next,preview.side,command);
+      if(error||!commandBattle(next,preview.side,command)){setError(error??"Lệnh không hợp lệ.");return;}
+      setBattle(next);setError("");return;
+    }
+    if(current.battle?.status === "finished" || current.packet?.war.result || ["completed","cancelled"].includes(current.packet?.war.status??"")){setError("Trận đã kết thúc, không thể điều quân.");return;}
     const ws = socket.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) { setError("Đang nối lại. Chờ kết nối để ra lệnh."); return; }
     ws.send(JSON.stringify({ type: "command", command }));
     setError("");
-  }, []);
+  }, [preview]);
 
   useEffect(() => {
+    if(preview){
+      setPacket(preview);setBattle(structuredClone(preview.battle));setConnected(true);setConnection("Bản thử local");setSelected(null);focused.current=false;
+      let previous=performance.now();
+      const timer=setInterval(()=>{const current=performance.now(),elapsed=current-previous;previous=current;setBattle(b=>{if(!b)return b;const next=structuredClone(b);advanceBattle(next,next.lastTick+Math.floor(elapsed/100)*100);return next;});},100);
+      return ()=>clearInterval(timer);
+    }
     let disposed = false, generation = 0, attempt = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | undefined;
@@ -102,7 +115,7 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
               });
               if (frame.battle.status === "finished") finish(frame.battle);
             } else if (frame.type === "error") setError(frame.error || "Lệnh chưa được chấp nhận.");
-            else if (frame.type === "ack" && frame.accepted === false) setError("Lệnh không còn hợp lệ. Hãy chọn lại nhóm quân.");
+            else if (frame.type === "ack" && frame.accepted === false) setError(frame.error || "Lệnh không còn hợp lệ. Hãy chọn lại nhóm quân.");
             else if (frame.type === "update") { clearTimeout(timer); timer = setTimeout(connect, 500); }
           } catch { setError("Dữ liệu phòng trận không hợp lệ. Đang chờ bản cập nhật tiếp theo."); }
         };
@@ -121,7 +134,7 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
     window.addEventListener("pagehide", leave);
     void connect();
     return () => { disposed = true; generation++; clearTimeout(timer); controller?.abort(); disconnect(); document.removeEventListener("visibilitychange", foreground); window.removeEventListener("pagehide", leave); };
-  }, [id, retry]);
+  }, [id, retry, preview]);
 
   useEffect(() => {
     const cv = canvas.current;
@@ -191,7 +204,7 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
         ctx.font = "bold 12px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff"; ctx.fillText(String(g.count), at.x, at.y+9);
         ctx.fillStyle = "#302c25"; ctx.fillRect(at.x - 15, at.y - 44, 30, 4);
         ctx.fillStyle = own ? "#80d8b3" : "#f4987e"; ctx.fillRect(at.x - 15, at.y - 44, 30 * Math.max(0, Math.min(1, g.hp / (g.initial * UNITS[g.u].hp))), 4);
-        if (g.id === chosen && g.order.type === "move") {
+        if (b?.status!=="finished" && !p.war.result && !["completed","cancelled"].includes(p.war.status) && g.id === chosen && g.order.type === "move" && !g.blocked && g.moving) {
           const to = project(g.order.x, g.order.y);
           ctx.strokeStyle = "#ffe08a"; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(at.x, at.y); ctx.lineTo(to.x, to.y); ctx.stroke(); ctx.setLineDash([]);
         }
@@ -208,7 +221,7 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
 
   const clickMap = (x: number, y: number) => {
     const { packet: p, battle: b, selected: chosen } = latest.current, f = baseView.current;
-    if (!p || !b || !f || b.status === "finished") return;
+    if (!p || !b || !f || b.status === "finished" || p.war.result || ["completed","cancelled"].includes(p.war.status)) return;
     const v = camView(f, camera.current);
     const target = b.groups.filter((g) => g.count > 0 && !g.escaped).map((g) => ({ g, distance: Math.hypot(x - (v.ox + (g.x - g.y) * v.TW / 2), y - (v.oy + (g.x + g.y) * v.TH / 2)) })).sort((a, z) => a.distance - z.distance)[0];
     if (target && target.distance < 24) {
@@ -241,7 +254,8 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
       <button type="button" onClick={onClose} aria-label="Đóng phòng trận" autoFocus>Đóng</button>
     </header>
     {!finished && <p className={styles.hint}>Dân đang chạy tìm chỗ trú, tạm ngừng làm việc. Dân không tham chiến; trú ẩn không bảo đảm an toàn nếu làng bị tàn phá.</p>}
-    {error && <div className={styles.error} role="alert">{error} <button type="button" onClick={() => setRetry((n) => n + 1)}>Kết nối lại</button></div>}
+    {error && <div className={styles.error} role="alert">{error} {!connected && <button type="button" onClick={() => setRetry((n) => n + 1)}>Kết nối lại</button>}</div>}
+    {preview && <div className={styles.result}><p>Bản thử độc lập: địch ở bên kia sông. Chọn Kiếm sĩ rồi chạm đất cùng bờ để di chuyển. Qua sông sẽ báo thiếu đường.</p><button onClick={()=>setBattle(b=>b?{...b,status:"finished",winner:"defender"}:b)}>Kết thúc trận thử</button><output aria-live="off">{battle?.groups.filter(g=>g.side===preview.side).map(g=>`${UNITS[g.u].n}: (${g.x.toFixed(1)}, ${g.y.toFixed(1)})`).join(" · ")}</output></div>}
     {finished && <div className={styles.result} role="status"><strong>{packet?.war.status === "cancelled" ? "Đoàn quân đã quay về." : winner === packet?.side ? "Bạn đã thắng trận." : winner ? "Bạn đã thua trận." : "Trận đánh đã kết thúc."}</strong>{winner === "attacker" && <p>{MERCY}</p>}<p>Dân mất: {battle?.populationLoss ?? packet?.war.result?.populationLoss ?? 0} · Nhà cháy: {battle?.buildings.filter((b) => b.burned && !b.initiallyBurned).length ?? packet?.war.result?.burnedTiles.length ?? 0}</p></div>}
     <div className={styles.map}>
       <canvas ref={canvas} tabIndex={0} onKeyDown={(e) => {
@@ -272,8 +286,8 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
       <div className={styles.zoom}><button type="button" aria-label="Phóng to" onClick={() => { const f = baseView.current; if (f) zoomAt(f, camera.current, camera.current.zoom * 1.3, f.width / 2, f.height / 2); }}>+</button><button type="button" aria-label="Thu nhỏ" onClick={() => { const f = baseView.current; if (f) zoomAt(f, camera.current, camera.current.zoom / 1.3, f.width / 2, f.height / 2); }}>−</button></div>
     </div>
     <footer className={styles.footer}>
-      <div className={styles.groups} aria-label="Nhóm quân của bạn">{groups.map((g) => <button type="button" key={g.id} aria-pressed={selected === g.id} onClick={() => setSelected(g.id)} disabled={!active}>{UNITS[g.u].n} × {g.count}</button>)}</div>
-      <p>{battle?.groups.find(g=>g.id===selected)?.blocked ? "Không có đường tới mục tiêu: sông hoặc núi chắn lối. Chọn mục tiêu khác." : selected ? "Chạm đất để đi · Chạm địch để đánh" : "Chọn một nhóm quân để ra lệnh"} · Kéo và chụm để xem bản đồ</p>
+      <div className={styles.groups} aria-label="Nhóm quân của bạn">{groups.map((g) => <button type="button" key={g.id} aria-pressed={selected === g.id} onClick={() => setSelected(g.id)} disabled={!active}>{UNITS[g.u].n} × {g.count}{groups.some(other=>other.id!==g.id&&other.u===g.u)?` · ${Math.floor(g.x)},${Math.floor(g.y)}`:""}</button>)}</div>
+      <p>{finished ? "Trận đã kết thúc. Quân không tiếp tục nhận lệnh tại đây." : battle?.groups.find(g=>g.id===selected)?.blocked ? "Không có đường tới mục tiêu. Kiểm tra sông, thuyền, núi và lối qua cổng. Quân nhà không tự phá nhà mình." : selected ? "Chạm đất để đi · Chạm địch để đánh" : "Chọn một nhóm quân để ra lệnh"} · Kéo và chụm để xem bản đồ</p>
       {packet?.side === "attacker" && !finished && <button type="button" className={styles.retreat} disabled={!active || battle?.status === "retreating"} onClick={() => send({ type: "retreat" })}>{battle?.status === "retreating" ? "Đang rút lui…" : "Rút quân"}</button>}
     </footer>
   </section>;

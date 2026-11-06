@@ -1,7 +1,7 @@
 /** Serializable, deterministic battle simulation. All time advances in 100 ms ticks.
  * Balance defaults: loot cap is 25% of each starting resource; civilian loss is
  * capped at floor(pop/2). Retreating armies can be pursued until they leave. */
-import { isRock, shipsFree, shipsNeeded, B, H, HL, O, R, RES, UKEYS, UNITS, W, type City, type Res, type Troops, type UKey } from './engine';
+import { homeSoldiers, isRock, shipsFree, shipsNeeded, B, H, HL, O, R, RES, UKEYS, UNITS, W, type City, type Res, type Troops, type UKey } from './engine';
 export const BATTLE_TICK_MS = 100;
 export const BATTLE_TIMEOUT_MS = 180_000;
 export type BattleSide = 'attacker' | 'defender';
@@ -24,7 +24,7 @@ function safeSpawn(terrain:number[],buildings:BattleBuilding[],side:BattleSide,p
   const blocked=new Set(buildings.filter(b=>blockingBuilding(b,side)).map(b=>b.tile));
   const start=Math.max(0,Math.min(H-1,Math.floor(p.y)))*W+Math.max(0,Math.min(W-1,Math.floor(p.x)));
   const queue=[start],seen=new Set(queue);
-  for(let head=0;head<queue.length;head++){const tile=queue[head];if(!blockedTerrain(terrain[tile])&&!blocked.has(tile))return xy(tile);
+  for(let head=0;head<queue.length;head++){const tile=queue[head];if(!blockedTerrain(terrain[tile])&&!blocked.has(tile))return tile===start?{...p}:xy(tile);
     for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const x=tile%W+dx,y=Math.floor(tile/W)+dy,t=y*W+x;if(x>=0&&x<W&&y>=0&&y<H&&!seen.has(t)){seen.add(t);queue.push(t);}}
   }
   return p;
@@ -51,15 +51,33 @@ export function createBattle(o: { id: string; attackerId: string; defenderId: st
     const maxHp = Math.max(60,value*2);
     return {id:`b:${tile}`,tile:Number(tile),k:b.k,lvl:b.lvl,hp:(b as typeof b & {burned?:boolean}).burned?0:maxHp,maxHp,burned:!!(b as typeof b & {burned?:boolean}).burned,initiallyBurned:!!(b as typeof b & {burned?:boolean}).burned,inactive:!!b.flooded,value};
   });
-  const guards = (o.defender as City & {guardPosts?:{x:number;y:number}[]}).guardPosts ?? [];
   const center = xy(Number(Object.keys(o.defender.b).find(k=>o.defender.b[k].k==='hall') ?? o.defender.camp));
   const groups:BattleGroup[]=[];
-  for(const side of ['attacker','defender'] as const) for(const u of UKEYS) {
-    const count=Math.max(0,Math.floor((side==='attacker'?o.troops:o.defender.army)[u]??0));
-    if(!count)continue;
-    const naval=side==='attacker'?(o.attackerShips??shipsFree(o.attacker,o.now))>=shipsNeeded(o.troops):shipsFree(o.defender,o.now)>=shipsNeeded(o.defender.army);
-    const p=side==='attacker'?invasionEntry(o.defender.t,center,Math.min(H-2,Math.max(1,center.y+groups.length*2))):guards[groups.filter(g=>g.side==='defender').length%Math.max(1,guards.length)]??center;
-    groups.push({naval,id:`${side}:${u}`,side,u,count,initial:count,hp:count*UNITS[u].hp,...safeSpawn(o.defender.t,buildings,side,p),...(side==='attacker'&&p.x>1?{entry:p}:{}),order:{type:'guard',...p}});
+  const add=(side:BattleSide,u:UKey,count:number,p:{x:number;y:number},naval:boolean,suffix='')=>{
+    const spawn=safeSpawn(o.defender.t,buildings,side,p);
+    groups.push({naval,id:`${side}:${u}${suffix}`,side,u,count,initial:count,hp:count*UNITS[u].hp,...spawn,...(side==='attacker'&&p.x>1?{entry:p}:{}),order:{type:'guard',...spawn}});
+  };
+  const attackerNaval=(o.attackerShips??shipsFree(o.attacker,o.now))>=shipsNeeded(o.troops);
+  for(const u of UKEYS){
+    const count=Math.max(0,Math.floor(o.troops[u]??0));if(!count)continue;
+    add('attacker',u,count,invasionEntry(o.defender.t,center,Math.min(H-2,Math.max(1,center.y+groups.length*2))),attackerNaval);
+  }
+  // Preserve the actual home defence deployment. Aggregate only soldiers of the
+  // same type already sharing a tile; opposite banks remain independent groups.
+  const home=homeSoldiers(o.defender,o.now),defenderNaval=shipsFree(o.defender,o.now)>=shipsNeeded(o.defender.army);
+  for(const u of UKEYS){
+    const count=Math.max(0,Math.floor(o.defender.army[u]??0));if(!count)continue;
+    const positions=new Map<number,{count:number;x:number;y:number}>();
+    for(const actor of home.filter(a=>a.u===u)){
+      const tile=Math.floor(actor.y)*W+Math.floor(actor.x),entry=positions.get(tile);
+      if(entry){entry.x+=actor.x;entry.y+=actor.y;entry.count++;}
+      else positions.set(tile,{count:1,x:actor.x,y:actor.y});
+    }
+    let total=0;
+    for(const [tile,p] of positions){
+      add('defender',u,p.count,{x:p.x/p.count,y:p.y/p.count},defenderNaval||o.defender.t[tile]===R,total?`:${tile}`:'');total+=p.count;
+    }
+    if(total<count)add('defender',u,count-total,center,defenderNaval,total?':reserve':'');
   }
   const s:BattleState={id:o.id,attackerId:o.attackerId,defenderId:o.defenderId,startedAt:o.now,lastTick:o.now,terrain:[...o.defender.t],groups,buildings,status:'fighting',defenderOnline:!!o.defenderOnline,initialPopulation:o.defender.pop,populationLoss:0,startingResources:{...o.defender.res},loot:emptyRes(),devastation:0};
   for(const g of groups) if(g.side==='attacker') { const target=buildings.find(b=>b.k==='hall'&&!b.burned)??buildings.find(b=>!b.burned); if(target)g.order={type:'attack',targetId:target.id}; }
@@ -70,6 +88,7 @@ export function commandBattle(s:BattleState,side:BattleSide,c:BattleCommand):boo
   if(c.type==='presence'){if(side!=='defender')return false;s.defenderOnline=c.online;return true;}
   if(c.type==='retreat'){if(side!=='attacker'||s.status!=='fighting')return false;s.status='retreating';for(const g of s.groups)if(g.side==='attacker'){g.order={type:'retreat'};delete g.resumeOrder;delete g.retreatExit;}return true;}
   const g=s.groups.find(g=>g.id===c.groupId&&g.side===side&&living(g));if(!g||s.status==='retreating'&&side==='attacker')return false;
+  if(battleCommandError(s,side,c))return false;
   delete g.resumeOrder;delete g.breachRetryAt;
   if(c.type==='move'){if(!Number.isFinite(c.x)||!Number.isFinite(c.y)||c.x<0||c.y<0||c.x>=W||c.y>=H)return false;g.order={type:'move',x:c.x,y:c.y};}
   else {if(!s.groups.some(t=>t.id===c.targetId&&t.side!==side&&living(t))&&!(side==='attacker'&&s.buildings.some(b=>b.id===c.targetId&&!b.burned)))return false;g.order={type:'attack',targetId:c.targetId};}delete g.path;g.blocked=false;g.moving=false;return true;
@@ -102,6 +121,21 @@ function move(s:BattleState,g:BattleGroup,target:{x:number;y:number}):boolean {
   const p=g.path.length?xy(g.path[0]):impassable(goal)?xy(start):target,d=dist(g,p);if(d===0)return true;
   g.moving=true;const speed=g.u==='elephant'?.15:.25;g.x+=(p.x-g.x)/d*Math.min(speed,d);g.y+=(p.y-g.y)/d*Math.min(speed,d);return true;
 }
+/** Validate a defender move before replacing its current order. Own houses are
+ * never demolished automatically; a river still requires transport capacity. */
+export function battleCommandError(s:BattleState,side:BattleSide,c:BattleCommand):string|null {
+  if(s.status==='finished')return 'Trận đã kết thúc, không thể điều quân trong báo cáo trận.';
+  if(c.type!=='move'||side!=='defender')return null;
+  if(!Number.isFinite(c.x)||!Number.isFinite(c.y)||c.x<0||c.y<0||c.x>=W||c.y>=H)return null;
+  const g=s.groups.find(g=>g.id===c.groupId&&g.side===side&&living(g));if(!g)return null;
+  const tile=Math.floor(c.y)*W+Math.floor(c.x);
+  if(s.terrain[tile]===R&&!g.naval)return 'Không thể qua sông: cần đủ thuyền vận tải chưa được sử dụng. Chọn vị trí cùng bờ.';
+  if(isRock(s.terrain[tile]))return 'Không thể đứng trên núi hoặc mỏ đá. Chọn ô đất trống.';
+  if(s.buildings.some(b=>b.tile===tile&&blockingBuilding(b,side)))return 'Công trình của mình đang chiếm ô này. Chọn đất trống hoặc đi qua cổng.';
+  const probe={...g,path:undefined};
+  return move(s,probe,c)?null:'Không có đường tới vị trí này. Kiểm tra sông, núi và lối ra qua cổng; quân phòng thủ không tự phá nhà mình.';
+}
+
 /** Pick a blocker with a reachable attack face, favouring progress toward the order.
  * Never target an unreachable inner wall while an outer barrier still seals it. */
 function breach(s:BattleState,g:BattleGroup,target:{x:number;y:number}){
@@ -153,10 +187,17 @@ function tick(s:BattleState){
       else if(lead&&dist(g,lead)>2)move(s,g,{x:Math.max(.5,Math.min(W-.5,lead.x+(g.side==='attacker'?-2:2))),y:lead.y});
       continue;
     }
+    // An online defender's explicit move takes priority over automatic pursuit,
+    // including an unreachable enemy on the opposite bank. Resume guarding on arrival.
+    if(g.side==='defender'&&s.defenderOnline&&g.order.type==='move'){
+      const destination=g.order;move(s,g,destination);
+      if(dist(g,destination)<.01){g.order={type:'guard',x:g.x,y:g.y};delete g.path;}
+      continue;
+    }
     const aboard=s.terrain[Math.floor(g.y)*W+Math.floor(g.x)]===R;
     if(!aboard&&enemy&&dist(g,enemy)<=range(g.u)){strike(s,g.id,g.u==='bow'?'arrow':g.u==='sling'?'stone':'melee',g,enemy);damage(enemy,UNITS[g.u].atk*g.count/10);continue;}
     if(g.side==='defender'){
-      if(enemy&&(s.status==='retreating'||dist(g,enemy)<10)){move(s,g,enemy);continue;}
+      if(enemy&&!s.defenderOnline&&(s.status==='retreating'||dist(g,enemy)<10)){move(s,g,enemy);continue;}
       if(!s.defenderOnline&&g.order.type!=='guard'){g.order={type:'guard',x:g.x,y:g.y};}
     }
     if(g.order.type==='move'||g.order.type==='guard'){if(!move(s,g,g.order))breach(s,g,g.order);}
@@ -182,7 +223,7 @@ export function advanceBattle(s:BattleState,now:number):BattleState {
   if(s.status==='finished')for(const g of s.groups)g.moving=false;return s;
 }
 export function battleResult(s:BattleState):BattleResult|null {
-  if(s.status!=='finished'||!s.winner)return null;const survivors=(side:BattleSide):Troops=>Object.fromEntries(s.groups.filter(g=>g.side===side).map(g=>[g.u,g.count]));
+  if(s.status!=='finished'||!s.winner)return null;const survivors=(side:BattleSide):Troops=>{const troops:Troops={};for(const g of s.groups)if(g.side===side)troops[g.u]=(troops[g.u]??0)+g.count;return troops;};
   const casualties=(side:BattleSide)=>s.groups.filter(g=>g.side===side).reduce((n,g)=>n+g.initial-g.count,0);
   return{winner:s.winner,attackerSurvivors:survivors('attacker'),defenderSurvivors:survivors('defender'),attackerCasualties:casualties('attacker'),defenderCasualties:casualties('defender'),populationLoss:s.populationLoss,burnedTiles:s.buildings.filter(b=>b.burned&&!b.initiallyBurned).map(b=>b.tile),loot:{...s.loot},devastation:s.devastation};
 }
