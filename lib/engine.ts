@@ -192,7 +192,7 @@ export type Haul = {
   taskKey: string; workRate?: number; drop?: number;
 };
 export type Refuge = { route: number[]; at: number; arrive: number; pausedAt: number; x: number; y: number; building?: number; returnAt?: number; back?: number; returnProgress?: number };
-export type Person = { refuge?: Refuge; id: number; name: string; task: Task; pos?: number; haul?: Haul }; // pos: tile they last headed to
+export type Person = { assignment?: "manual" | "scout"; refuge?: Refuge; id: number; name: string; task: Task; pos?: number; haul?: Haul }; // pos: tile they last headed to
 export type Herd = { id: number; at: number; kind: "deer" | "boar"; n: number; max: number };
 export type LogEntry = { caravanId?: string; at: number; msg: string; cls?: "warn" | "good" };
 export type RaidEncounter = { start:number; engage:number; resolveAt:number; end:number; route:number[]; power:number; won?:boolean };
@@ -244,6 +244,7 @@ export type City = {
   nextExp: number;
   wins: number;
   auto?: { on: boolean; mix: Record<ResKey, number> }; // auto-assign shares (control centre)
+  manualWorkforce?: boolean; // exact headcounts chosen by player; newborns wait for orders
   raid?: { at: number; warn: number; power: number; from: number } | null; // incoming barbarians
   raidEncounter?: RaidEncounter; // short arrival, clash and withdrawal after the warning expires
   trips?: EnvoyTrip[]; // envoys travelling on the world map
@@ -763,6 +764,24 @@ export function stats(c: City, D: Derived, at: number): Stats {
 
 /* ---------- people & tasks ---------- */
 
+export const isScout = (p:Person) => p.assignment === "scout" || p.task.t === "explore";
+/** Explicit moves and waiting scouts are not unassigned workers, including old saves. */
+export const availableForWork = (p:Person) => !p.refuge && p.task.t === "idle" && p.task.at === undefined && !isScout(p);
+export function taskResource(c:City,p:Person):ResKey|null {
+  const tk=p.task;
+  if(tk.t==="chop")return "wood";
+  if(tk.t==="mine")return mineralResource(c.t[tk.at]);
+  if(tk.t==="hunt")return "food";
+  if(tk.t==="work")return RES.find(r=>(B[c.b[tk.at]?.k]?.prod?.[r]??0)>0)??null;
+  return null;
+}
+export function workforceCounts(c:City) {
+  const counts:Res={food:0,wood:0,stone:0,copper:0,gold:0,diamond:0};
+  let scouts=0;
+  for(const p of c.people){if(isScout(p)){scouts++;continue;}const r=taskResource(c,p);if(r)counts[r]++;}
+  return {counts,scouts};
+}
+
 function nearestTile(c: City, from: number, ok: (i: number) => boolean, rad: number) {
   const fx = from % W, fy = (from / W) | 0;
   let best = -1, bd = 1e9;
@@ -779,22 +798,14 @@ function nearestTile(c: City, from: number, ok: (i: number) => boolean, rad: num
 /** Control centre: give idle people jobs so the workforce matches the chosen mix. */
 function autoAssign(c: City, now: number, context?: HaulContext) {
   if (!c.auto?.on || !hasControl(c)) return false;
-  const idle = c.people.filter((p) => !p.refuge && p.task.t === "idle");
+  const idle = c.people.filter((p) => availableForWork(p) && !p.assignment);
   if (!idle.length) return false;
-  const resOf = (p: Person): ResKey | null => {
-    const tk = p.task;
-    if (tk.t === "chop") return "wood";
-    if (tk.t === "mine") return mineralResource(c.t[tk.at]);
-    if (tk.t === "hunt") return "food";
-    if (tk.t === "work") return (Object.keys(def(c.b[tk.at]?.k ?? "hut").prod ?? {})[0] as ResKey) ?? null;
-    return null;
-  };
   const total = c.people.length, mixSum = RES.reduce((a, r) => a + (c.auto!.mix[r] ?? 0), 0) || 1;
   const ctx = context ?? haulingContext(c, derive(c));
   let changed = false;
   for (const p of idle) {
     const have: Res = { food: 0, wood: 0, stone: 0, copper: 0, gold: 0, diamond: 0 };
-    for (const q of c.people) { const r = resOf(q); if (r) have[r]++; }
+    for (const q of c.people) { const r = taskResource(c,q); if (r) have[r]++; }
     const order = [...RES].sort((a, b) => (have[a] - (total * c.auto!.mix[a]) / mixSum) - (have[b] - (total * c.auto!.mix[b]) / mixSum));
     for (const r of order) {
       if ((c.auto!.mix[r] ?? 0) <= 0) continue;
@@ -845,10 +856,46 @@ function autoTarget(c: City, r: ResKey, p: Person, now: number, ctx: HaulContext
   return null;
 }
 
-/** Fill open job slots in finished buildings with idle people. */
+/** Plan on a copy so a missing source or locked group cannot partly reassign people. */
+function setWorkforce(c:City,counts:Res,scouts:number,now:number):string|null {
+  if(RES.reduce((n,r)=>n+counts[r],scouts)>c.people.length)return "Tổng số dân đã chọn vượt dân số hiện có.";
+  const draft=structuredClone(c);
+  const groups=[...RES,"scouts"] as const;
+  const members=(key:typeof groups[number])=>draft.people.filter(p=>key==="scouts"?isScout(p):!isScout(p)&&taskResource(draft,p)===key);
+  // Reduce first, making those people available to the other requested groups.
+  for(const key of groups){
+    const have=members(key),target=key==="scouts"?scouts:counts[key];
+    const excess=Math.max(0,have.length-target);
+    const movable=have.filter(p=>!p.refuge).sort((a,b)=>Number(a.task.t!=="idle")-Number(b.task.t!=="idle"));
+    if(excess>movable.length)return "Nhóm đang tránh địch chưa thể đổi việc. Chờ họ quay lại rồi chỉnh số dân.";
+    for(const p of movable.slice(0,excess)){p.assignment="manual";setTask(draft,p,{t:"idle"},now);}
+  }
+  const pool=draft.people.filter(availableForWork);
+  const ctx=haulingContext(draft,derive(draft));
+  for(const key of groups){
+    const have=members(key),target=key==="scouts"?scouts:counts[key];
+    for(let n=have.length;n<target;n++){
+      const p=pool.shift();
+      if(!p)return "Không đủ dân có thể đổi việc. Nhóm khám phá, người đang trú ẩn, làm dịch vụ hoặc đứng theo lệnh khác vẫn được giữ riêng.";
+      if(key==="scouts"){p.assignment="scout";continue;}
+      const tk=autoTarget(draft,key,p,now,ctx);
+      if(!tk)return `Chưa đủ chỗ làm có đường tới để giao ${counts[key]} dân kiếm ${RN[key].toLowerCase()}. Kiểm tra nguồn đã khám phá, công trình còn chỗ, ruộng và thời đại.`;
+      p.assignment="manual";setTask(draft,p,tk,now);
+    }
+  }
+  for(const p of draft.people)if(!isScout(p)&&taskResource(draft,p))p.assignment="manual";
+  c.people=draft.people;
+  c.manualWorkforce=true;
+  c.auto={on:false,mix:c.auto?.mix??{...DEFAULT_MIX}};
+  log(c,now,`Đã giao số dân theo từng tài nguyên; giữ riêng ${scouts} người khám phá. Dân mới chờ lệnh, không tự đổi nhóm.`,"good");
+  return null;
+}
+
+/** Fill open job slots only with villagers who have no explicit standing order. */
 function autoStaff(c: City, now: number) {
+  if(c.manualWorkforce)return;
   if (c.auto?.on && hasControl(c)) { autoAssign(c, now); return; }
-  const idle = c.people.filter((p) => !p.refuge && p.task.t === "idle");
+  const idle = c.people.filter((p) => availableForWork(p) && !p.assignment);
   if (!idle.length) return;
   for (const [i, b] of buildings(c)) {
     const jobs = def(b.k).jobs ?? 0;
@@ -962,6 +1009,7 @@ function stepExplorers(c: City, at: number) {
       log(c, at, `${p.name} thám hiểm xong${found ? `, mở thêm ${found} ô` : ""}${notes.length ? `, thấy ${notes.join(", ")}` : ""}.`, "good");
       const end=tk.route?.[tk.route.length-1]??tk.to;
       p.task = { t: "idle", at: end };
+      p.assignment = "scout";
       p.pos = end;
       changed = true;
     }
@@ -2077,6 +2125,7 @@ export type Action =
   | { type: "advance" }
   | { type: "assign"; ids: number[]; task: TaskInput; pos?: Record<string, number> }
   | { type: "assignN"; n: number; task: TaskInput; pos?: Record<string, number> } // pos: where each person stands on screen
+  | { type: "setWorkforce"; counts: Res; scouts: number }
   | { type: "train"; u: UKey; n: number }
   | { type: "attack"; camp: number; units: Troops }
   | { type: "alarm" }
@@ -2193,9 +2242,11 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     for (const r of RES) mix[r] = Math.max(0, Math.min(100, Math.round(Number(a.mix?.[r]) || 0)));
     if (a.on && !RES.some(r => mix[r] > 0)) return "Chọn ít nhất một loại tài nguyên để tự động giao việc.";
     c.auto = { on: !!a.on, mix };
+    if(a.on)c.manualWorkforce=false;
     autoAssign(c, now);
     return null;
   }
+  if(a.type === "setWorkforce")return setWorkforce(c,a.counts,a.scouts,now);
   if (a.type === "attack") {
     const camp = campById(c, a.camp);
     if (!camp || !c.seen[camp.at]) return "Không thấy trại này.";
@@ -2228,8 +2279,8 @@ export function applyAction(c: City, a: Action, now: number): string | null {
       if (!Array.isArray(a.ids)) return "Chưa chọn người.";
       people = c.people.filter((p) => a.ids.includes(p.id));
     } else {
-      const n = Math.max(1, Math.min(50, Math.floor(a.n)));
-      people = c.people.filter((p) => p.task.t === "idle").slice(0, n);
+      const n = a.n;
+      people = c.people.filter(availableForWork).slice(0, n);
       if (!people.length) return "Không còn ai rảnh. Chọn người đang làm việc khác để đổi việc.";
     }
     if (!people.length) return "Chưa chọn người.";
@@ -2240,6 +2291,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     for (const p of people) {
       // Economy positions are authoritative; client animation hints cannot
       // teleport a worker or a load of resources to the destination.
+      p.assignment=tk.t === "explore" || tk.t === "move" && isScout(p) ? "scout" : "manual";
       setTask(c, p, tk, now);
     }
     return null;

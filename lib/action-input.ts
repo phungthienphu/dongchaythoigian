@@ -58,7 +58,12 @@ export function isActionInput(value: unknown): value is Action {
     case 'recall': return integer(value.exp, 1);
     case 'attack': return integer(value.camp, 1) && troops(value.units);
     case 'assign': return Array.isArray(value.ids) && value.ids.length <= 10_000 && value.ids.every(id => integer(id, 1)) && new Set(value.ids).size === value.ids.length && task(value.task) && positions(value.pos);
-    case 'assignN': return integer(value.n, 1, 50) && task(value.task) && positions(value.pos);
+    case 'assignN': return integer(value.n, 1, 10_000) && task(value.task) && positions(value.pos);
+    case 'setWorkforce': {
+      if(!record(value.counts)||!integer(value.scouts,0,10_000))return false;
+      const counts=value.counts;
+      return Object.keys(counts).length===RESOURCES.length && RESOURCES.every(r=>own(counts,r)&&integer(counts[r],0,10_000));
+    }
     case 'setGuardPosts': return Array.isArray(value.posts) && value.posts.length <= 20 && value.posts.every(point);
     case 'auto': {
       if (typeof value.on !== 'boolean' || !record(value.mix)) return false;

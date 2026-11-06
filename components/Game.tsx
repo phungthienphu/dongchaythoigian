@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
+  availableForWork, isScout, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
   armyCap, armyUsed, buildingCost, trainingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -23,6 +23,7 @@ import CaravanNoticeLink from "./CaravanNoticeLink";
 import DockPanel from "./DockPanel";
 import AutoAssignPanel from "./AutoAssignPanel";
 import EraStorageNotice from "./EraStorageNotice";
+import WorkforcePanel from "./WorkforcePanel";
 import FrontierStatus from "./FrontierStatus";
 import {HungerNotice,HungryVillager} from "./HungerStatus";
 import MarketPanel from "./MarketPanel";
@@ -83,12 +84,12 @@ function taskLabel(c: City, p: Person) {
     case "mine": return `Đào ${RN[mineralResource(c.t[tk.at])].toLowerCase()}`;
     case "hunt": return c.herds.find((h) => h.id === tk.herd)?.kind === "boar" ? "Săn lợn rừng" : "Săn hươu";
     case "explore": return "Đi thám hiểm";
-    default: return "Rảnh";
+    default: return isScout(p) ? "Khám phá · chờ lệnh" : tk.t === "idle" && tk.at !== undefined ? "Đứng theo lệnh" : p.assignment === "manual" ? "Nghỉ · chờ lệnh" : "Rảnh";
   }
 }
 function haulDetail(p: Person, at: number, storage: City["res"], stock: City["res"]) {
   const h = p.haul;
-  if (!h) return p.task.t === "idle" ? "Chưa có việc — chọn dân rồi bấm nơi làm việc." : p.task.t === "explore" ? "Đang dò đường trong làng." : "Chưa làm được: kiểm tra tài nguyên gần trại và đường đi; có thể giao việc khác.";
+  if (!h) return isScout(p) && p.task.t === "idle" ? "Nhóm khám phá đang chờ lệnh, không tự đổi việc." : p.task.t === "idle" ? "Chờ lệnh — chọn dân rồi bấm nơi cần đến." : p.task.t === "explore" ? "Đang dò đường trong làng." : "Chưa làm được: kiểm tra tài nguyên gần trại và đường đi; có thể giao việc khác.";
   const left = fmtDur(h.nextAt - at), name = h.resource ? RN[h.resource].toLowerCase() : "hàng";
   if (h.resting) return `${h.phase === "travel" ? "Đang đi theo lệnh" : "Đã nghỉ"} · vẫn giữ ${fmt(h.carried)} ${name} vì kho đầy. Dùng bớt tài nguyên hoặc xây Kho.`;
   if (h.phase === "travel") return `Đang tới chỗ làm · còn ${left}`;
@@ -245,6 +246,7 @@ function ControlPanel(props: {
           <ul className="units">
             {RES.map((r) => <li key={r}><span>{RN[r]}</span><b className={rate[r] < 0 ? "danger" : "ok"}>{rate[r] >= 0 ? "+" : ""}{fmt(rate[r])}/giờ</b></li>)}
           </ul>
+          <WorkforcePanel c={c} busy={busy} act={act} pickGroup={props.pickGroup}/>
           <h3>Theo việc</h3>
           <ul className="units train">
             {[...groups.entries()].sort((a, b) => b[1].length - a[1].length).map(([label, ps]) => (
@@ -707,7 +709,8 @@ export default function Game() {
       if (picked.size) {
         const ids = [...picked];
         setPicked(new Set());
-        if (await act({ type: "assign", ids, task: { t: "hunt", herd: herdId } })) { setMsg({ text: `${ids.length} người: ${label.toLowerCase()}.` }); setPicked(new Set()); }
+        const scouts=c.people.filter(p=>picked.has(p.id)).every(isScout);
+        if (await act({ type: "assign", ids, task: scouts ? {t:"explore",to:h.at} : { t: "hunt", herd: herdId } })) { setMsg({ text: scouts ? `${ids.length} người tiếp tục khám phá, giữ nguyên nhóm.` : `${ids.length} người: ${label.toLowerCase()}.` }); setPicked(new Set()); }
         return;
       }
       setSelected(null); setHerdSel(herdId); setAssignN(1); setMsg(null);
@@ -716,8 +719,9 @@ export default function Game() {
     const cell = target && (target.type==="building" || target.type==="cell") ? target.cell : null;
     if (!cell) return;
     const i = idx(cell.x, cell.y);
-    if (picked.size && !campAt(c, i)) {
-      const tk = taskFor(c, i);
+    if (picked.size && (!campAt(c, i) || c.people.filter(p=>picked.has(p.id)).every(isScout))) {
+      const scouts=c.people.filter(p=>picked.has(p.id)).every(isScout);
+      const tk = scouts ? {task:{t:"explore",to:i} as TaskInput,label:"Tiếp tục khám phá, giữ nguyên nhóm"} : taskFor(c, i);
       if (!tk) { setMsg({ text: "Không có việc gì để làm ở ô này.", err: true }); return; }
       const ids = [...picked];
       setPicked(new Set());
@@ -801,7 +805,7 @@ export default function Game() {
   const si = seasonIndexAt(c, t), season = si % 4;
   const nextSeasonIn = c.t0 + (si + 1) * SEASON_MS - t;
   const busyN = busyBuilders(c), maxB = builders(c);
-  const idle = c.people.filter((p) => p.task.t === "idle");
+  const idle = c.people.filter(availableForWork);
   const populationStatus = c.battleId ? "Tạm dừng do trận đánh" : c.res.food <= 0 ? "Dân đang đói" : c.people.length >= st.housing ? "Cần thêm nhà" : `+1 dân sau ${fmtDur((1-c.popAcc) / (POP_GROWTH_PER_HOUR * (1+(c.res.wood>0?st.fires:0))) * HOUR)}`;
   const hasFoodWorker = c.people.some(p => p.task.t === "hunt" || p.task.t === "work" && ["gather","farm","wheel"].includes(c.b[p.task.at]?.k ?? ""));
   const goal = !hasFoodWorker ? { text: "1. Kiếm thức ăn: bấm Trại hái lượm → Giao người rảnh, hoặc chọn dân rồi bấm đàn thú.", panel: "people" as Panel }
@@ -1270,6 +1274,7 @@ export default function Game() {
                   <button className="link" disabled={!idle.length} onClick={() => setPicked(new Set(idle.map((p) => p.id)))}>Chọn người rảnh</button>
                 </div>
                 <p className="small muted">Mỗi dân: {upkeep.civilian.food/6} thực / 10 phút + {upkeep.civilian.wood} gỗ / giờ, kể cả khi rảnh.</p>
+                <WorkforcePanel c={c} busy={busy} act={act} pickGroup={(ids)=>{setPicked(new Set(ids));setPickedSoldier(null);setTool(null);setPanel(null);setMsg({text:`Đã chọn ${ids.length} người. Bấm bản đồ để ra lệnh; nhóm khám phá tiếp tục giữ vai trò khám phá.`});}}/>
                 <ul className="people">
                   {c.people.map((p) => (
                     <li key={p.id}>
@@ -1322,7 +1327,7 @@ export default function Game() {
                 c={c} t={t} busy={busy} control={control} hallLv={hallLv} groups={groups} homePower={homePower}
                 rate={{ ...st.rate, wood: st.rate.wood - st.woodUse, stone:st.rate.stone-st.stoneUse }}
                 act={act}
-                pickGroup={(ids) => { setPicked(new Set(ids)); setPanel(null); setMsg({ text: `Đã chọn ${ids.length} người. Bấm lên bản đồ để giao việc mới.` }); }}
+                pickGroup={(ids) => { setPicked(new Set(ids)); setPickedSoldier(null); setTool(null); setPanel(null); setMsg({ text: `Đã chọn ${ids.length} người. Bấm lên bản đồ để giao việc mới.` }); }}
                 attackAll={(campId) => { const camp=campById(c,campId);if(!camp)return;setSelected({x:camp.at%W,y:Math.floor(camp.at/W)});setSend({...c.army});setPanel(null);setMsg({text:"Kiểm tra lương thực và hỗ trợ trước khi xuất quân."}); }}
               />
             )}

@@ -1,6 +1,6 @@
 "use client";
 import {useEffect,useState} from 'react';
-import {B,DEFAULT_MIX,RES,RN,mineralResource,type Action,type City,type Mix,type ResKey} from '@/lib/engine';
+import {DEFAULT_MIX,taskResource,RES,RN,availableForWork,type Action,type City,type Mix,type ResKey} from '@/lib/engine';
 
 export default function AutoAssignPanel({c,busy,act}:{c:City;busy:boolean;act:(a:Action)=>Promise<boolean>}) {
  const saved=JSON.stringify(c.auto?.mix??DEFAULT_MIX);
@@ -13,14 +13,14 @@ export default function AutoAssignPanel({c,busy,act}:{c:City;busy:boolean;act:(a
  for(const p of c.people){
   if(p.refuge)continue;
   const tk=p.task;
-  if(tk.t==='idle'){idle++;continue;}
-  const r=tk.t==='chop'?'wood':tk.t==='mine'?mineralResource(c.t[tk.at]):tk.t==='hunt'?'food':tk.t==='work'?RES.find(r=>(B[c.b[tk.at]?.k]?.prod?.[r]??0)>0):undefined;
+  if(tk.t==='idle'){if(availableForWork(p)&&!p.assignment)idle++;continue;}
+  const r=taskResource(c,p);
   if(r)counts[r]++;
  }
  return <>
   <p role="status" className="small"><b className={c.auto?.on?'ok':'muted'}>{c.auto?.on?'Đang bật tự động giao việc':'Tự động giao việc đang tắt'}</b> · {idle} dân rảnh</p>
   <p className="muted small">Giao việc ngay cho dân rảnh và dân mới, ưu tiên công trình còn chỗ rồi nguồn khai thác có đường tới gần dân. Tỉ lệ là mục tiêu theo số người, tùy nguồn hiện có; không phải tỉ lệ sản lượng. Chạy cả khi offline.</p>
-  <p className="muted small">Lưu tỉ lệ không đổi việc của người đang làm. Muốn chuyển nhóm, hãy chọn nhóm trong Dân làng và cho nghỉ để tự động phân công lại. Tắt tự động giữ nguyên các việc đã giao.</p>
+  <p className="muted small">Lưu tỉ lệ không đổi việc của người đang làm. Muốn chuyển nhóm, nhập số dân trong bảng Phân công số dân hoặc chọn dân rồi giao việc mới. Lệnh khám phá, di chuyển và nghỉ do bạn giao được giữ riêng; tự động chỉ lấy dân chưa có lệnh. Tắt tự động giữ nguyên các việc đã giao.</p>
   <ul className="units">
    {RES.map(r=><li key={r}>
     <label htmlFor={`mix-${r}`} style={{minWidth:80}}>{RN[r]}<div className="muted small">Đã giao: {counts[r]} dân</div></label>

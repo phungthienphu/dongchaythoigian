@@ -379,3 +379,11 @@ a.google.small { padding: 4px 10px; font-size: 12.5px; }
 .hunger-notice span,.hunger-notice small { font-size:12px; line-height:1.5; }
 .hunger-notice button { flex-shrink:0; }
 @media(max-width:480px) { .hunger-notice { align-items:stretch; flex-direction:column; gap:6px; padding:8px 10px; } }
+
+.workforce { margin:16px 0; padding:12px; border:1px solid var(--line); border-radius:8px; }
+.workforce-rows { display:flex; flex-direction:column; gap:8px; }
+.workforce-row { display:grid; grid-template-columns:minmax(0,1fr) 62px auto; align-items:center; gap:8px; }
+.workforce-row label { font-size:13px; }
+.workforce-row small { display:block; color:var(--muted); font-size:11px; }
+.workforce-row input { width:100%; min-width:0; }
+.workforce-row button { padding:5px; font-size:12px; }
