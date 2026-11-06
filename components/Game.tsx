@@ -20,6 +20,8 @@ import { useWars } from "./useWars";
 import { OptimisticCityQueue } from "@/lib/optimistic-city";
 import type { Nation } from "@/lib/world";
 
+const VISIT_VIEW = { hover: null, selected: null, tool: null, picked: new Set<number>() };
+
 type Cell = { x: number; y: number };
 type Row = { name: string; score: number; era: number; pop: number; temple: boolean; me: boolean };
 type Panel = "shop" | "army" | "people" | "era" | "log" | "rank" | "control" | "friends";
@@ -346,6 +348,8 @@ export default function Game() {
   if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") (window as unknown as { __game?: unknown }).__game = { crowd: crowdRef.current, city: () => cityRef.current, view: () => camView(fitRef.current, camRef.current) };
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
   const dragRef = useRef<{ sx: number; sy: number; moved: boolean; pinch: number } | null>(null);
+  const renderPausedRef = useRef(false);
+  renderPausedRef.current=worldOpen || !!battleOpen || helpOpen;
   const viewRef = useRef({ hover, selected, tool, picked });
   viewRef.current = { hover, selected, tool, picked };
 
@@ -504,6 +508,7 @@ export default function Game() {
     cv.addEventListener("wheel", onWheel, { passive: false });
     let raf = 0, last = 0;
     const loop = (t: number) => {
+      if(document.hidden || renderPausedRef.current){last=t;raf=requestAnimationFrame(loop);return;}
       const vis = visitRef.current;
       const c = vis ? vis.city : cityRef.current, D = vis ? vis.D : dRef.current, crowd = vis ? vis.crowd : crowdRef.current;
       const dt = last ? Math.min(0.1, (t - last) / 1000) : 0;
@@ -516,7 +521,7 @@ export default function Game() {
         }
         if (!rm) crowd.update(c, dt, now());
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        const view = vis ? { hover: null, selected: null, tool: null, picked: new Set<number>() } : viewRef.current;
+        const view = vis ? VISIT_VIEW : viewRef.current;
         drawCity(ctx, c, D, { v: camView(fitRef.current, camRef.current), now: now(), anim: rm ? 0 : t, villagers: crowd.list, fx: crowd.fx, chopping: crowd.chopping, ...view });
       }
       raf = requestAnimationFrame(loop);
