@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyAction, CAP, F, G, HL, O, HAUL_CAPACITY, HOUR, idx, newCity, settle, explorerPos, type City } from './engine';
+import { applyAction, CAP, F, G, HL, O, R, HAUL_CAPACITY, HOUR, idx, newCity, settle, explorerPos, type City } from './engine';
 function fixture():City {
  const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.camp=idx(20,20);c.b={};c.herds=[];c.camps=[];c.exps=[];c.res={food:100000,wood:0,stone:0,copper:0, gold: 0, diamond: 0};c.people=c.people.slice(0,3);c.pop=3;c.popAcc=0;for(const p of c.people){p.task={t:'idle'};p.pos=c.camp;}return c;
 }
@@ -116,4 +116,25 @@ test('loaded scout can explore around stone while stock is full without discardi
  const initial=explorerPos(p.task,31_000);assert.ok(Number.isFinite(initial[0]));
  settle(c,10*60_000);assert.equal(c.seen[to],1);assert.equal(p.task.t,'idle');assert.equal(p.pos,to);close(c.res.wood+p.haul!.carried,510-3*c.last/HOUR);
  c.res.wood-=10;settle(c,11*60_000);assert.equal(p.haul,undefined);close(c.res.wood,500-3*c.last/HOUR);
+});
+
+test('cargo drop search compares actual routes, keeps ties and bypasses blocked warehouses',()=>{
+ const c=fixture(),source=idx(30,20),near=idx(28,20),far=idx(32,20);
+ c.b[near]={k:'storehouse',lvl:1,doneAt:null};c.b[far]={k:'storehouse',lvl:1,doneAt:null};
+ assign(c,source);settle(c,21_000);
+ assert.equal(c.people[0].haul?.drop,near); // equal routes: original tile order wins
+ const detour=fixture();
+ detour.b[near]={k:'storehouse',lvl:1,doneAt:null};detour.b[far]={k:'storehouse',lvl:1,doneAt:null};
+ for(let y=18;y<=22;y++)detour.t[idx(29,y)]=HL;
+ assign(detour,source);settle(detour,40_000);
+ assert.equal(detour.people[0].haul?.drop,far);
+ const blocked=fixture();blocked.b[near]={k:'storehouse',lvl:1,doneAt:null};
+ for(let y=19;y<=21;y++)for(let x=27;x<=29;x++)if(idx(x,y)!==near)blocked.b[idx(x,y)]={k:'wall',lvl:1,doneAt:null};
+ assign(blocked,source);for(let at=1000;at<=60000;at+=1000){settle(blocked,at);if(blocked.people[0].haul?.phase==='return')break;}assert.equal(blocked.people[0].haul?.drop,blocked.camp);
+});
+test('villagers keep the land preference but ford when the dry detour is much longer',()=>{
+ const c=fixture();c.t[idx(25,20)]=R;assign(c);
+ assert.ok(c.people[0].haul!.route.every(i=>c.t[i]!==R));
+ const crossing=fixture();for(let y=0;y<96;y++)crossing.t[idx(25,y)]=R;
+ assign(crossing);assert.ok(crossing.people[0].haul!.route.some(i=>crossing.t[i]===R));
 });

@@ -1085,7 +1085,11 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredL
     const route = [goal]; for (let tile = goal; tile !== from;) { tile = prev[tile]; route.push(tile); }
     return route.reverse();
   };
-  const land = find(false), ford = exploredLand ? null : find(true);
+  const land = find(false);
+  // A ford cannot beat this geometric lower bound. Keep the existing land
+  // preference (up to 1.6x the ford length) without searching the same map twice.
+  const direct = Math.max(0, Math.hypot(from % W - to % W, Math.floor(from / W) - Math.floor(to / W)) - (rockyTarget ? Math.SQRT2 : 0) - 1e-9);
+  const ford = exploredLand || land && routeLength(land) <= direct * 1.6 ? null : find(true);
   const path = land && (!ford || routeLength(land) <= routeLength(ford) * 1.6) ? land : ford;
   ctx.paths.set(key, path);
   return path;
@@ -1320,6 +1324,10 @@ function returnCargo(c: City, p: Person, at: number, ctx: HaulContext) {
   for (const tile of candidates) {
     // Use the starter stockpile only when no dedicated drop site is reachable.
     if (tile === c.camp && best) continue;
+    // Even a straight route cannot improve the current drop. Candidate order
+    // and strict tie-breaking stay unchanged, including starter-camp fallback.
+    const lowerBound = Math.max(0, Math.hypot(h.tile % W - tile % W, Math.floor(h.tile / W) - Math.floor(tile / W)) - (isRock(c.t[tile]) ? Math.SQRT2 : 0));
+    if (lowerBound > length + 1e-9) continue;
     const path = haulPath(c, h.tile, tile, ctx);
     const d = path ? routeLength(path) : Infinity;
     if (d < length) { length = d; best = path; drop = tile; }
