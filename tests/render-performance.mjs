@@ -9,9 +9,9 @@ import { stripTypeScriptTypes } from 'node:module';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dong-render-check-'));
 try {
-  for (const [input, name] of [['lib/bounded-cache.ts', 'bounded-cache'], ['lib/action-input.ts', 'action-input'], ['lib/engine.ts', 'engine'], ['lib/build-placement.ts', 'build-placement'], ['components/trade-actors.ts', 'trade-actors'], ['components/draw.ts', 'draw'], ['components/villagers.ts', 'villagers']]) {
+  for (const [input, name] of [['lib/bounded-cache.ts', 'bounded-cache'], ['lib/action-input.ts', 'action-input'], ['lib/engine.ts', 'engine'], ['lib/villager-mood.ts','villager-mood'], ['lib/build-placement.ts', 'build-placement'], ['components/trade-actors.ts', 'trade-actors'], ['components/draw.ts', 'draw'], ['components/villagers.ts', 'villagers']]) {
     const output = stripTypeScriptTypes(fs.readFileSync(path.join(root, input), 'utf8'))
-      .replaceAll('"./bounded-cache"', '"./bounded-cache.js"').replaceAll('"@/lib/bounded-cache"', '"./bounded-cache.js"').replaceAll('"./action-input"', '"./action-input.js"').replaceAll('"@/lib/engine"', '"./engine.js"').replaceAll('"@/lib/build-placement"', '"./build-placement.js"').replaceAll("'./engine'", "'./engine.js'").replaceAll('"./trade-actors"', '"./trade-actors.js"').replaceAll('"./draw"', '"./draw.js"').replaceAll('"./villagers"', '"./villagers.js"');
+      .replaceAll('"./bounded-cache"', '"./bounded-cache.js"').replaceAll('"@/lib/bounded-cache"', '"./bounded-cache.js"').replaceAll('"./action-input"', '"./action-input.js"').replaceAll('"@/lib/villager-mood"', '"./villager-mood.js"').replaceAll('"@/lib/engine"', '"./engine.js"').replaceAll('"@/lib/build-placement"', '"./build-placement.js"').replaceAll("'./engine'", "'./engine.js'").replaceAll('"./trade-actors"', '"./trade-actors.js"').replaceAll('"./draw"', '"./draw.js"').replaceAll('"./villagers"', '"./villagers.js"');
     fs.writeFileSync(path.join(temp, `${name}.js`), output);
   }
   fs.writeFileSync(path.join(temp, 'package.json'), '{"type":"module"}');

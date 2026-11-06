@@ -22,6 +22,7 @@ import { useDiplomacy } from "./useDiplomacy";
 import CaravanNoticeLink from "./CaravanNoticeLink";
 import DockPanel from "./DockPanel";
 import FrontierStatus from "./FrontierStatus";
+import {HungerNotice,HungryVillager} from "./HungerStatus";
 import MarketPanel from "./MarketPanel";
 import { useMarket } from "./useMarket";
 import { useWars } from "./useWars";
@@ -818,7 +819,7 @@ export default function Game() {
   const nextSeasonIn = c.t0 + (si + 1) * SEASON_MS - t;
   const busyN = busyBuilders(c), maxB = builders(c);
   const idle = c.people.filter((p) => p.task.t === "idle");
-  const populationStatus = c.battleId ? "Tạm dừng do trận đánh" : c.people.length >= st.housing ? "Cần thêm nhà" : c.res.food <= 0 ? "Cần lương thực" : `+1 dân sau ${fmtDur((1-c.popAcc) / (POP_GROWTH_PER_HOUR * (1+(c.res.wood>0?st.fires:0))) * HOUR)}`;
+  const populationStatus = c.battleId ? "Tạm dừng do trận đánh" : c.res.food <= 0 ? "Dân đang đói" : c.people.length >= st.housing ? "Cần thêm nhà" : `+1 dân sau ${fmtDur((1-c.popAcc) / (POP_GROWTH_PER_HOUR * (1+(c.res.wood>0?st.fires:0))) * HOUR)}`;
   const hasFoodWorker = c.people.some(p => p.task.t === "hunt" || p.task.t === "work" && ["gather","farm","wheel"].includes(c.b[p.task.at]?.k ?? ""));
   const goal = !hasFoodWorker ? { text: "1. Kiếm thức ăn: bấm Trại hái lượm → Giao người rảnh, hoặc chọn dân rồi bấm đàn thú.", panel: "people" as Panel }
     : c.people.length >= st.housing ? { text: "2. Tăng dân: mở Cửa hàng → xây Lều. Còn chỗ ở và đủ ăn thì khoảng 1 phút có thêm dân.", panel: "shop" as Panel }
@@ -961,7 +962,7 @@ export default function Game() {
           {hunters.length > 0 && (
             <ul className="people compact">
               {hunters.map((p) => (
-                <li key={p.id}><span>{p.name}<small className="haul-detail">{haulDetail(p,t,st.storage,c.res)}</small></span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
+                <li key={p.id}><span>{p.name}<HungryVillager city={c} person={p}/><small className="haul-detail">{haulDetail(p,t,st.storage,c.res)}</small></span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
               ))}
             </ul>
           )}
@@ -1033,7 +1034,7 @@ export default function Game() {
           {onTarget.length > 0 && (
             <ul className="people compact">
               {onTarget.map((p) => (
-                <li key={p.id}><span>{p.name}<small className="haul-detail">{haulDetail(p,t,st.storage,c.res)}</small></span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
+                <li key={p.id}><span>{p.name}<HungryVillager city={c} person={p}/><small className="haul-detail">{haulDetail(p,t,st.storage,c.res)}</small></span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
               ))}
             </ul>
           )}
@@ -1085,6 +1086,7 @@ export default function Game() {
       )}
 
       <div className="hud-bottom">
+        <HungerNotice city={c} onFindFood={()=>openPanel("people")}/>
         {!tool && !picked.size && <button className="next-step" onClick={() => openPanel(goal.panel)}>{goal.text}</button>}
         {picked.size > 0 && (
           <div className="pickbar">
@@ -1289,7 +1291,7 @@ export default function Game() {
                       <button className={"person" + (p.task.t === "idle" ? " idle" : "")} aria-pressed={picked.has(p.id)}
                         onClick={(e) => togglePick(p.id, e.shiftKey || e.ctrlKey || e.metaKey)}>
                         <span className="nm">{p.name}</span>
-                        <span className="tk">{taskLabel(c, p)}</span><small className="haul-detail">{haulDetail(p,t,st.storage,c.res)}</small>
+                        <HungryVillager city={c} person={p}/><span className="tk">{taskLabel(c, p)}</span><small className="haul-detail">{haulDetail(p,t,st.storage,c.res)}</small>
                       </button>
                     </li>
                   ))}

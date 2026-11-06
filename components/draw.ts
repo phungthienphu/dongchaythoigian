@@ -4,6 +4,7 @@ import { BoundedCache } from "@/lib/bounded-cache";
 import {drawCaravanActor} from "./trade-actors";
 import { B, CAP, GOLD, DIAMOND, isRock, depositCapacity, F, G, H, HL, N4, N8, O, R, UKEYS, W, returningFerries,shipsFree,wildlifePosition, homeSoldiers, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
 import { placementTiles } from "@/lib/build-placement";
+import {hungerSpeech,villagersHungry} from "@/lib/villager-mood";
 import type { Fx, Villager } from "./villagers";
 
 export type View = { TW: number; TH: number; ox: number; oy: number; width: number; height: number; s: number };
@@ -1717,9 +1718,10 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
           if (isPicked) {
             const [sx, sy] = P(v, vl.fx, vl.fy), s2 = Math.max(v.s * 1.45, 0.7);
             c.font = `600 ${Math.max(11, Math.round(8 * s2))}px system-ui, sans-serif`; c.textAlign = "center"; c.textBaseline = "bottom";
-            const w = c.measureText(vl.name).width + 8;
+            const label=vl.name+(villagersHungry(city)?" · Đói":"");
+            const w = c.measureText(label).width + 8;
             c.fillStyle = "rgba(15,25,22,.8)"; c.fillRect(sx - w / 2, sy - 30 * s2 - 14, w, 15);
-            c.fillStyle = "#e9fbff"; c.fillText(vl.name, sx, sy - 30 * s2);
+            c.fillStyle = "#e9fbff"; c.fillText(label, sx, sy - 30 * s2);
           }
         },
       });
@@ -1731,6 +1733,23 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   }
   items.sort((a, b) => a.d - b.d);
   for (const it of items) it.f();
+
+  // Hunger overlays use existing actor positions; a single speaker avoids a wall of bubbles.
+  if(!lod&&villagersHungry(city)){
+    const hungry=o.villagers.filter(vl=>vl.id!==null&&vl.visible&&(()=>{const [x,y]=P(v,vl.fx,vl.fy);return x>=0&&x<=v.width&&y>=30&&y<=v.height;})());
+    c.save();c.font='bold 11px system-ui, sans-serif';c.textAlign='center';c.textBaseline='middle';
+    for(const vl of hungry){if(o.picked.has(vl.id!))continue;const [x,y]=P(v,vl.fx,vl.fy),dy=30*Math.max(v.s*1.45,.7);c.fillStyle='#6e2d20';c.fillRect(x-14,y-dy-14,28,14);c.fillStyle='#ffe6af';c.fillText('Đói',x,y-dy-7);}
+    const speakers=hungry.filter(vl=>!vl.fleeing);
+    const speaker=speakers.find(vl=>o.picked.has(vl.id!))??speakers[Math.floor(o.now/12000)%Math.max(1,speakers.length)];
+    if(speaker&&(o.picked.has(speaker.id!)||o.now%12000<7000)){
+      const mood=hungerSpeech(city.era,speaker.id!),[sx,sy]=P(v,speaker.fx,speaker.fy);
+      c.font='12px system-ui, sans-serif';const width=Math.min(v.width-12,Math.max(c.measureText(mood.complaint).width,c.measureText(mood.cry).width)+20),height=44;
+      const left=Math.max(6,Math.min(v.width-width-6,sx-width/2)),top=Math.max(6,sy-30*Math.max(v.s*1.45,.7)-height-22);
+      c.fillStyle='#fff0cc';c.fillRect(left,top,width,height);c.strokeStyle='#a65b37';c.lineWidth=1;c.strokeRect(left,top,width,height);
+      c.fillStyle='#73341e';c.font='bold 12px system-ui, sans-serif';c.fillText(mood.cry,left+width/2,top+12);c.font='12px system-ui, sans-serif';c.fillText(mood.complaint,left+width/2,top+30,width-12);
+    }
+    c.restore();
+  }
 
   // flying spears and chips
   const tnow = performance.now();
