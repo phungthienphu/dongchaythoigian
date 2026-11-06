@@ -22,7 +22,7 @@ export function drawBattleStrikes(ctx: CanvasRenderingContext2D, battle: BattleS
   }
 }
 export function drawSoldier(ctx:CanvasRenderingContext2D,g:BattleGroup,x:number,y:number,scale:number,time:number,attacking:boolean) {
-  const walking=g.order.type==='move'||g.order.type==='retreat'||!!g.path?.length;
+  const walking=g.moving===true&&!attacking;
   const face=g.order.type==='move' ? (g.order.x-g.x-(g.order.y-g.y)>=0?1:-1) : g.side==='attacker'?1:-1;
   ctx.save();
   drawUnit({c:ctx,v:{TW:64,TH:32,ox:x,oy:y,s:Math.max(.6,Math.min(1.6,scale)),width:0,height:0},anim:time},g.u,0,0,face,walking,g.u.length*.37,attacking);

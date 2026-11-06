@@ -46,3 +46,27 @@ test('solid houses and stone block movement, accessible detours preserve all hou
 test('newly created defenders spawn on an open tile outside their buildings',()=>{const c=city();c.army={club:10};const s=createBattle({id:'spawn',attackerId:'a',defenderId:'d',attacker:city(),defender:c,troops:{club:1},now:0});const g=s.groups.find(g=>g.side==='defender')!;assert.notEqual(Math.floor(g.y)*96+Math.floor(g.x),4658);});
 test('invaders break enemy gates while defenders can use their own gate',()=>{for(const side of ['attacker','defender'] as const){const s=battle(),g=s.groups[0];s.terrain.fill(3);for(let x=0;x<15;x++)s.terrain[5*96+x]=0;s.buildings=[{id:'gate',tile:5*96+4,k:'gate',lvl:1,hp:6,maxHp:6,burned:false,initiallyBurned:false,value:1},...Array.from({length:5},(_,i)=>({id:`spare${i}`,tile:90*96+i,k:'hut',lvl:1,hp:100,maxHp:100,burned:false,initiallyBurned:false,value:100}))];g.side=side;s.defenderOnline=true;g.x=1.5;g.y=5.5;g.order={type:'move',x:9.5,y:5.5};if(side==='defender')s.groups.push({...g,id:'attacker:far',side:'attacker',x:50,y:50,order:{type:'guard',x:50,y:50}});advanceBattle(s,10000);assert.ok(g.x>8);assert.equal(s.buildings[0].burned,side==='attacker');}});
 test('retreat finds another open edge when the direct row is blocked by water',()=>{const s=battle(),g=s.groups[0];s.terrain[5*96]=3;g.x=3.5;g.y=5.5;commandBattle(s,'attacker',{type:'retreat'});advanceBattle(s,6000);assert.equal(g.escaped,true);assert.equal(s.winner,'defender');});
+
+test('invasion enters the village land component across a map-splitting river and actually fights',()=>{
+ const c=city();c.b={'4658':{k:'hall',lvl:1,doneAt:null}};c.army={club:5};
+ for(let y=0;y<96;y++)c.t[y*96+30]=3;
+ const s=createBattle({id:'river',attackerId:'a',defenderId:'d',attacker:city(),defender:c,troops:{club:10},now:0});
+ const g=s.groups[0],start={x:g.x,y:g.y};assert.ok(g.x>30);
+ advanceBattle(s,1000);assert.ok(Math.hypot(g.x-start.x,g.y-start.y)>1);assert.equal(g.moving,true);
+ advanceBattle(s,30000);assert.ok(s.groups.some(g=>g.hp<g.initial*20)||s.buildings.some(b=>b.hp<b.maxHp));
+ assert.ok(s.strikes!.length>0||s.status==='finished');
+});
+test('unreachable moves are visibly blocked and arrival stops walking',()=>{
+ const s=battle(),g=s.groups[0];g.x=5.5;g.y=5.5;
+ for(let y=0;y<96;y++)s.terrain[y*96+7]=3;
+ commandBattle(s,'attacker',{type:'move',groupId:g.id,x:10.5,y:5.5});advanceBattle(s,100);
+ assert.equal(g.blocked,true);assert.equal(g.moving,false);assert.equal(g.x,5.5);
+ commandBattle(s,'attacker',{type:'move',groupId:g.id,x:6.5,y:5.5});advanceBattle(s,1000);
+ assert.equal(g.blocked,false);assert.equal(g.x,6.5);assert.equal(g.moving,false);
+});
+test('coastal entry allows retreat without crossing the river',()=>{
+ const c=city();for(let y=0;y<96;y++)c.t[y*96+30]=3;
+ const s=createBattle({id:'coast',attackerId:'a',defenderId:'d',attacker:city(),defender:c,troops:{club:10},now:0});
+ advanceBattle(s,1000);commandBattle(s,'attacker',{type:'retreat'});advanceBattle(s,5000);
+ assert.equal(s.status,'finished');assert.equal(s.groups[0].escaped,true);assert.ok(s.groups[0].x>30);
+});

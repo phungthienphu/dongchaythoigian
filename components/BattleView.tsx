@@ -271,7 +271,7 @@ export default function BattleView({ id, onClose, onSettled }: { id: string; onC
     </div>
     <footer className={styles.footer}>
       <div className={styles.groups} aria-label="Nhóm quân của bạn">{groups.map((g) => <button type="button" key={g.id} aria-pressed={selected === g.id} onClick={() => setSelected(g.id)} disabled={!active}>{UNITS[g.u].n} × {g.count}</button>)}</div>
-      <p>{selected ? "Chạm đất để đi · Chạm địch để đánh" : "Chọn một nhóm quân để ra lệnh"} · Kéo và chụm để xem bản đồ</p>
+      <p>{battle?.groups.find(g=>g.id===selected)?.blocked ? "Không có đường tới mục tiêu: sông hoặc núi chắn lối. Chọn mục tiêu khác." : selected ? "Chạm đất để đi · Chạm địch để đánh" : "Chọn một nhóm quân để ra lệnh"} · Kéo và chụm để xem bản đồ</p>
       {packet?.side === "attacker" && !finished && <button type="button" className={styles.retreat} disabled={!active || battle?.status === "retreating"} onClick={() => send({ type: "retreat" })}>{battle?.status === "retreating" ? "Đang rút lui…" : "Rút quân"}</button>}
     </footer>
   </section>;

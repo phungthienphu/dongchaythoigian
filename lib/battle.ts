@@ -6,7 +6,7 @@ export const BATTLE_TICK_MS = 100;
 export const BATTLE_TIMEOUT_MS = 180_000;
 export type BattleSide = 'attacker' | 'defender';
 export type BattleOrder = { type: 'move'; x: number; y: number } | { type: 'attack'; targetId: string } | { type: 'guard'; x: number; y: number } | { type: 'retreat' };
-export type BattleGroup = { id: string; side: BattleSide; u: UKey; count: number; initial: number; hp: number; x: number; y: number; order: BattleOrder; resumeOrder?: BattleOrder; breachRetryAt?: number; retreatExit?: {x:number;y:number}; escaped?: boolean; path?: number[] | null; pathGoal?: number; pathVersion?: number };
+export type BattleGroup = { id: string; side: BattleSide; u: UKey; count: number; initial: number; hp: number; x: number; y: number; order: BattleOrder; moving?: boolean; blocked?: boolean; entry?: {x:number;y:number}; resumeOrder?: BattleOrder; breachRetryAt?: number; retreatExit?: {x:number;y:number}; escaped?: boolean; path?: number[] | null; pathGoal?: number; pathVersion?: number };
 export type BattleBuilding = { id: string; tile: number; k: string; lvl: number; hp: number; maxHp: number; inactive?: boolean; burned: boolean; initiallyBurned: boolean; value: number };
 export type BattleCommand = { type: 'move'; groupId: string; x: number; y: number } | { type: 'attack'; groupId: string; targetId: string } | { type: 'retreat' } | { type: 'presence'; online: boolean };
 export type BattleStrike = { id: string; at: number; source: string; kind: 'arrow' | 'stone' | 'melee'; from: {x:number;y:number}; to: {x:number;y:number} };
@@ -30,6 +30,21 @@ function safeSpawn(terrain:number[],buildings:BattleBuilding[],side:BattleSide,p
   return p;
 }
 
+/** Enter from the perimeter of the village's land component, never across a river.
+ * Buildings are deliberately ignored here: fortifications must still be breached. */
+function invasionEntry(terrain:number[],center:{x:number;y:number},preferredY:number){
+  const origin=safeSpawn(terrain,[],'attacker',center),start=Math.floor(origin.y)*W+Math.floor(origin.x);
+  const queue=[start],seen=new Set(queue);let best=start,score=Infinity;
+  for(let head=0;head<queue.length;head++){
+    const tile=queue[head],value=(tile%W)*H+Math.abs(Math.floor(tile/W)+.5-preferredY);
+    if(value<score){score=value;best=tile;}
+    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const x=tile%W+dx,y=Math.floor(tile/W)+dy,t=y*W+x;
+      if(x<0||x>=W||y<0||y>=H||seen.has(t)||blockedTerrain(terrain[t]))continue;seen.add(t);queue.push(t);
+    }
+  }
+  return xy(best);
+}
+
 export function createBattle(o: { id: string; attackerId: string; defenderId: string; attacker: City; defender: City; troops: Troops; now: number; defenderOnline?: boolean }): BattleState {
   const buildings: BattleBuilding[] = Object.entries(o.defender.b).filter(([,b]) => b.lvl > 0).map(([tile,b]) => {
     const value = Object.values(B[b.k].cost).reduce((s,n)=>s+(n??0),0)*b.lvl;
@@ -42,8 +57,8 @@ export function createBattle(o: { id: string; attackerId: string; defenderId: st
   for(const side of ['attacker','defender'] as const) for(const u of UKEYS) {
     const count=Math.max(0,Math.floor((side==='attacker'?o.troops:o.defender.army)[u]??0));
     if(!count)continue;
-    const p=side==='attacker'?{x:1,y:Math.min(H-2,Math.max(1,center.y+groups.length*2))}:guards[groups.filter(g=>g.side==='defender').length%Math.max(1,guards.length)]??center;
-    groups.push({id:`${side}:${u}`,side,u,count,initial:count,hp:count*UNITS[u].hp,...safeSpawn(o.defender.t,buildings,side,p),order:{type:'guard',...p}});
+    const p=side==='attacker'?invasionEntry(o.defender.t,center,Math.min(H-2,Math.max(1,center.y+groups.length*2))):guards[groups.filter(g=>g.side==='defender').length%Math.max(1,guards.length)]??center;
+    groups.push({id:`${side}:${u}`,side,u,count,initial:count,hp:count*UNITS[u].hp,...safeSpawn(o.defender.t,buildings,side,p),...(side==='attacker'&&p.x>1?{entry:p}:{}),order:{type:'guard',...p}});
   }
   const s:BattleState={id:o.id,attackerId:o.attackerId,defenderId:o.defenderId,startedAt:o.now,lastTick:o.now,terrain:[...o.defender.t],groups,buildings,status:'fighting',defenderOnline:!!o.defenderOnline,initialPopulation:o.defender.pop,populationLoss:0,startingResources:{...o.defender.res},loot:emptyRes(),devastation:0};
   for(const g of groups) if(g.side==='attacker') { const target=buildings.find(b=>b.k==='hall'&&!b.burned)??buildings.find(b=>!b.burned); if(target)g.order={type:'attack',targetId:target.id}; }
@@ -56,7 +71,7 @@ export function commandBattle(s:BattleState,side:BattleSide,c:BattleCommand):boo
   const g=s.groups.find(g=>g.id===c.groupId&&g.side===side&&living(g));if(!g||s.status==='retreating'&&side==='attacker')return false;
   delete g.resumeOrder;delete g.breachRetryAt;
   if(c.type==='move'){if(!Number.isFinite(c.x)||!Number.isFinite(c.y)||c.x<0||c.y<0||c.x>=W||c.y>=H)return false;g.order={type:'move',x:c.x,y:c.y};}
-  else {if(!s.groups.some(t=>t.id===c.targetId&&t.side!==side&&living(t))&&!(side==='attacker'&&s.buildings.some(b=>b.id===c.targetId&&!b.burned)))return false;g.order={type:'attack',targetId:c.targetId};}return true;
+  else {if(!s.groups.some(t=>t.id===c.targetId&&t.side!==side&&living(t))&&!(side==='attacker'&&s.buildings.some(b=>b.id===c.targetId&&!b.burned)))return false;g.order={type:'attack',targetId:c.targetId};}delete g.path;g.blocked=false;g.moving=false;return true;
 }
 /** Four-neighbour BFS avoids rivers and intact fortifications, including corner cutting. */
 function move(s:BattleState,g:BattleGroup,target:{x:number;y:number}):boolean {
@@ -81,10 +96,10 @@ function move(s:BattleState,g:BattleGroup,target:{x:number;y:number}):boolean {
       else{const route:number[]=[];for(let tile=found;tile!==start;tile=prev[tile])route.push(tile);g.path=route.reverse();}
     }
   }
-  if(g.path===null)return false;
+  if(g.path===null){g.blocked=true;return false;}
   while(g.path.length&&dist(g,xy(g.path[0]))<.01)g.path.shift();
   const p=g.path.length?xy(g.path[0]):impassable(goal)?xy(start):target,d=dist(g,p);if(d===0)return true;
-  const speed=g.u==='elephant'?.15:.25;g.x+=(p.x-g.x)/d*Math.min(speed,d);g.y+=(p.y-g.y)/d*Math.min(speed,d);return true;
+  g.moving=true;const speed=g.u==='elephant'?.15:.25;g.x+=(p.x-g.x)/d*Math.min(speed,d);g.y+=(p.y-g.y)/d*Math.min(speed,d);return true;
 }
 /** Pick a blocker with a reachable attack face, favouring progress toward the order.
  * Never target an unreachable inner wall while an outer barrier still seals it. */
@@ -107,6 +122,7 @@ function breach(s:BattleState,g:BattleGroup,target:{x:number;y:number}){
 
 function retreatExit(s:BattleState,g:BattleGroup){
   if(g.retreatExit)return g.retreatExit;
+  if(g.entry)return g.retreatExit={...g.entry};
   const blocks=new Set(s.buildings.filter(b=>blockingBuilding(b,g.side)).map(b=>b.tile)),start=Math.floor(g.y)*W+Math.floor(g.x),queue=[start],seen=new Set(queue);
   for(let head=0;head<queue.length;head++){const tile=queue[head];if(tile%W===0){g.retreatExit={x:0,y:Math.floor(tile/W)+.5};return g.retreatExit;}
     for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const x=tile%W+dx,y=Math.floor(tile/W)+dy,t=y*W+x;if(x<0||x>=W||y<0||y>=H||seen.has(t)||blocks.has(t)||blockedTerrain(s.terrain[t]))continue;seen.add(t);queue.push(t);}
@@ -124,9 +140,9 @@ function tick(s:BattleState){
   s.strikes=(s.strikes??[]).filter(e=>s.lastTick-e.at<1200);
 
   if(s.status==='fighting'&&s.lastTick-s.startedAt>=BATTLE_TIMEOUT_MS)commandBattle(s,'attacker',{type:'retreat'});
-  for(const g of s.groups){if(!living(g))continue;
+  for(const g of s.groups){g.moving=false;g.blocked=false;if(!living(g))continue;
     const enemy=s.groups.filter(e=>e.side!==g.side&&living(e)).sort((a,b)=>dist(g,a)-dist(g,b)||a.id.localeCompare(b.id))[0];
-    if(g.order.type==='retreat'){const exit=retreatExit(s,g);if(!move(s,g,exit))breach(s,g,exit);if(g.x<=.3)g.escaped=true;continue;}
+    if(g.order.type==='retreat'){const exit=retreatExit(s,g);if(!move(s,g,exit))breach(s,g,exit);if(dist(g,exit)<=.3)g.escaped=true;continue;}
     if(g.u==='wagon'||g.u==='medic'){
       const allies=s.groups.filter(a=>a.side===g.side&&living(a)&&UNITS[a.u].atk>0);
       const wounded=allies.filter(a=>a.hp<a.count*UNITS[a.u].hp).sort((a,b)=>dist(g,a)-dist(g,b))[0];
@@ -160,7 +176,8 @@ function tick(s:BattleState){
 }
 export function advanceBattle(s:BattleState,now:number):BattleState {
   if(!Number.isFinite(now))return s;
-  while(s.status!=='finished'&&s.lastTick+BATTLE_TICK_MS<=now){s.lastTick+=BATTLE_TICK_MS;tick(s);}return s;
+  while(s.status!=='finished'&&s.lastTick+BATTLE_TICK_MS<=now){s.lastTick+=BATTLE_TICK_MS;tick(s);}
+  if(s.status==='finished')for(const g of s.groups)g.moving=false;return s;
 }
 export function battleResult(s:BattleState):BattleResult|null {
   if(s.status!=='finished'||!s.winner)return null;const survivors=(side:BattleSide):Troops=>Object.fromEntries(s.groups.filter(g=>g.side===side).map(g=>[g.u,g.count]));
