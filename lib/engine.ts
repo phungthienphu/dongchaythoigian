@@ -1460,7 +1460,7 @@ export function settle(c: City, now: number) {
   }
   let D = derive(c), st = stats(c, D, t), dirty = false;
   let hauling = haulingContext(c, D);
-  updateRefuges(c,t);
+  if(updateRefuges(c,t))dirty=true;
   refreshHauling(c, t, hauling);
   for (const p of c.people) if (!p.haul) beginHaul(c, p, t, hauling);
   while (t < end) {
