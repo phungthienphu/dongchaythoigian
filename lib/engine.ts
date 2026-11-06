@@ -774,7 +774,7 @@ function nearestTile(c: City, from: number, ok: (i: number) => boolean, rad: num
 }
 
 /** Control centre: give idle people jobs so the workforce matches the chosen mix. */
-function autoAssign(c: City, now: number) {
+function autoAssign(c: City, now: number, context?: HaulContext) {
   if (!c.auto?.on || !hasControl(c)) return false;
   const idle = c.people.filter((p) => !p.refuge && p.task.t === "idle");
   if (!idle.length) return false;
@@ -787,6 +787,7 @@ function autoAssign(c: City, now: number) {
     return null;
   };
   const total = c.people.length, mixSum = RES.reduce((a, r) => a + (c.auto!.mix[r] ?? 0), 0) || 1;
+  const ctx = context ?? haulingContext(c, derive(c));
   let changed = false;
   for (const p of idle) {
     const have: Res = { food: 0, wood: 0, stone: 0, copper: 0, gold: 0, diamond: 0 };
@@ -794,7 +795,7 @@ function autoAssign(c: City, now: number) {
     const order = [...RES].sort((a, b) => (have[a] - (total * c.auto!.mix[a]) / mixSum) - (have[b] - (total * c.auto!.mix[b]) / mixSum));
     for (const r of order) {
       if ((c.auto!.mix[r] ?? 0) <= 0) continue;
-      const tk = autoTarget(c, r);
+      const tk = autoTarget(c, r, p, now, ctx);
       if (!tk) continue;
       setTask(c, p, tk, now);
       changed = true;
@@ -805,22 +806,45 @@ function autoAssign(c: City, now: number) {
 }
 
 /** Nearest sensible job producing `r`: an open building slot first, then gathering by hand. */
-function autoTarget(c: City, r: ResKey): TaskInput | null {
+function autoTarget(c: City, r: ResKey, p: Person, now: number, ctx: HaulContext): TaskInput | null {
   if(r==='gold'&&c.era<2||r==='diamond'&&c.era<3)return null;
+  const from = p.pos ?? c.camp;
+  // Use the same source and path rules as actual harvesting. An empty logging
+  // camp or an exhausted farm must not absorb workers who could gather elsewhere.
+  const reachable = (tk: TaskInput) => {
+    const job = haulingJob(c, { ...p, task: tk as Task }, now, ctx);
+    return !!job && !!haulPath(c, from, job.tile, ctx);
+  };
   const slots = buildings(c)
     .filter(([i, b]) => built(b) && !b.flooded && def(b.k).jobs && Object.keys(def(b.k).prod ?? {})[0] === r && workersAt(c, i) < def(b.k).jobs!)
-    .sort((a, b) => cheb(a[0], c.camp) - cheb(b[0], c.camp));
-  if (slots.length) return { t: "work", at: slots[0][0] };
-  const ok = (i: number) => !!c.seen[i] && !c.b[i];
-  if (r === "wood") { const i = nearestTile(c, c.camp, (j) => ok(j) && c.t[j] === F, 20); return i >= 0 ? { t: "chop", at: i } : null; }
-  if (r === "stone") { const i = nearestTile(c, c.camp, (j) => ok(j) && c.t[j] === HL, 20); return i >= 0 ? { t: "mine", at: i } : null; }
-  if (["copper","gold","diamond"].includes(r)) { const i = nearestTile(c, c.camp, (j) => ok(j) && isRock(c.t[j]) && mineralResource(c.t[j])===r, 40); return i >= 0 ? { t: "mine", at: i } : null; }
-  const herd = c.herds.filter((h) => h.n >= 1 && c.seen[h.at] && cheb(h.at, c.camp) <= 20).sort((a, b) => cheb(a.at, c.camp) - cheb(b.at, c.camp))[0];
-  return herd ? { t: "hunt", herd: herd.id } : null;
+    .sort((a, b) => cheb(a[0], from) - cheb(b[0], from));
+  for (const [at] of slots) {
+    const tk: TaskInput = { t: "work", at };
+    if (reachable(tk)) return tk;
+  }
+  if (r === "food") {
+    const herds = c.herds.filter(h => h.n >= 1 && c.seen[h.at] && cheb(h.at, c.camp) <= 20)
+      .sort((a,b) => cheb(a.at,from)-cheb(b.at,from));
+    for (const h of herds) { const tk: TaskInput = { t: "hunt", herd: h.id }; if (reachable(tk)) return tk; }
+    return null;
+  }
+  const radius = r === "wood" || r === "stone" ? 20 : 40;
+  const candidates: number[] = [];
+  const x = c.camp % W, y = Math.floor(c.camp / W);
+  for (let ty = Math.max(0,y-radius); ty <= Math.min(H-1,y+radius); ty++)
+    for (let tx = Math.max(0,x-radius); tx <= Math.min(W-1,x+radius); tx++) {
+      const i = idx(tx,ty);
+      if (!c.seen[i] || c.b[i]) continue;
+      if (r === "wood" ? c.t[i] === F : isRock(c.t[i]) && mineralResource(c.t[i]) === r) candidates.push(i);
+    }
+  candidates.sort((a,b) => cheb(a,from)-cheb(b,from));
+  for (const at of candidates) { const tk: TaskInput = { t: r === "wood" ? "chop" : "mine", at }; if (reachable(tk)) return tk; }
+  return null;
 }
 
 /** Fill open job slots in finished buildings with idle people. */
-function autoStaff(c: City) {
+function autoStaff(c: City, now: number) {
+  if (c.auto?.on && hasControl(c)) { autoAssign(c, now); return; }
   const idle = c.people.filter((p) => !p.refuge && p.task.t === "idle");
   if (!idle.length) return;
   for (const [i, b] of buildings(c)) {
@@ -1837,7 +1861,7 @@ export function settle(c: City, now: number) {
         completeBuilding(c,b,nt);dirty = true;
       }
     }
-    if (dirty) autoStaff(c);
+    if (dirty) autoStaff(c, nt);
     if (t < c.boostUntil && c.boostUntil <= nt) dirty = true;
     if(t<c.upkeepStartsAt&&c.upkeepStartsAt<=nt)dirty=true;
     if(t<c.wheelFuelStartsAt&&c.wheelFuelStartsAt<=nt)dirty=true;
@@ -1850,7 +1874,7 @@ export function settle(c: City, now: number) {
     if (stepArmy(c, nt)) dirty = true;
     if (stepEnvoys(c, nt)) dirty = true;
     if (stepWildlife(c, nt)) dirty = true;
-    if (autoAssign(c, nt)) dirty = true;
+    if (autoAssign(c, nt, dirty ? undefined : hauling)) dirty = true;
     if (dirty) { D = derive(c); st = stats(c, D, nt); hauling = haulingContext(c, D); refreshHauling(c, nt, hauling); dirty = false; }
 
     const h = (nt - t) / HOUR;
@@ -1903,7 +1927,7 @@ export function settle(c: City, now: number) {
     } else if (c.people.length < st.housing) {
       c.popAcc += h * POP_GROWTH_PER_HOUR * (1 + st.fires*fireEff);
     } else c.popAcc = 0;
-    while (c.popAcc >= 1 && c.people.length < st.housing) { addPerson(c); c.popAcc--; autoStaff(c); }
+    while (c.popAcc >= 1 && c.people.length < st.housing) { addPerson(c); c.popAcc--; autoStaff(c, nt); }
     while (c.popAcc <= -1 && c.people.length > MIN_POP) {
       const k = c.people.findIndex((p) => p.task.t === "idle");
       const gone = c.people.splice(k >= 0 ? k : c.people.length - 1, 1)[0];
@@ -1996,7 +2020,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if(c.res.diamond<cost)return `Cần ${cost} kim cương để hoàn tất.`;
     c.res.diamond-=cost;b.doneAt=now;
     // Use the normal construction completion path, including staffing and wonders.
-    completeBuilding(c,b,now);autoStaff(c);
+    completeBuilding(c,b,now);autoStaff(c, now);
     log(c,now,`Dùng ${cost} kim cương hoàn tất ${def(b.k).n}.`,"good");return null;
   }
   if (a.type === "tendFarm") {
@@ -2086,7 +2110,9 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if (!hasControl(c)) return "Cần Đình làng cấp 3.";
     const mix = {} as Mix;
     for (const r of RES) mix[r] = Math.max(0, Math.min(100, Math.round(Number(a.mix?.[r]) || 0)));
+    if (a.on && !RES.some(r => mix[r] > 0)) return "Chọn ít nhất một loại tài nguyên để tự động giao việc.";
     c.auto = { on: !!a.on, mix };
+    autoAssign(c, now);
     return null;
   }
   if (a.type === "attack") {
@@ -2166,7 +2192,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     b.flooded = false;
     b.burned = false;
     delete b.damageCause;
-    autoStaff(c);
+    autoStaff(c, now);
     return null;
   }
   if (a.type === "upgradeStorage") {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  gatherFoodPerHour, storageLevel, upkeepRates, DEFAULT_MIX, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
+  gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
   armyCap, armyUsed, buildingCost, trainingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -21,6 +21,7 @@ import DiplomacyMessages, { diplomacyText } from "./DiplomacyMessages";
 import { useDiplomacy } from "./useDiplomacy";
 import CaravanNoticeLink from "./CaravanNoticeLink";
 import DockPanel from "./DockPanel";
+import AutoAssignPanel from "./AutoAssignPanel";
 import FrontierStatus from "./FrontierStatus";
 import {HungerNotice,HungryVillager} from "./HungerStatus";
 import MarketPanel from "./MarketPanel";
@@ -222,7 +223,6 @@ function ControlPanel(props: {
 }) {
   const { c, t, busy, control, hallLv, groups, homePower, rate, act } = props;
   const [tab, setTab] = useState<"people" | "auto" | "alarm" | "army">("people");
-  const [mix, setMix] = useState<Mix>(c.auto?.mix ?? DEFAULT_MIX);
   if (!control) {
     return (
       <>
@@ -232,7 +232,6 @@ function ControlPanel(props: {
     );
   }
   const camps = c.camps.filter((k) => c.seen[k.at] && !k.cleared).sort((a, b) => cheb(a.at, c.camp) - cheb(b.at, c.camp));
-  const sum = RES.reduce((a, r) => a + mix[r], 0) || 1;
   return (
     <>
       <div className="tabs" role="tablist">
@@ -256,24 +255,7 @@ function ControlPanel(props: {
           </ul>
         </>
       )}
-      {tab === "auto" && (
-        <>
-          <p className="muted small">Người rảnh và dân mới sinh sẽ tự được giao việc gần trại nhất, sao cho số người làm mỗi loại tài nguyên theo đúng tỉ lệ. Chạy cả khi bạn offline.</p>
-          <ul className="units">
-            {RES.map((r) => (
-              <li key={r}>
-                <label htmlFor={`mix-${r}`} style={{ minWidth: 80 }}>{RN[r]}</label>
-                <input id={`mix-${r}`} type="range" min={0} max={100} step={5} value={mix[r]} onChange={(e) => setMix({ ...mix, [r]: Number(e.target.value) })} style={{ flex: 1 }} />
-                <span style={{ minWidth: 40, textAlign: "right" }}>{Math.round((mix[r] / sum) * 100)}%</span>
-              </li>
-            ))}
-          </ul>
-          <div className="actions">
-            <button className="primary" disabled={busy} onClick={() => act({ type: "auto", on: true, mix })}>{c.auto?.on ? "Lưu tỉ lệ" : "Bật tự động giao việc"}</button>
-            {c.auto?.on && <button disabled={busy} onClick={() => act({ type: "auto", on: false, mix })}>Tắt tự động</button>}
-          </div>
-        </>
-      )}
+      {tab === "auto" && <AutoAssignPanel c={c} busy={busy} act={act}/>}
       {tab === "alarm" && (
         c.raid ? (
           <>
