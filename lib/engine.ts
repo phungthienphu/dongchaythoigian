@@ -1406,6 +1406,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if(farmRemaining(b)>=farmCapacity(b)) return "Ruộng còn đầy dinh dưỡng, chưa cần cải tạo.";
     const cost=farmTendCost(b),err=missing(c,cost);if(err)return err;
     pay(c,cost);b.tendUntil=now+FARM_TEND_MS;
+    for(const p of c.people)if(p.task.t==="work" && p.task.at===idx(a.x,a.y) && p.haul?.phase==="work")delete p.haul;
     log(c,now,"Đang cải tạo đất và gieo lại ruộng, hoàn tất sau 30 giây.");
     return null;
   }

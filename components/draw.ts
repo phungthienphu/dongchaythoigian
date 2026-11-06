@@ -658,7 +658,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       c.strokeStyle = crop; c.lineWidth = Math.max(1.5, 3 * s); c.lineCap = "round";
       for (let row = 0; row < 5; row++) {
         const v = -0.38 + row * 0.19;
-        const a = q(-0.38, v, 3 * hs), b = q(0.38, v, (remaining<=0 || field?.tendUntil ? .3 : 3) * hs);
+        const a = q(-0.38, v, (remaining<=0 || field?.tendUntil ? .3 : 3) * hs), b = q(0.38, v, (remaining<=0 || field?.tendUntil ? .3 : 3) * hs);
         c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
       }
       c.lineCap = "butt";
