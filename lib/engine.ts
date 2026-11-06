@@ -19,7 +19,13 @@ export const SEASON_MS = 6 * HOUR; // 4 seasons = 1 real day
 export const MAX_SETTLE_MS = 14 * 24 * HOUR; // offline progress cap
 const BASE_STORAGE = 500;
 export const POP_GROWTH_PER_HOUR = 60;
-const FOOD_PER_POP = 4; // per hour
+/** Hourly engine units; food is consumed continuously at 5/10 per minute in era 1. */
+export function upkeepRates(era:number){
+  const scale=2**Math.max(0,Math.floor(era)-1);
+  return { civilian:{food:300*scale,wood:scale},soldier:{food:600*scale,wood:2*scale} };
+}
+/** Better food tools and baskets keep food production in step with era upkeep. */
+export const foodEraScale=(c:City,at:number)=>c.upkeepStartsAt!==undefined&&at<c.upkeepStartsAt?1:2**Math.max(0,c.era-1);
 const MIN_POP = 3;
 
 // gathering by hand (per person per hour) and how much each tile/animal holds
@@ -63,12 +69,12 @@ const DEFS = {
   wood: { n: "Trại đốn gỗ", era: 1, cost: { food: 10 }, sec: 10, jobs: 2, prod: { wood: 60 }, need: "forest", up: true, drop: ["wood"], d: "Phải kề rừng. Người chặt cây gần đây đỡ phải đi xa." },
   quarry: { n: "Bãi đá", era: 1, cost: { wood: 20 }, sec: 15, jobs: 2, prod: { stone: 40 }, need: "hill", up: true, drop: ["stone", "copper"], d: "Đặt trên đồi. Người đào đá gần đây đỡ phải đi xa." },
   storehouse: { n: "Kho", era: 1, cost: { wood: 40, stone: 10 }, sec: 30, storage: 1000, up: true, drop: ["food", "wood", "stone", "copper", "gold", "diamond"], d: "Cấp đầu +1.000 mỗi loại. Sau đó nâng riêng từng ngăn tài nguyên." },
-  fire: { n: "Bếp lửa chung", era: 1, cost: { wood: 80, stone: 30 }, sec: 60, max: 2, drop: ["food"], d: "Dân tăng nhanh gấp đôi. Tối đa 2 bếp." },
+  fire: { n: "Bếp lửa chung", era: 1, cost: { wood: 80, stone: 30 }, sec: 60, max: 2, use:{wood:300}, drop: ["food"], d: "Mỗi bếp đốt 50 gỗ / 10 phút để tăng tốc sinh dân. Thiếu củi giảm hiệu quả, hết củi bếp tắt. Tối đa 2 bếp." },
   farm: { n: "Ruộng lúa", era: 2, cost: { wood: 80 }, sec: 120, jobs: 2, prod: { food: 90 }, up: true, d: "Gấp đôi trên đất phù sa." },
   canal: { n: "Kênh tưới", era: 2, cost: { stone: 40 }, sec: 30, need: "water", d: "Nối thẳng vào sông hoặc kênh. Đất quanh kênh thành phù sa." },
   levee: { n: "Đê đất", era: 2, cost: { stone: 30, wood: 20 }, sec: 60, need: "bank", d: "Xây sát sông hoặc nối thẳng đê khác. Che lũ trong 2 ô; vòng đê kín bảo vệ toàn bộ đất bên trong khỏi lũ mùa thu." },
   house: { n: "Nhà gỗ", era: 2, cost: { wood: 120, stone: 40 }, sec: 300, house: 7, up: true, d: "Chỗ ở cho 7 người mỗi cấp." },
-  smelter: { n: "Lò đúc đồng", era: 2, cost: { wood: 100, stone: 120 }, sec: 600, jobs: 3, prod: { copper: 20 }, use: { wood: 20 }, need: "ore", up: true, drop: ["copper"], d: "Kề mỏ đồng. Đốt gỗ ra đồng." },
+  smelter: { n: "Lò đúc đồng", era: 2, cost: { wood: 100, stone: 120 }, sec: 600, jobs: 3, prod: { copper: 20 }, use: { wood: 600,stone:600 }, need: "ore", up: true, drop: ["copper"], d: "Kề mỏ đồng. Cấp 1 đủ 3 người dùng 10 gỗ + 10 đá / phút. Nâng cấp tăng sản lượng và nguyên liệu; thiếu một loại thì giảm hoặc ngừng đúc." },
   dock: { n: "Bến cảng", era: 2, cost: { wood: 600, stone: 400, copper: 120, gold: 40 }, sec: 180, need: "river", up: true, max: 3, d: "Đóng thuyền vận tải, mỗi cấp hỗ trợ 3 thuyền. Một thuyền chở 10 chỗ; voi chiếm 5, xe hậu cần chiếm 3. Quân tự lên thuyền khi đường đi cần qua sông có bến hoạt động." },
   market: { n: "Chợ", era: 2, cost: { wood: 200, stone: 100 }, sec: 900, jobs: 2, max: 3, d: "+10% mọi sản lượng. Đăng bán hàng, tự chọn giá và tài nguyên thanh toán; vận chuyển bằng đoàn xe có thể bị người chơi khác cướp. Tối đa 3 chợ." },
   stonehouse: { n: "Nhà đá", era: 3, cost: { stone: 250, copper: 30 }, sec: 1200, house: 12, up: true, d: "12 người mỗi cấp. Lũ không làm ngập." },
@@ -108,20 +114,19 @@ export type Troops = Partial<Record<UKey, number>>;
 export type Camp = { id: number; at: number; power: number; loot: Partial<Res>; cleared: boolean; respawnAt: number | null; garrison?: Troops };
 export type CampCombat = { last: number; rounds: number; hp: Partial<Record<UKey, number>>; defenders: Troops; defenderHp: Partial<Record<UKey, number>>; initial: Troops };
 export type Expedition = { ships?: number; combatVersion?: 1; combat?: CampCombat; returnAt?: number; id: number; units: Troops; camp: number; depart: number; arrive: number; back: number; resolved: boolean; won?: boolean; loot?: Partial<Res>; recalled?: boolean; suppliesFood?: number; logisticsVersion?: number; marchLosses?: number; route?: number[]; recallAt?: number; returnProgress?: number };
-const SOLDIER_FOOD = 2; // per soldier per hour
 export const MARCH_TILES_PER_MIN = 4;
 export const troopPower = (t: Troops) => UKEYS.reduce((a, u) => a + (t[u] ?? 0) * (UNITS[u].atk>0 ? UNITS[u].atk + UNITS[u].hp / 4 : 0), 0);
 export const troopSpace = (t: Troops) => UKEYS.reduce((a, u) => a + (t[u] ?? 0) * UNITS[u].space, 0);
 export const troopCount = (t: Troops) => UKEYS.reduce((a, u) => a + (t[u] ?? 0), 0);
 
 /** Round-trip food plus a five-minute combat reserve. Elephants use five places. */
-export function marchSupplies(troops: Troops, oneWayMs: number) {
+export function marchSupplies(troops: Troops, oneWayMs: number, era=1) {
   const minutes=(2*Math.max(MIN,oneWayMs))/MIN+5;
-  return { food: Math.ceil(troopSpace(troops)*minutes/10), minutes };
+  return { food: Math.ceil(troopSpace(troops)*minutes*upkeepRates(era).soldier.food/60), minutes };
 }
 /** Called inside the same transaction that reserves troops; failure changes nothing. */
 export function reserveMarchFood(c: City, troops: Troops, oneWayMs: number) {
-  const {food}=marchSupplies(troops,oneWayMs);
+  const {food}=marchSupplies(troops,oneWayMs,c.era);
   if(c.res.food<food)throw new Error(`Cần ${food} lương thực dự trữ cho cả đi và về; hiện có ${Math.floor(c.res.food)}.`);
   c.res.food-=food;
   return food;
@@ -188,6 +193,7 @@ export type Person = { refuge?: Refuge; id: number; name: string; task: Task; po
 export type Herd = { id: number; at: number; kind: "deer" | "boar"; n: number; max: number };
 export type LogEntry = { caravanId?: string; at: number; msg: string; cls?: "warn" | "good" };
 export type City = {
+  upkeepStartsAt?: number;
   ver: number;
   seed: number;
   t: number[];
@@ -503,7 +509,7 @@ export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
     ver: ENGINE_VER, seed, t, seen: new Array(W * H).fill(0), oldbed: [], xs, camp, b: {}, dep: {}, herds,
     people: [], nextId: 1,
     res: { food: 100, wood: 120, stone: 30, copper: 0, gold: 0, diamond: 0 }, pop: 0, popAcc: 0, era: 1,
-    t0: now, last: now, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
+    t0: now, last: now, upkeepStartsAt:now, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
   };
   enrichCopperDeposits(c);
   enrichPreciousDeposits(c);
@@ -649,7 +655,10 @@ const walkFactor = (d: number, rate = CHOP_RATE) => 1 / (1 + ((2 * d + 1) * rate
 export type Drain = { kind: "tile" | "herd"; key: number; res: ResKey; perHour: number };
 export type Stats = {
   rate: Res;
+  upkeep: { food:number; wood:number; civilians:number; soldiers:number; foodSoldiers:number };
   woodUse: number;
+  stoneUse: number;
+  fireWoodUse: number;
   copperRate: number;
   jobs: number;
   housing: number;
@@ -677,12 +686,14 @@ export function stats(c: City, D: Derived, at: number): Stats {
   const winter = seasonAt(c, at) === 3;
   const boost = at < c.boostUntil;
   const rate: Res = { food: 0, wood: 0, stone: 0, copper: 0, gold: 0, diamond: 0 };
-  let woodUse = 0;
+  let woodUse = 0,stoneUse=0,fireWoodUse=0;
+  const legacy=c.upkeepStartsAt!==undefined&&at<c.upkeepStartsAt;
   for (const [i, b] of buildings(c)) {
     if (!built(b) || b.flooded) continue;
     const d = def(b.k);
-    const eff = d.jobs ? Math.min(1, (workers.get(i) ?? 0) / d.jobs) : 0;
-    if (d.use?.wood) woodUse += d.use.wood * LVL_MULT[b.lvl] * eff;
+    const eff = d.jobs ? Math.min(1, (workers.get(i) ?? 0) / d.jobs) : 1;
+    if(b.k==='fire'){fireWoodUse+=legacy?0:300;woodUse+=legacy?0:300;}
+    else if(d.use){woodUse+=(legacy?20:d.use.wood??0)*LVL_MULT[b.lvl]*eff;stoneUse+=(legacy?0:d.use.stone??0)*LVL_MULT[b.lvl]*eff;}
     if (!d.prod || (b.k==="farm" && (b.tendUntil || farmRemaining(b)<=0))) continue;
     for (const r of RES) {
       let v = d.prod[r];
@@ -694,6 +705,7 @@ export function stats(c: City, D: Derived, at: number): Stats {
       if (crop && winter) v *= 0.4;
       if (c.cropDamage?.tile===i && at<c.cropDamage.until) v *= .5;
       if (crop || b.k === "wood" || b.k === "quarry") v *= tools;
+      if(r==='food')v*=foodEraScale(c,at);
       rate[r] += v * eff * mult;
     }
   }
@@ -711,14 +723,20 @@ export function stats(c: City, D: Derived, at: number): Stats {
     } else if (tk.t === "hunt") {
       const h = herdById(c, tk.herd);
       if (!h || h.n < 0.05) continue;
-      const v = HUNT_RATE * tools * mult * walkFactor(dropDistance(c, h.at, "food"), HUNT_RATE * tools * mult);
+      const v = HUNT_RATE * tools * mult * foodEraScale(c,at) * walkFactor(dropDistance(c, h.at, "food"), HUNT_RATE * tools * mult);
       rate.food += v;
       drains.push({ kind: "herd", key: h.id, res: "food", perHour: v });
     }
   }
   const copperRate = rate.copper;
-  rate.food -= c.people.length * FOOD_PER_POP + Math.max(0,soldiers(c)-Math.min(troopCount(c.deployedArmy??{}),c.provisionedSoldiers??0)-c.exps.reduce((n,e)=>n+(e.suppliesFood!==undefined?troopCount(e.units):0),0)) * SOLDIER_FOOD;
-  return { rate, woodUse, copperRate, jobs, housing, storage, fires: Math.min(2, cnt.fire ?? 0), drains };
+  const costs=c.upkeepStartsAt!==undefined&&at<c.upkeepStartsAt
+    ?{civilian:{food:4,wood:0},soldier:{food:2,wood:0}}
+    :upkeepRates(c.era),civilians=c.people.length,totalSoldiers=soldiers(c);
+  const foodSoldiers=Math.max(0,totalSoldiers-Math.min(troopCount(c.deployedArmy??{}),c.provisionedSoldiers??0)-c.exps.reduce((n,e)=>n+(e.suppliesFood!==undefined?troopCount(e.units):0),0));
+  const upkeep={civilians,soldiers:totalSoldiers,foodSoldiers,food:civilians*costs.civilian.food+foodSoldiers*costs.soldier.food,wood:civilians*costs.civilian.wood+totalSoldiers*costs.soldier.wood};
+  rate.food-=upkeep.food;
+  rate.wood-=upkeep.wood;
+  return { rate, upkeep, woodUse, stoneUse, fireWoodUse, copperRate, jobs, housing, storage, fires: Math.min(2, cnt.fire ?? 0), drains };
 }
 
 /* ---------- people & tasks ---------- */
@@ -1165,7 +1183,7 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   }
   if (tk.t === "hunt") {
     const herd = herdById(c, tk.herd);
-    return herd && herd.n > 0 ? { tile: herd.at, resource: "food", rate: HUNT_RATE * ctx.tools * ctx.mult, source: { kind: "herd", key: herd.id } } : null;
+    return herd && herd.n > 0 ? { tile: herd.at, resource: "food", rate: HUNT_RATE * ctx.tools * ctx.mult * foodEraScale(c,at), source: { kind: "herd", key: herd.id } } : null;
   }
   if (tk.t !== "work") return null;
   const b = c.b[tk.at];
@@ -1179,6 +1197,7 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   if (crop && seasonAt(c, at) === 3) rate *= 0.4;
   if (c.cropDamage?.tile===tk.at && at<c.cropDamage.until) rate *= .5;
   if (crop || b.k === "wood" || b.k === "quarry") rate *= ctx.tools;
+  if(resource==='food')rate*=foodEraScale(c,at);
   let source: HaulJob["source"] = { kind: "building", key: tk.at };
   let tile = tk.at;
   if (b.k === "wood" || b.k === "quarry" || b.k === "smelter") {
@@ -1240,7 +1259,7 @@ function beginHaul(c: City, p: Person, at: number, ctx: HaulContext) {
   }
   const from = p.pos ?? c.camp, path = haulPath(c, from, job.tile, ctx);
   if (!path) return;
-  const travel = Math.ceil(routeLength(path)) * HAUL_TILE_MS, capacity=job.resource==='diamond'?1:job.resource==='gold'?5:HAUL_CAPACITY;
+  const travel = Math.ceil(routeLength(path)) * HAUL_TILE_MS, capacity=job.resource==='diamond'?1:job.resource==='gold'?5:job.resource==='food'?HAUL_CAPACITY*foodEraScale(c,at):HAUL_CAPACITY;
   p.haul = { phase: travel ? "travel" : "work", at, nextAt: at + (travel || Math.ceil(capacity / job.rate * HOUR / HAUL_TILE_MS) * HAUL_TILE_MS), tile: from,
     route: path, routeStart: at, resource: job.resource, carried: 0, capacity, source: job.source, taskKey: taskKey(p), workRate: job.rate };
 }
@@ -1765,6 +1784,8 @@ function completeBuilding(c:City,b:Building,at:number){
 /** Advance the city to `now`: finish construction, run seasons, produce, grow. Mutates `c`. */
 export function settle(c: City, now: number) {
   normalizeResources(c);
+  // Catch up legacy saves at their old upkeep before activating the new balance.
+  c.upkeepStartsAt??=now;
   if (now <= c.last) return;
   let t = c.haulAt ?? c.last;
   c.haulAt = t;
@@ -1793,6 +1814,7 @@ export function settle(c: City, now: number) {
     }
     if (dirty) autoStaff(c);
     if (t < c.boostUntil && c.boostUntil <= nt) dirty = true;
+    if(t<c.upkeepStartsAt&&c.upkeepStartsAt<=nt)dirty=true;
     const si = seasonIndexAt(c, nt);
     while (c.seasonIdx < si) { c.seasonIdx++; onSeason(c, c.seasonIdx); dirty = true; }
     if(stepFrontier(c,nt))dirty=true;
@@ -1806,11 +1828,22 @@ export function settle(c: City, now: number) {
 
     const h = (nt - t) / HOUR;
     // Displayed production rates are estimates. Only unload events credit stock.
-    // Food and smelter fuel remain continuous costs, separate from carried goods.
-    const need = st.woodUse * h;
-    const smelt = need > 0 ? Math.max(0, Math.min(1, c.res.wood / need)) : 1;
+    // Population upkeep and smelter fuel remain continuous costs, separate from carried goods.
+    c.res.wood=Math.max(0,c.res.wood-st.upkeep.wood*h);
+    const fireNeed=st.fireWoodUse*h,fireEff=fireNeed>0?Math.min(1,c.res.wood/fireNeed):1;
+    c.res.wood=Math.max(0,c.res.wood-fireNeed*fireEff);
+    // Fuel is spent only while a worker is actually smelting. Travel, full
+    // stores and exhausted/unreachable ore must not burn materials for no output.
+    let furnaceLoad=0;
+    if(t>=c.upkeepStartsAt&&c.res.copper<st.storage.copper)for(const p of c.people){
+      const b=p.task.t==='work'?c.b[p.task.at]:undefined,haul=p.haul;
+      if(!p.refuge&&b?.k==='smelter'&&isBuildingActive(b)&&haul?.phase==='work'&&haul.source?.kind==='tile'&&c.t[haul.source.key]===O)furnaceLoad+=LVL_MULT[b.lvl]/B.smelter.jobs!;
+    }
+    const need = (t<c.upkeepStartsAt?st.woodUse-st.fireWoodUse:600*furnaceLoad) * h,stoneNeed=(t<c.upkeepStartsAt?st.stoneUse:600*furnaceLoad)*h;
+    const smelt = t>=c.upkeepStartsAt&&c.res.copper>=st.storage.copper?0:Math.max(0,Math.min(1,need>0?c.res.wood/need:1,stoneNeed>0?c.res.stone/stoneNeed:1));
     c.res.wood = Math.max(0, c.res.wood - need * smelt);
-    c.res.food -= (c.people.length * FOOD_PER_POP + Math.max(0,soldiers(c)-Math.min(troopCount(c.deployedArmy??{}),c.provisionedSoldiers??0)-c.exps.reduce((n,e)=>n+(e.suppliesFood!==undefined?troopCount(e.units):0),0)) * SOLDIER_FOOD) * h;
+    c.res.stone=Math.max(0,c.res.stone-stoneNeed*smelt);
+    c.res.food -= st.upkeep.food * h;
     for (const r of RES) c.res[r] = Math.min(st.storage[r], c.res[r]);
     stepHauling(c, nt, hauling, st.storage, smelt);
     for (const herd of c.herds) if (herd.n < herd.max) herd.n = Math.min(herd.max, herd.n + HERD_REGROW * h);
@@ -1820,7 +1853,7 @@ export function settle(c: City, now: number) {
       c.res.food = 0;
       c.popAcc -= h * 6;
     } else if (c.people.length < st.housing) {
-      c.popAcc += h * POP_GROWTH_PER_HOUR * (1 + st.fires);
+      c.popAcc += h * POP_GROWTH_PER_HOUR * (1 + st.fires*fireEff);
     } else c.popAcc = 0;
     while (c.popAcc >= 1 && c.people.length < st.housing) { addPerson(c); c.popAcc--; autoStaff(c); }
     while (c.popAcc <= -1 && c.people.length > MIN_POP) {
@@ -2023,7 +2056,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     if(!troopPower(units))return "Cần có chiến binh đi cùng đoàn hỗ trợ.";
     const plan=expeditionPlan(c,camp.at,units);
     if(!plan)return "Không có đường hoặc thiếu thuyền qua sông. Mở lối trại lính; xây Bến cảng sát đoạn sông đã khám phá và đóng đủ thuyền cho đoàn quân.";
-    const ms = plan.duration,suppliesFood=marchSupplies(units,ms).food;
+    const ms = plan.duration,suppliesFood=marchSupplies(units,ms,c.era).food;
     if(c.res.food<suppliesFood)return `Cần ${suppliesFood} lương thực dự trữ cho cả đi và về.`;
     c.res.food-=suppliesFood;
     for (const u of UKEYS) if (units[u]) c.army[u]! -= units[u]!;

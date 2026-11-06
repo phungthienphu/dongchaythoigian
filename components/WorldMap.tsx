@@ -193,7 +193,7 @@ export default function WorldMap({ caravans=[], onMarket, signedIn, onFriendsCha
   const myEnvoys = envoyCount(city), away = envoysAway(city), en = ENVOY_NAMES[city.era];
   const d = sel && me ? dist(me, sel) : 0;
   const marchDuration=Math.max(MIN,d/MARCH_TILES_PER_MIN*MIN);
-  const supplies=marchSupplies(army,marchDuration);
+  const supplies=marchSupplies(army,marchDuration,city.era);
   const logistics=marchLogistics(army,marchDuration);
   const [riskAccepted,setRiskAccepted]=useState(false);
   const riskKey=JSON.stringify([sel?.id,army,marchDuration]);

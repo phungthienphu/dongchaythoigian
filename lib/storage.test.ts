@@ -42,5 +42,5 @@ test('full wood compartment does not prevent stone delivery',()=>{
  for(const [i,r] of (['wood','stone'] as const).entries()){
  const p=c.people[i];p.pos=idx(10,10);p.task={t:'idle'};p.haul={phase:'unload',taskKey:'idle',at:0,nextAt:1000,tile:p.pos,route:[p.pos],routeStart:0,resource:r,carried:10,capacity:10,drop:p.pos};
  }
- settle(c,1000);assert.equal(c.res.wood,limits.wood);assert.equal(c.people[0].haul?.carried,10);assert.equal(c.res.stone,limits.stone);assert.equal(c.people[1].haul,undefined);
+ settle(c,1000);assert.equal(c.res.wood,limits.wood);assert.ok(Math.abs(c.people[0].haul!.carried-(10-2/3600))<1e-8);assert.equal(c.res.stone,limits.stone);assert.equal(c.people[1].haul,undefined);
 });

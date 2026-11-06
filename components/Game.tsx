@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  B, BKEYS, CAP, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  storageLevel, DEFAULT_MIX, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
+  B, BKEYS, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
+  storageLevel, upkeepRates, DEFAULT_MIX, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap, type Mix,
   armyCap, armyUsed, buildingCost, trainingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -813,12 +813,12 @@ export default function Game() {
     );
   }
 
-  const st = stats(c, D, t);
+  const st = stats(c, D, t), upkeep=upkeepRates(c.era);
   const si = seasonIndexAt(c, t), season = si % 4;
   const nextSeasonIn = c.t0 + (si + 1) * SEASON_MS - t;
   const busyN = busyBuilders(c), maxB = builders(c);
   const idle = c.people.filter((p) => p.task.t === "idle");
-  const populationStatus = c.battleId ? "Tạm dừng do trận đánh" : c.people.length >= st.housing ? "Cần thêm nhà" : c.res.food <= 0 ? "Cần lương thực" : `+1 dân sau ${fmtDur((1-c.popAcc) / (POP_GROWTH_PER_HOUR * (1+st.fires)) * HOUR)}`;
+  const populationStatus = c.battleId ? "Tạm dừng do trận đánh" : c.people.length >= st.housing ? "Cần thêm nhà" : c.res.food <= 0 ? "Cần lương thực" : `+1 dân sau ${fmtDur((1-c.popAcc) / (POP_GROWTH_PER_HOUR * (1+(c.res.wood>0?st.fires:0))) * HOUR)}`;
   const hasFoodWorker = c.people.some(p => p.task.t === "hunt" || p.task.t === "work" && ["gather","farm","wheel"].includes(c.b[p.task.at]?.k ?? ""));
   const goal = !hasFoodWorker ? { text: "1. Kiếm thức ăn: bấm Trại hái lượm → Giao người rảnh, hoặc chọn dân rồi bấm đàn thú.", panel: "people" as Panel }
     : c.people.length >= st.housing ? { text: "2. Tăng dân: mở Cửa hàng → xây Lều. Còn chỗ ở và đủ ăn thì khoảng 1 phút có thêm dân.", panel: "shop" as Panel }
@@ -843,7 +843,7 @@ export default function Game() {
   const sel = selected ? c.b[selI] : undefined;
   const selCamp = selected ? campAt(c, selI) : undefined;
   const campPlan=selCamp?expeditionPlan(c,selCamp.at,send):null;
-  const campSupply=campPlan?marchSupplies(send,campPlan.duration):null;
+  const campSupply=campPlan?marchSupplies(send,campPlan.duration,c.era):null;
   const campLogistics=campPlan?marchLogistics(send,campPlan.duration):null;
   const selTask: { task: TaskInput; label: string } | null = !selected || selCamp ? null
     : sel ? (B[sel.k].jobs && sel.lvl >= 1 && !sel.flooded && !sel.burned ? { task: { t: "work", at: selI }, label: `Làm ở ${buildingName(c,sel.k)}` } : null)
@@ -907,7 +907,7 @@ export default function Game() {
           <FrontierStatus city={c} now={t}/>
         </div>
         <div className="chips">
-          <div className="chip" tabIndex={0} title="Dân số hiện tại / sức chứa nhà ở. Đầy chỗ thì dân ngừng tăng; xây hoặc nâng cấp nhà. Dân cần đủ lương thực để tiếp tục tăng. Dòng dưới là số dân rảnh hoặc cảnh báo cần nhà.">
+          <div className="chip" tabIndex={0} title={`Dân số hiện tại / sức chứa nhà ở. Đầy chỗ thì dân ngừng tăng; xây hoặc nâng cấp nhà. Mỗi dân tiêu hao ${upkeep.civilian.food/6} lương thực / 10 phút và ${upkeep.civilian.wood} gỗ / giờ ở thời đại này, kể cả khi rảnh. Hết lương thực thì ngừng tăng dân; đói kéo dài dân bỏ đi.`}>
             <Icon k="pop" />
             <div className="cv">
               <span className="v">{c.people.length}<small>/{st.housing}</small></span>
@@ -918,21 +918,21 @@ export default function Game() {
             <Icon k="build" />
             <div className="cv"><span className="v">{busyN}/{maxB}</span><span className="d">đang bận</span></div>
           </div>
-          <div className="chip" tabIndex={0} title="Số quân đang ở làng / sức chứa trại lính. Mỗi loại quân có thể chiếm số chỗ khác nhau. Dòng ⚔ là tổng sức tấn công của quân ở nhà.">
+          <div className="chip" tabIndex={0} title={`Số quân đang ở làng / sức chứa trại lính. Mỗi quân tiêu hao ${upkeep.soldier.food/6} lương thực / 10 phút và ${upkeep.soldier.wood} gỗ / giờ ở thời đại này. Quân đã mang lương thực hành quân không bị trừ khẩu phần lần nữa tại kho. Dòng ⚔ là tổng sức tấn công của quân ở nhà.`}>
             <Icon k="army" />
             <div className="cv"><span className="v">{troopCount(c.army)}<small>/{cap}</small></span><span className="d">⚔ {fmt(homePower)}</span></div>
           </div>
           {RES.map((r) => {
-            const rate = r === "copper" ? st.copperRate : r === "wood" ? st.rate.wood - st.woodUse : st.rate[r];
+            const rate = r === "copper" ? st.copperRate : r === "wood" ? st.rate.wood - st.woodUse : r === "stone" ? st.rate.stone-st.stoneUse : st.rate[r];
             const pct = Math.min(100, (c.res[r] / st.storage[r]) * 100);
             const waiting = c.people.some(p => p.haul?.resource === r && p.haul.carried > 0 && st.storage[r]-c.res[r] < p.haul.carried);
             return (
-              <div className="chip" key={r} tabIndex={0} title={`${RN[r]} trong kho: ${fmt(c.res[r])} / ${fmt(st.storage[r])} sức chứa. Thanh ngang biểu thị mức đầy kho. Dòng /giờ* là thu nhập ròng ước tính, không phải cộng tài nguyên tự động; dân phải mang hàng về nộp.${r === "food" ? " Lương thực bị tiêu hao liên tục để nuôi dân và quân." : r === "wood" ? " Gỗ bị tiêu hao liên tục khi lò đúc hoạt động, hoặc trừ ngay khi xây, nâng cấp và luyện quân." : " Xây dựng, nâng cấp và luyện quân có thể tiêu tốn tài nguyên."}` }>
+              <div className="chip" key={r} tabIndex={0} title={`${RN[r]} trong kho: ${fmt(c.res[r])} / ${fmt(st.storage[r])} sức chứa. Thanh ngang biểu thị mức đầy kho. Dòng thu nhập là số ròng ước tính, không phải cộng tài nguyên tự động; dân phải mang hàng về nộp.${r === "food" ? ` Nuôi ${st.upkeep.civilians} dân và ${st.upkeep.foodSoldiers} quân chưa có dự trữ: ${Number((st.upkeep.food/60).toFixed(2))} thực/phút (${st.upkeep.food/6} thực/10 phút). Trừ dần cả khi offline; khẩu phần hành quân đã trả không bị tính lần nữa.` : r === "wood" ? ` Dân và quân dùng ${st.upkeep.wood} gỗ/giờ cho sinh hoạt và bảo dưỡng, kể cả quân đi xa; bếp dùng ${st.fireWoodUse/6} gỗ/10 phút, lò đúc dùng thêm tối đa ${(st.woodUse-st.fireWoodUse)/60} gỗ/phút. Xây, nâng cấp và luyện quân còn trừ riêng chi phí. Hết gỗ, lò đúc thiếu nhiên liệu; dân vẫn làm việc.` : r === "stone" ? ` Lò đúc tiêu hao tối đa ${st.stoneUse/60} đá/phút; thiếu gỗ hoặc đá thì giảm/ngừng đúc. Xây dựng và nâng cấp còn trừ chi phí riêng.` : " Xây dựng, nâng cấp và luyện quân có thể tiêu tốn tài nguyên."}` }>
                 <Icon k={r} />
                 <div className="cv">
                   <span className={"v" + (pct >= 100 ? " full" : "")}>{fmt(c.res[r])}<small>/{fmt(st.storage[r])}</small></span>
                   <span className="bar"><i style={{ width: pct + "%" }} /></span>
-                  <span title="Năng suất ước tính; hàng chỉ vào kho khi dân mang về nộp." className={"d" + (rate > 0.05 ? " up" : rate < -0.05 ? " down" : "")}>{waiting ? "Kho chật · dân chờ nộp" : `${rate >= 0 ? "+" : ""}${fmt(rate)}/giờ*`}</span>
+                  <span title="Thu nhập ròng ước tính sau tiêu hao; hàng chỉ vào kho khi dân mang về nộp." className={"d" + (rate > 0.05 ? " up" : rate < -0.05 ? " down" : "")}>{waiting ? "Kho chật · dân chờ nộp" : `${rate >= 0 ? "+" : ""}${r==='food'?(rate/60).toLocaleString('vi-VN',{maximumFractionDigits:2}):fmt(rate)}/${r==='food'?'phút':'giờ'}*`}</span>
                 </div>
               </div>
             );
@@ -1002,6 +1002,7 @@ export default function Game() {
               <h2>{buildingName(c, sel.k)}{sel.lvl ? ` · cấp ${sel.lvl}` : ""}</h2>
               <p className="muted small">Kiến trúc {ERA_NAMES[c.era].toLowerCase()} · Lên thời đại tự đổi kiến trúc, không tự tăng cấp. Bấm nâng cấp để tăng công năng và trang bị; cấp tối đa theo Đình làng.</p>
               <p className="muted small">{B[sel.k].d}</p>
+              {sel.k==='smelter'&&sel.lvl>=1&&<p className="small">Đủ 3 thợ: tối đa {B.smelter.prod!.copper!*GATHER_SPEED*LVL_MULT[sel.lvl]/60} đồng/phút trước thời gian vận chuyển; dùng {B.smelter.use!.wood!*LVL_MULT[sel.lvl]/60} gỗ + {B.smelter.use!.stone!*LVL_MULT[sel.lvl]/60} đá/phút. Nuôi 3 thợ thêm {3*upkeep.civilian.food/60} thực/phút và {3*upkeep.civilian.wood} gỗ/giờ. Giá bán do người chơi quyết định; tính cả các chi phí này khi định giá.</p>}
               {sel.k==='canal'&&sel.lvl>=1&&<p className={D.wet[selI]?'small':'err small'}>{D.wet[selI]?'Kênh đang có nước, tưới cho đất xung quanh.':'Kênh cạn: mất đường nối tới sông, không còn tưới đất. Nối lại kênh để có nước hoặc dùng Phá dỡ bên dưới để gỡ từng đoạn.'}</p>}
               {sel.doneAt && <p className="small">{sel.lvl === 0 ? "Đang xây" : sel.storageUpgrade ? `Đang nâng ngăn ${RN[sel.storageUpgrade]}` : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
               {c.cropDamage?.tile===selI && c.cropDamage.until>t && <p className="err small">Ruộng bị thú rừng giẫm: năng suất còn 50%, phục hồi sau {fmtDur(c.cropDamage.until-t)}.</p>}
@@ -1226,6 +1227,7 @@ export default function Game() {
 
             {panel === "army" && (
               <>
+                <p className="small muted">Mỗi quân: {upkeep.soldier.food/6} thực / 10 phút + {upkeep.soldier.wood} gỗ / giờ. Khẩu phần hành quân trả trước; không tính hai lần tại kho.</p>
                 {!cap ? (
                   <p className="small">Chưa có Trại lính. <button className="link" onClick={() => { setShopEra(1); setPanel("shop"); }}>Mở Cửa hàng để xây</button>.</p>
                 ) : (
@@ -1280,6 +1282,7 @@ export default function Game() {
                   <span className="small muted">{c.people.length} người · {idle.length} rảnh · {populationStatus}</span>
                   <button className="link" disabled={!idle.length} onClick={() => setPicked(new Set(idle.map((p) => p.id)))}>Chọn người rảnh</button>
                 </div>
+                <p className="small muted">Mỗi dân: {upkeep.civilian.food/6} thực / 10 phút + {upkeep.civilian.wood} gỗ / giờ, kể cả khi rảnh.</p>
                 <ul className="people">
                   {c.people.map((p) => (
                     <li key={p.id}>
@@ -1299,6 +1302,7 @@ export default function Game() {
               <>
                 <h3>Lên {ERA_NAMES[c.era + 1]}</h3>
                 <p className="small muted">Lên đời tự đổi kiến trúc và mở công trình. Cấp công trình vẫn nâng riêng bằng tài nguyên. Đời sau cần dân số, kho và hạ tầng lớn hơn.</p>
+                <p className="small">Sau khi lên đời, nhu cầu nuôi dân và quân tăng gấp đôi: dân {upkeepRates(c.era+1).civilian.food/6} thực / 10 phút + {upkeepRates(c.era+1).civilian.wood} gỗ / giờ; quân {upkeepRates(c.era+1).soldier.food/6} thực / 10 phút + {upkeepRates(c.era+1).soldier.wood} gỗ / giờ mỗi người.</p>
                 <ul className="goal">
                   {next.hall ? <li><span>Đình làng</span><span className="gbar"><i style={{ width: Math.min(100, (hallLv / next.hall) * 100) + "%" }} /></span><span>cấp {hallLv}/{next.hall}</span></li> : null}
                   <li><span>Dân số</span><span className="gbar"><i style={{ width: Math.min(100, (c.people.length / next.pop) * 100) + "%" }} /></span><span>{Math.min(c.people.length, next.pop)}/{next.pop}</span></li>
@@ -1328,7 +1332,7 @@ export default function Game() {
             {panel === "control" && (
               <ControlPanel
                 c={c} t={t} busy={busy} control={control} hallLv={hallLv} groups={groups} homePower={homePower}
-                rate={{ ...st.rate, wood: st.rate.wood - st.woodUse }}
+                rate={{ ...st.rate, wood: st.rate.wood - st.woodUse, stone:st.rate.stone-st.stoneUse }}
                 act={act}
                 pickGroup={(ids) => { setPicked(new Set(ids)); setPanel(null); setMsg({ text: `Đã chọn ${ids.length} người. Bấm lên bản đồ để giao việc mới.` }); }}
                 attackAll={(campId) => { const camp=campById(c,campId);if(!camp)return;setSelected({x:camp.at%W,y:Math.floor(camp.at/W)});setSend({...c.army});setPanel(null);setMsg({text:"Kiểm tra lương thực và hỗ trợ trước khi xuất quân."}); }}

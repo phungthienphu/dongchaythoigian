@@ -87,5 +87,5 @@ test("deployed world troops reserve barracks space and consume food", () => {
   assert.equal(armyUsed(c), 15);
   const deployedRate = stats(c, derive(c), now).rate.food;
   c.deployedArmy = {};
-  assert.equal(stats(c, derive(c), now).rate.food - deployedRate, 10);
+  assert.equal(stats(c, derive(c), now).rate.food - deployedRate, 3000);
 });

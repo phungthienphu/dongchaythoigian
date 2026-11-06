@@ -14,9 +14,9 @@ test('all civilians including workers and explorers run automatically, without a
  const explore=structuredClone(c.people[1].task);
  c.raid={warn:11000,at:31000,power:0,from:idx(25,10)};updateRefuges(c,11000);
  assert.ok(c.people.every(p=>p.refuge));const position=refugePosition(p,11000)!;assert.equal(position.moving,true);
- settle(c,25000);assert.equal(p.haul!.carried,cargo);assert.equal(c.res.wood,0);assert.deepEqual(p.task,task);assert.equal(stats(c,derive(c),25000).rate.wood,0);
+ settle(c,25000);assert.equal(p.haul!.carried,cargo);assert.equal(c.res.wood,0);assert.deepEqual(p.task,task);assert.equal(stats(c,derive(c),25000).rate.wood,-2);
  assert.equal(refugePosition(p,25000)!.hidden,true);assert.deepEqual(c.people[1].task,explore);
- settle(c,70000);assert.equal(p.refuge,undefined);assert.ok(c.res.wood>=cargo);assert.deepEqual(p.task,task);
+ settle(c,70000);assert.equal(p.refuge,undefined);assert.ok(c.res.wood>=cargo-1);assert.deepEqual(p.task,task);
 });
 test('offline and irregular online settlement produce identical shelter, resume and resources',()=>{
  const a=fixture();a.raid={warn:7000,at:23000,power:0,from:idx(25,10)};const b=structuredClone(a);

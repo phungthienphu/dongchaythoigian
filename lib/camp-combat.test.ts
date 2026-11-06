@@ -22,11 +22,11 @@ test('combat, casualties, loot and return agree for offline versus irregular onl
   const a=fixture(18),b=structuredClone(a),until=120000;
   settle(a,until);for(let at=137;at<until;at+=1703)settle(b,at);settle(b,until);
   assert.deepEqual(a,b);assert.equal(a.exps.length,0);assert.equal(a.camps[0].cleared,true);assert.equal(a.wins,1);assert.ok((a.army.club??0)<18);
-  const wood=a.res.wood;settle(a,until+1000);assert.equal(a.res.wood,wood);assert.equal(a.wins,1);
+  const wood=a.res.wood;settle(a,until+1000);assert.ok(a.res.wood<wood);assert.ok(wood-a.res.wood<1);assert.equal(a.wins,1);
 });
 test('weak army loses, enemy survivors persist, no loot is awarded',()=>{
   const c=fixture(1,180),wood=c.res.wood;settle(c,120000);
-  assert.equal(c.camps[0].cleared,false);assert.ok(troopCount(c.camps[0].garrison!)>0);assert.equal(c.wins,0);assert.equal(c.res.wood,wood);assert.equal(c.army.club,0);
+  assert.equal(c.camps[0].cleared,false);assert.ok(troopCount(c.camps[0].garrison!)>0);assert.equal(c.wins,0);assert.ok(c.res.wood<wood);assert.ok(wood-c.res.wood<1);assert.equal(c.army.club,0);
 });
 test('one active army per camp; recall during combat preserves surviving defenders and follows route home',()=>{
   const c=fixture(10,180),e=c.exps[0];c.army.club=2;

@@ -39,7 +39,7 @@ test('soldiers cross visible dock-connected rivers aboard reserved transports, a
 test('armies need enough boats, keep reservations through combat/return, and never ford rivers without ships',()=>{
  const c=fixture();c.camps=[{id:1,at:idx(22,10),power:0,loot:{},cleared:false,respawnAt:null}];
  assert.equal(expeditionPlan(c,idx(22,10),{club:12}),null);c.transportShips=1;assert.equal(expeditionPlan(c,idx(22,10),{club:12}),null);
- c.transportShips=2;assert.equal(shipsNeeded({club:11,elephant:3,wagon:4,medic:1}),7);
+ c.res.food=20000;c.transportShips=2;assert.equal(shipsNeeded({club:11,elephant:3,wagon:4,medic:1}),7);
  assert.equal(applyAction(c,{type:'attack',camp:1,units:{club:12}},0),null);assert.equal(c.exps[0].ships,2);assert.equal(shipsFree(c),0);
  const end=c.exps[0].arrive*2+5000;settle(c,end);assert.equal(c.exps.length,0);assert.equal(shipsFree(c),2);assert.equal(c.army.club,12);
  const damaged=fixture();damaged.transportShips=2;damaged.b[idx(14,12)].flooded=true;assert.equal(expeditionPlan(damaged,idx(22,10)),null);
