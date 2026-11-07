@@ -160,15 +160,15 @@ try {
   } else if(mode==='population') {
     const actor=await createProbe();
     await check('army release persists via HTTP batch and exact replay never releases twice',async()=>{
-      const initial=await get(actor),req=batch(initial.sync,[{type:'releaseTroops',mode:'demobilize',units:{club:2}},{type:'releaseTroops',mode:'expel',units:{sword:3}}]);
+      const initial=await get(actor),req=batch(initial.sync,[{type:'releaseTroops',mode:'expel',units:{club:2}},{type:'releaseTroops',mode:'expel',units:{sword:3}}]);
       const response=await request(actor,'/api/city/batch',req);assert.equal(response.status,200);assert.ok(response.data.sync.results.every((r:{error:unknown})=>!r.error));
-      const stored=await cities.findOne({_id:cityId(actor)});assert.equal(stored!.state.army.club,10);assert.equal(stored!.state.army.sword,3);assert.equal(stored!.state.people.length,7);
+      const stored=await cities.findOne({_id:cityId(actor)});assert.equal(stored!.state.army.club,10);assert.equal(stored!.state.army.sword,3);assert.equal(stored!.state.people.length,5);
       const retry=await request(actor,'/api/city/batch',req);assert.equal(retry.status,200);assert.deepEqual(await cities.findOne({_id:cityId(actor)}),stored);
     });
     await check('insufficient home troop release reports a domain error and leaves army/population intact',async()=>{
-      const initial=await get(actor),req=batch(initial.sync,[{type:'releaseTroops',mode:'demobilize',units:{club:11}}]);
+      const initial=await get(actor),req=batch(initial.sync,[{type:'releaseTroops',mode:'expel',units:{club:11}}]);
       const response=await request(actor,'/api/city/batch',req);assert.equal(response.status,200);assert.ok(response.data.sync.results[0].error);
-      const stored=await cities.findOne({_id:cityId(actor)});assert.equal(stored!.state.army.club,10);assert.equal(stored!.state.people.length,7);assert.equal(stored!.citySync!.ack,req.commands[0].seq);
+      const stored=await cities.findOne({_id:cityId(actor)});assert.equal(stored!.state.army.club,10);assert.equal(stored!.state.people.length,5);assert.equal(stored!.citySync!.ack,req.commands[0].seq);
     });
     console.log(JSON.stringify({source:'local Next HTTP + Mongo replica set, isolated synthetic probe',rows},null,2));
   } else if(mode==='profile') {

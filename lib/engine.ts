@@ -2403,7 +2403,6 @@ export function farmAutoStatus(c:City,b:Building){
  * surviving actor IDs and orders stable. Empty ferries still finish returning. */
 export function armyReleaseQuote(c:City,units:Troops,mode:'demobilize'|'expel',at=c.last){
   const count=troopCount(units),rates=upkeepRates(c.era);
-  const housing=stats(c,derive(c),at).housing,freeHousing=Math.max(0,housing-c.people.length);
   let error:string|null=count>0?null:'Chọn ít nhất 1 quân.';
   if(civiliansInDanger(c,at))error='Làng đang bị tấn công hoặc quân địch sắp tới; chưa thể giải ngũ.';
   for(const u of UKEYS){
@@ -2413,8 +2412,10 @@ export function armyReleaseQuote(c:City,units:Troops,mode:'demobilize'|'expel',a
       error=`${UNITS[u].n} đang qua sông; chờ lên bờ rồi giải ngũ.`;break;
     }
   }
-  if(!error&&mode==='demobilize'&&count>freeHousing)error=`Chỉ còn ${freeHousing} chỗ ở, cần ${count} chỗ để chuyển quân thành dân. Giảm số lượng hoặc xây thêm nhà.`;
-  return {count,freeHousing,error,foodSavedPerMinute:count*(rates.soldier.food-(mode==='demobilize'?rates.civilian.food:0))/60,woodSavedPerHour:count*(rates.soldier.wood-(mode==='demobilize'?rates.civilian.wood:0))};
+  // Old tabs/queued commands must not silently turn a civilian conversion into
+  // permanent expulsion. Reject that intent and require the new confirmation.
+  if(mode==='demobilize')error='Không còn chuyển quân thành dân. Tải lại game và xác nhận giải ngũ: quân sẽ rời làng vĩnh viễn.';
+  return {count,error,foodSavedPerMinute:count*rates.soldier.food/60,woodSavedPerHour:count*rates.soldier.wood};
 }
 
 export type Action =
@@ -2451,8 +2452,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     const quote=armyReleaseQuote(c,a.units,a.mode,now);if(quote.error)return quote.error;
     for(const u of UKEYS){const n=a.units[u]??0;if(!n)continue;c.army[u]=(c.army[u]??0)-n;}
     pruneHomeOrders(c);
-    if(a.mode==='demobilize')for(let n=0;n<quote.count;n++)addPerson(c);
-    log(c,now,a.mode==='demobilize'?`Giải ngũ ${quote.count} quân thành dân rảnh. Không hoàn phí huấn luyện.`:`Đã đuổi ${quote.count} quân khỏi làng. Không hoàn phí huấn luyện.`,'warn');
+    log(c,now,`Giải ngũ: ${quote.count} quân đã rời làng vĩnh viễn, không chuyển thành dân. Không hoàn phí huấn luyện.`,'warn');
     return null;
   }
   if(a.type==="setPowerPriority"){if(!c.modern||rules.maxEra<6)return "Điện mở ở Hiện đại.";c.modern.priority=[...a.priority];stepPower(c,now,now,B);return null;}

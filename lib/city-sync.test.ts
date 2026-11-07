@@ -48,9 +48,9 @@ test('batch envelope rejects gaps, malformed actions, unsupported engine and too
 });
 test('army release has identical home counts, civilian IDs and upkeep with ten second batching',()=>{
  const direct=syncFixture(3);direct.army={club:5};direct.b[idx(19,20)]={k:'house',lvl:3,doneAt:null};
- const batched=structuredClone(direct),commands=[command(1,500,{type:'releaseTroops',mode:'demobilize',units:{club:2}}),command(2,900,{type:'releaseTroops',mode:'expel',units:{club:1}})];
+ const batched=structuredClone(direct),commands=[command(1,500,{type:'releaseTroops',mode:'expel',units:{club:2}}),command(2,900,{type:'releaseTroops',mode:'expel',units:{club:1}})];
  for(const c of commands)assert.equal(applyAction(direct,c.action,c.at),null);settle(direct,10000);
- assert.ok(applyCommandBatch(batched,commands,10000).every(r=>!r.error));assert.deepEqual(batched,direct);assert.equal(batched.army.club,2);assert.equal(batched.people.length,5);
+ assert.ok(applyCommandBatch(batched,commands,10000).every(r=>!r.error));assert.deepEqual(batched,direct);assert.equal(batched.army.club,2);assert.equal(batched.people.length,3);
 });
 test('a queued pre-update command never activates new gameplay retroactively',()=>{
  const c=syncFixture(10);c.era=4;delete c.farmAutoStartsAt;delete c.hungerStartsAt;delete c.hunger;
