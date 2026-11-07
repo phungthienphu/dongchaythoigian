@@ -959,7 +959,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const busyN = busyBuilders(c), maxB = builders(c);
   const idle = c.people.filter(availableForQuickAssign);
   const birthRate=POP_GROWTH_PER_HOUR*(1+(c.res.wood>0?st.fires:0))*pollutionBirth(c)*serviceBonus(c).birth;
-  const populationStatus = c.battleId ? "Tạm dừng do trận đánh" : c.res.food <= 0 ? "Dân đang đói" : c.people.length >= st.housing ? "Cần thêm nhà" : birthRate<=0?"Ô nhiễm ngăn sinh dân": `+1 dân sau ${fmtDur((1-c.popAcc) / birthRate * HOUR)}`;
+  const populationStatus = c.battleId ? "Tạm dừng do trận đánh" : c.res.food <= 0 ? "Dân đang đói" : (c.hunger?.stressMs??0)>0 ? "Đang hồi phục sau đói · chưa tăng dân" : c.people.length >= st.housing ? "Cần thêm nhà" : birthRate<=0?"Ô nhiễm ngăn sinh dân": `+1 dân sau ${fmtDur((1-c.popAcc) / birthRate * HOUR)}`;
   const hasFoodWorker = c.people.some(p => p.task.t === "hunt" || p.task.t === "work" && ["gather","farm","estate","wheel"].includes(c.b[p.task.at]?.k ?? ""));
   const goal = c.era>=4?{text:`${ERA_NAMES[c.era]} · xem nước, sản xuất và mục tiêu phát triển.`,panel:"era" as Panel}:!hasFoodWorker ? { text: "1. Kiếm thức ăn: bấm Trại hái lượm → Giao người rảnh, hoặc chọn dân rồi bấm đàn thú.", panel: "people" as Panel }
     : c.people.length >= st.housing ? { text: "2. Tăng dân: mở Cửa hàng → xây Lều. Còn chỗ ở và đủ ăn thì khoảng 1 phút có thêm dân.", panel: "shop" as Panel }
@@ -1054,7 +1054,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           <FrontierStatus city={c} now={t}/>
         </div>
         <div className="chips">
-          <div className="chip" tabIndex={0} title={`Dân số hiện tại / sức chứa nhà ở. Đầy chỗ thì dân ngừng tăng; xây hoặc nâng cấp nhà. Mỗi dân tiêu hao ${upkeep.civilian.food/6} lương thực / 10 phút và ${upkeep.civilian.wood} gỗ / giờ ở thời đại này, kể cả khi rảnh. Hết lương thực thì ngừng tăng dân; đói kéo dài dân bỏ đi.`}>
+          <div className="chip" tabIndex={0} title={`Dân số hiện tại / sức chứa nhà ở. Đầy chỗ thì dân ngừng tăng; xây hoặc nâng cấp nhà. Mỗi dân tiêu hao ${upkeep.civilian.food/6} lương thực / 10 phút và ${upkeep.civilian.wood} gỗ / giờ ở thời đại này, kể cả khi rảnh. Thiếu ăn thì ngừng tăng dân; mỗi 10 phút thiếu ăn mất 1 dân, từ mức đói 30 phút có thể chết đói. Ăn đủ giảm dần mức đói; hồi phục xong mới tăng dân.`}>
             <Icon k="pop" />
             <div className="cv">
               <span className="v">{c.people.length}<small>/{st.housing}</small></span>

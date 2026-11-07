@@ -2392,9 +2392,9 @@ function beginFarmCare(c:City,b:Building,tile:number,cost:Partial<Res>,at:number
 }
 export function farmAutoStatus(c:City,b:Building){
   if(c.era<4)return null;
-  if(b.tendUntil)return 'Đang tự cải tạo; chi phí đã thanh toán, hết tài nguyên vẫn hoàn tất.';
+  if(b.tendUntil)return 'Đang cải tạo; chi phí đã thanh toán, hết tài nguyên vẫn hoàn tất.';
   if(!isBuildingActive(b)||b.doneAt)return 'Tự cải tạo chờ ruộng hoạt động trở lại.';
-  if(farmRemaining(b)>0)return 'Tự cải tạo khi bạc màu: trừ đúng giá bên dưới, hoàn tất sau 30 giây.';
+  if(farmRemaining(b)>0)return 'Tự cải tạo khi bạc màu: trừ đúng giá cải tạo hiển thị, hoàn tất sau 30 giây.';
   const shortage=missing(c,farmTendCost(b,c.era));
   return shortage?`Chờ tự cải tạo: ${shortage} Có đủ sẽ tự làm lại; nông dân giữ công việc.`:'Đã đủ vật liệu, ruộng sẽ tự cải tạo ở nhịp xử lý tiếp theo.';
 }

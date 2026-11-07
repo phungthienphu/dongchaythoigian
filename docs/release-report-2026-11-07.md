@@ -66,6 +66,9 @@ không có nghĩa là hoàn thành toàn bộ migration sang Cloudflare.
 - Bản đồng bộ toàn bộ `87a2cf0` đã được xác minh Vercel Ready và thử trên tài
   khoản thật: “Chờ lưu” chuyển thành “Đã lưu”. Không dùng tài khoản thật để thử
   đuổi quân, mất dân hoặc tiêu vật liệu.
+- Production gameplay đã kiểm tra trên tài khoản đăng nhập thật: mở Quân đội,
+  bảng quản lý hiện đúng quân/chỗ ở và hai cách giải ngũ; đóng mà không gửi lệnh.
+  Trang chủ 200, hai API chưa đăng nhập 401, trang QA population 404.
 
 Các commit gameplay tách riêng: `da07ee3` ruộng, `36c5a5d` đói,
 `ccfcb18` quản lý quân. Báo cáo cân bằng ở
