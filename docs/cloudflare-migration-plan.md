@@ -128,7 +128,7 @@ Description, acceptance criteria, test và rollback chi tiết nằm trong
 | T03 | Client batch 10 giây, IndexedDB, UX chờ lưu | T01, T02 | Harness và Game/Mongo thật qua giao dân, tuyển/reload, chợ, nhiều tab; còn mobile/soak thật hoàn tất/OAuth |
 | T04 | Batch API, một lần load/save, giảm refresh/ghi thừa | T01, T02 | API tests và Mongo/HTTP/Worker tích hợp qua; profiler xác nhận 1 load/save; còn canary |
 | G-A | Đo Chặng A, quyết định có cần migration | T03, T04 | Chưa đạt gate |
-| T05 | Prototype Village DO và benchmark free thực tế | T00, T01 | Chưa làm |
+| T05 | Prototype Village DO và benchmark free thực tế | T00, T01 | Đang làm: SQLite local, batch/retry/rollback/restart và checkpoint catch-up; còn worst-case, cloud CPU/quota và stress. Xem `village-prototype.md` |
 | T06 | Bộ định tuyến quyền ghi, migrator và fencing | T01, T05 | Chưa làm |
 | T07 | Client kết nối Worker trực tiếp, phiên và reconnect | T02, T03, T05 | Chưa làm |
 | T08 | Tích hợp giao thương, ngoại giao, chiến tranh | T04, T06, T07 | Chưa làm |

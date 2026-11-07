@@ -1,0 +1,9 @@
+{
+  // Isolated T05 experiment. Never changes the production BattleRoom namespace.
+  "name": "dong-song-village-prototype",
+  "main": "prototype/index.ts",
+  "compatibility_date": "2026-11-05",
+  "durable_objects": { "bindings": [{ "name": "VILLAGES", "class_name": "VillagePrototype" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["VillagePrototype"] }],
+  "vars": { "PROTOTYPE_ENABLED": "false" }
+}
