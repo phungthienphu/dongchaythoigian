@@ -1,12 +1,13 @@
 import {completedWonder,powerFraction,operationJobs} from './modern';
+import {buildingOutput} from './economy-balance';
 import type {Building,City,Def} from './engine';
 const HOUR=3_600_000,MIN=60_000,SIDE=96;
 const ALL=['food','wood','stone','copper','gold','diamond','coal'] as const;
 export const INDUSTRIAL_BUILDINGS={
- coalmine:{n:'Mỏ than',era:5,cost:{wood:1000,stone:1500,copper:500},sec:3600,jobs:4,prod:{coal:240},up:true,d:'Đặt trên mỏ than. 4 thợ khai thác 240 than/giờ cấp 1; phải mang về kho. Mỗi mỏ có 30.000 than.'},
- charcoal:{n:'Lò than củi',era:5,cost:{wood:600,stone:800,copper:150},sec:1800,jobs:2,prod:{coal:60},input:{wood:300},emission:1,up:true,d:'2 thợ: 300 gỗ/giờ → 60 than/giờ. Nguồn than thay thế khi mỏ cạn. Đầu vào trừ lúc đóng kiện; hàng phải nộp kho.'},
- machine:{n:'Xưởng cơ khí',era:5,cost:{wood:1500,stone:2500,copper:800,gold:200},sec:7200,jobs:4,prod:{copper:120},input:{stone:300,coal:120},emission:2,up:true,d:'4 thợ: 300 đá + 120 than/giờ → 120 đồng/giờ. Phát thải theo thời gian thực sự sản xuất.'},
- factory:{n:'Nhà máy hàng hóa',era:5,cost:{wood:1200,stone:2000,copper:600,gold:200},sec:7200,jobs:4,prod:{gold:30},input:{wood:240,copper:120,coal:90},emission:3,up:true,d:'4 thợ: 240 gỗ + 120 đồng + 90 than/giờ → 30 vàng/giờ. Cấp 2/3 tăng cả đầu vào lẫn đầu ra.'},
+ coalmine:{n:'Mỏ than',era:5,cost:{wood:1000,stone:1500,copper:500},sec:3600,jobs:4,prod:{coal:1200},up:true,d:'Đặt trên mỏ than. 4 thợ khai thác 1.200 than/giờ cấp 1; phải mang về kho. Mỗi mỏ có 30.000 than.'},
+ charcoal:{n:'Lò than củi',era:5,cost:{wood:600,stone:800,copper:150},sec:1800,jobs:2,prod:{coal:240},input:{wood:300},emission:1,up:true,d:'2 thợ: 300 gỗ/giờ → 240 than/giờ. Nguồn than thay thế khi mỏ cạn. Đầu vào trừ lúc đóng kiện; hàng phải nộp kho.'},
+ machine:{n:'Xưởng cơ khí',era:5,cost:{wood:1500,stone:2500,copper:800,gold:200},sec:7200,jobs:4,prod:{copper:1200},input:{stone:300,coal:120},emission:2,up:true,d:'4 thợ: 300 đá + 120 than/giờ → 1.200 đồng/giờ. Phát thải theo thời gian thực sự sản xuất.'},
+ factory:{n:'Nhà máy hàng hóa',era:5,cost:{wood:1200,stone:2000,copper:600,gold:200},sec:7200,jobs:4,prod:{gold:300},input:{wood:240,copper:120,coal:90},emission:3,up:true,d:'4 thợ: 240 gỗ + 120 đồng + 90 than/giờ → 300 vàng/giờ. Cấp 2/3 tăng cả đầu vào lẫn đầu ra.'},
  transport:{n:'Trạm vận tải',era:5,cost:{wood:1000,stone:1500,copper:400,gold:100},sec:3600,jobs:2,max:3,drop:[...ALL],d:'2 thợ: nhận mọi hàng và tăng 25% tốc độ vận chuyển của dân làm việc trong 8 ô. Tối đa 3; vùng phủ không cộng dồn.'},
  tenement:{n:'Khu tập thể',era:5,cost:{wood:1000,stone:3000,copper:400},sec:3600,house:30,up:true,d:'30 dân mỗi cấp, chống ngập. Không tự thay thế nhà cũ.'},
  treatment:{n:'Trạm xử lý nước',era:5,cost:{wood:800,stone:2000,copper:500,gold:150},sec:3600,jobs:3,max:3,d:'3 thợ giảm 4 ô nhiễm/giờ. Không cần điện; tối đa 3, một cấp.'},
@@ -55,7 +56,7 @@ export function stepIndustry(c:City,from:number,to:number,defs:Record<string,Def
  const s=c.industry;if(!s||to<=s.enteredAt)return false;let changed=false,emissionRate=0;
  const green=completedWonder(c,'green')?.5:1;
  for(const p of c.people){const h=p.haul;if(p.refuge||h?.phase!=='work'||h.source?.kind!=='building')continue;const b=c.b[h.source.key],d=b&&defs[b.k];if(!d?.emission||!active(b))continue;
-  const output=Object.values(d.prod??{})[0]??1;
+  const output=Object.values(buildingOutput(c,b.k,d.prod??{},from))[0]??1;
   if(d.input&&Object.entries(d.input).some(([r,n])=>c.res[r as keyof City['res']]<(n??0)/output))continue;
   emissionRate+=d.emission*(d.demand?powerFraction(c,h.source.key):1)*green*multiplier(b)/Math.max(1,operationJobs(b,d));
  }

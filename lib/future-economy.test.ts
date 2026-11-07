@@ -15,8 +15,9 @@ test('legacy resources migrate without NaN; coal opens once and preserves existi
 });
 test('industrial packet input is paid exactly once; copper enters stock only after delivery',()=>{
  const c=fixture(),tile=idx(21,20);c.b[tile]={k:'machine',lvl:1,doneAt:null};staff(c,tile,4);c.res.copper=0;
- settle(c,5*MIN);assert.equal(c.res.copper,0);
- const before=c.res.stone;settle(c,21*MIN);assert.ok(c.res.copper>=40);assert.equal(before-c.res.stone,100);assert.equal(c.res.coal,960);
+ settle(c,1000);assert.equal(c.res.copper,0);const ready=c.people[0].haul!.nextAt;
+ settle(c,ready);assert.equal(c.res.copper,0);assert.equal(c.industry!.inputsSpent!.stone,10);assert.equal(c.industry!.inputsSpent!.coal,4);
+ const before=c.res.stone;settle(c,ready+10000);assert.equal(c.res.copper,40);assert.equal(c.res.stone,before);assert.equal(c.res.coal,996);
  const noInput=fixture();noInput.b[tile]={k:'factory',lvl:1,doneAt:null};staff(noInput,tile,4);noInput.res.coal=0;const gold=noInput.res.gold;settle(noInput,HOUR);assert.equal(noInput.res.gold,gold);
 });
 test('pollution integrates productive work, treatment and natural recovery at absolute minute boundaries',()=>{
