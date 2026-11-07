@@ -6,6 +6,7 @@ import { PID_COOKIE, playerId, withCity, UnsupportedCityVersionError } from "@/l
 import { currentUser, SESSION_COOKIE } from "@/lib/auth";
 import { users } from "@/lib/db";
 import { citySync } from '@/lib/sync-anchor';
+import { batchDelayEnabled } from '@/lib/city-sync-config';
 
 export async function GET() {
   const user=await currentUser();
@@ -15,7 +16,7 @@ export async function GET() {
   try {
     const out = await withCity(pid, () => null, { readOnlyFallback: true });
     if (!out) return NextResponse.json({ needsName: true }, { status: 404 });
-    return NextResponse.json({ name: out.doc.name, state: out.doc.state, serverNow: out.now, ...(user.sessionVersion?{sync:citySync(out.doc,user.sessionVersion,out.now,out.checkpointAt??out.doc.state.last),batchEnabled:process.env.CITY_BATCH_ENABLED==='true'}:{}) });
+    return NextResponse.json({ name: out.doc.name, state: out.doc.state, serverNow: out.now, ...(user.sessionVersion?{sync:citySync(out.doc,user.sessionVersion,out.now,out.checkpointAt??out.doc.state.last),batchEnabled:batchDelayEnabled(pid)}:{}) });
   } catch (error) {
     if (error instanceof UnsupportedCityVersionError) return NextResponse.json({ error: error.message }, { status: 409 });
     throw error;
@@ -47,5 +48,5 @@ export async function POST(req: Request) {
     httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 * 5,
     secure: process.env.NODE_ENV === "production",
   });
-  return NextResponse.json({ name, state, serverNow: now, ...(user.sessionVersion?{sync:citySync({_id:pid,ver:0},user.sessionVersion,now),batchEnabled:process.env.CITY_BATCH_ENABLED==='true'}:{}) });
+  return NextResponse.json({ name, state, serverNow: now, ...(user.sessionVersion?{sync:citySync({_id:pid,ver:0},user.sessionVersion,now),batchEnabled:batchDelayEnabled(pid)}:{}) });
 }

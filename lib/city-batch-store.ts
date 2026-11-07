@@ -33,7 +33,7 @@ export async function saveCityBatch(user:UserDoc,request:BatchRequest,metrics:Co
     }
     if(!fresh.length) {
       metrics.replayed=true;
-      return {state:doc.state,serverNow:Date.now(),sync:citySync(doc,session,Date.now())};
+      return {state:doc.state,serverNow:Date.now(),sync:citySync(doc,session,Date.now(),doc.state.last,[request.commands[0].seq,request.commands.at(-1)!.seq])};
     }
     if(fresh[0].seq!==ledger.ack+1)throw new BatchConflict('Thiếu thao tác trước đó. Đang đối chiếu hàng đợi đã lưu.');
     let lastAt=ledger.lastAt;
@@ -56,7 +56,7 @@ export async function saveCityBatch(user:UserDoc,request:BatchRequest,metrics:Co
         if(envoyOutbox.length)await col.updateOne({_id:pid},{$pull:{envoyOutbox:{key:{$in:envoyOutbox.map(e=>e.key)}}}});
       } catch { /* Stored in the same write as ACK; read/mutation will retry. */ }
       const committed:CityDoc={...doc,state,citySync:nextLedger,ver:doc.ver+1};
-      return {state,serverNow:now,sync:citySync(committed,session,now)};
+      return {state,serverNow:now,sync:citySync(committed,session,now,state.last,[request.commands[0].seq,request.commands.at(-1)!.seq])};
     }
   }
   throw new BatchConflict('Làng đang được cập nhật. Giữ hàng đợi để thử lại.');

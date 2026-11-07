@@ -4,6 +4,7 @@ import { BATCH_BYTES, validBatch } from '@/lib/city-sync';
 import { saveCityBatch, BatchConflict } from '@/lib/city-batch-store';
 import { trackOnlineCommand } from '@/lib/online-commands';
 import { UnsupportedCityVersionError } from '@/lib/city-store';
+import {batchDelayEnabled} from '@/lib/city-sync-config';
 
 export async function POST(req:Request) {
   const user=await currentUser();
@@ -25,7 +26,7 @@ export async function POST(req:Request) {
     if(body.session!==user.sessionVersion)return NextResponse.json({error:'Phiên chơi đã được thay thế.',sessionEnded:true},{status:401});
     try {
       const response=await saveCityBatch(user,body,metrics);
-      return response?NextResponse.json(response):NextResponse.json({error:'Không sở hữu làng.'},{status:403});
+      return response?NextResponse.json({...response,batchEnabled:batchDelayEnabled(user.cityId!)}):NextResponse.json({error:'Không sở hữu làng.'},{status:403});
     } catch(e) {
       if(e instanceof BatchConflict || e instanceof UnsupportedCityVersionError)return NextResponse.json({error:e.message},{status:409});
       throw e;

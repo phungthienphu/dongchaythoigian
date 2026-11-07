@@ -13,7 +13,7 @@ export type SyncResult = { seq:number; id:string; error:string|null; at:number; 
 export type SyncLedger = { session:number; ack:number; lastAt:number; results:SyncResult[] };
 export type CitySync = { cityId:string; session:number; engine:number; revision:number; ack:number; results:SyncResult[]; anchor:string; at:number; until:number; checkpointAt?:number };
 export type BatchRequest = { engine:number; session:number; commands:SyncCommand[] };
-export type BatchResponse = { state:City; serverNow:number; sync:CitySync };
+export type BatchResponse = { state:City; serverNow:number; sync:CitySync; batchEnabled?:boolean };
 export const byteLength = (value:unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
 export function validBatch(value:unknown): value is BatchRequest {
   if (!value || typeof value !== 'object') return false;
