@@ -1,6 +1,7 @@
 import type {BKey,Building,City,Def,Derived} from './engine';
 import {active,distance,multiplier,staffCounts} from './industry';
 import {inDrought} from './medieval';
+import {recordResourceFlow} from './resource-history';
 const HOUR=3_600_000;
 export const MODERN_BUILDINGS={
  thermal:{n:'Nhiệt điện',era:6,cost:{stone:3000,copper:1500,gold:500,coal:500},sec:7200,jobs:4,supply:80,emission:4,up:true,d:'4 thợ phát 80 MW, tiêu hao 240 than/giờ cấp 1. Cấp 2/3 cần 7/10 thợ. Thiếu nhiên liệu tự giảm công suất; cấp 2/3 ×1,6/2,4.'},
@@ -43,6 +44,7 @@ export function stepPower(c:City,from:number,to:number,defs:Record<string,Def>,s
    if(b.k==='hydro'&&inDrought(c,to))output*=.5;
    if(b.k==='thermal'){
     const fuel=240*scale*eff*dt,fraction=fuel>0?Math.min(1,c.res.coal/fuel):c.res.coal>0?1:0;output*=fraction;c.res.coal=Math.max(0,c.res.coal-fuel*fraction);
+    recordResourceFlow(c,to,'spent','coal',fuel*fraction);
     if(c.industry){const ledger=c.industry.inputsSpent??={};ledger.coal=(ledger.coal??0)+fuel*fraction;}
     if(c.industry)c.industry.emission+=4*scale*eff*fraction*dt;
    }else clean+=output;

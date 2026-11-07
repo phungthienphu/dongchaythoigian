@@ -1,5 +1,6 @@
 import {completedWonder,powerFraction,operationJobs} from './modern';
 import {buildingOutput} from './economy-balance';
+import {recordResourceFlow} from './resource-history';
 import type {Building,City,Def} from './engine';
 const HOUR=3_600_000,MIN=60_000,SIDE=96;
 const ALL=['food','wood','stone','copper','gold','diamond','coal'] as const;
@@ -49,7 +50,7 @@ export function plantTree(c:City,tile:number,now:number){
  const staff=staffCounts(c),nursery=Object.entries(c.b).find(([i,b])=>b.k==='nursery'&&active(b)&&(staff.get(+i)??0)>=2&&distance(+i,tile)<=6&&Object.values(s.seedlings).filter(p=>p.nursery===+i).length<4);
  if(!nursery)return 'Cần Vườn ươm đủ 2 thợ trong 6 ô, còn chỗ (tối đa 4 cây).';
  if(c.res.food<10)return 'Cần 10 lương thực để trồng cây.';
- c.res.food-=10;s.seedlings[tile]={nursery:+nursery[0],readyAt:now+30*MIN};return null;
+ c.res.food-=10;recordResourceFlow(c,now,'spent','food',10);s.seedlings[tile]={nursery:+nursery[0],readyAt:now+30*MIN};return null;
 }
 /** Accumulate actual staffed working time, then publish pollution at absolute minutes. */
 export function stepIndustry(c:City,from:number,to:number,defs:Record<string,Def>,staff=staffCounts(c),cleaners=Object.entries(c.b)){

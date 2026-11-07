@@ -8,6 +8,7 @@ import { MEDIEVAL_BUILDINGS, initializeMedieval, stepMedieval, scheduleDrought, 
 import { BoundedCache } from "./bounded-cache";
 import { isActionInput } from "./action-input";
 import {buildingOutput} from './economy-balance';
+import {recordResourceFlow,type ResourceHistory} from './resource-history';
 
 // Shared game engine. Runs on the server (source of truth) and on the client
 // (to show live numbers between requests). Must stay deterministic: same city +
@@ -154,6 +155,7 @@ export function reserveMarchFood(c: City, troops: Troops, oneWayMs: number) {
   const {food}=marchSupplies(troops,oneWayMs,c.era);
   if(c.res.food<food)throw new Error(`Cần ${food} lương thực dự trữ cho cả đi và về; hiện có ${Math.floor(c.res.food)}.`);
   c.res.food-=food;
+  recordResourceFlow(c,c.last,'spent','food',food);
   return food;
 }
 
@@ -236,6 +238,7 @@ export type City = {
   farmAutoStartsAt?: number;
   hungerStartsAt?: number;
   economyBalanceStartsAt?: number;
+  resourceHistory?:ResourceHistory;
   hunger?: HungerState;
   ver: number;
   seed: number;
@@ -727,7 +730,7 @@ const missing = (c: City, cost: Partial<Res>) => {
   const m = RES.filter((r) => (cost[r] ?? 0) > c.res[r]);
   return m.length ? "Thiếu " + m.map((r) => RN[r].toLowerCase()).join(", ") + "." : null;
 };
-const pay = (c: City, cost: Partial<Res>, sign = -1) => { for (const r of RES) c.res[r] += sign * (cost[r] ?? 0); };
+const pay = (c: City, cost: Partial<Res>, sign = -1,at=c.last) => { for (const r of RES) {const amount=cost[r]??0;c.res[r] += sign*amount;if(sign<0)recordResourceFlow(c,at,'spent',r,-sign*amount);} };
 
 export const soldiers = (c: City) => troopCount(c.army) + troopCount(c.deployedArmy ?? {}) + c.queue.length + c.exps.reduce((a, e) => a + troopCount(e.units), 0);
 export const armyCap = (c: City) => Object.values(c.b).reduce((a, b) => a + (b.k === "barracks" && isBuildingActive(b) ? b.lvl * 10 : 0), 0);
@@ -1560,13 +1563,14 @@ function takeCargo(c: City, h: Haul, at: number): number {
     const d=def(b.k);if(d.input&&d.prod){
       const output=buildingOutput(c,b.k,d.prod,at)[h.resource!]??1;let amount=h.capacity;
       for(const r of RES)if(d.input[r])amount=Math.min(amount,c.res[r]*output/d.input[r]!);
-      for(const r of RES)if(d.input[r]){const spent=amount*d.input[r]!/output;c.res[r]=Math.max(0,c.res[r]-spent);if(c.industry){const ledger=c.industry.inputsSpent??={};ledger[r]=(ledger[r]??0)+spent;}}
+      for(const r of RES)if(d.input[r]){const spent=amount*d.input[r]!/output;c.res[r]=Math.max(0,c.res[r]-spent);recordResourceFlow(c,at,'spent',r,spent);if(c.industry){const ledger=c.industry.inputsSpent??={};ledger[r]=(ledger[r]??0)+spent;}}
       if(c.industry&&d.era>=5&&amount>0)c.industry.processed=true;
       return amount;
     }
     if(b.k==='artisan'){
       const amount=Math.min(h.capacity,c.res.wood/20,c.res.stone/10);
       c.res.wood=Math.max(0,c.res.wood-20*amount);c.res.stone=Math.max(0,c.res.stone-10*amount);
+      recordResourceFlow(c,at,'spent','wood',20*amount);recordResourceFlow(c,at,'spent','stone',10*amount);
       return amount;
     }
     if(!isField(b.k))return h.capacity;
@@ -1664,6 +1668,7 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: Res, smelt:
       if (h.drop === undefined || !activeDrop(c, h.drop, h.resource!) || (h.tile !== h.drop && !(isRock(c.t[h.drop]) && cheb(h.tile,h.drop) === 1))) { returnCargo(c, p, at, ctx); continue; }
       const amount = Math.min(h.carried, Math.max(0, storage[h.resource!] - c.res[h.resource!]));
       c.res[h.resource!] += amount; h.carried -= amount;
+      recordResourceFlow(c,at,'received',h.resource!,amount);
       if(c.industry){const ledger=c.industry.delivered??={};ledger[h.resource!]=(ledger[h.resource!]??0)+amount;if(h.resource==='coal')c.industry.coalDelivered=(c.industry.coalDelivered??0)+amount;}
       if (h.carried > 1e-9) { h.nextAt = at + HAUL_TILE_MS; continue; }
       p.pos = h.tile; delete p.haul;
@@ -2215,6 +2220,7 @@ export function settle(c: City, now: number) {
   c.economyBalanceStartsAt??=now;
   if (now <= c.last) return;
   let t = c.haulAt ?? c.last;
+  c.resourceHistory??={since:t,buckets:[]};
   c.haulAt = t;
   c.wildernessAt??=t+WILDERNESS_MS;
   if(!c.disaster)scheduleDisaster(c,t);
@@ -2272,6 +2278,7 @@ export function settle(c: City, now: number) {
     if (dirty) { D = derive(c); st = stats(c, D, nt); hauling = haulingContext(c, D); refreshHauling(c, nt, hauling); dirty = false; }
 
     const h = (nt - t) / HOUR;
+    const woodBefore=c.res.wood,stoneBefore=c.res.stone;
     // Displayed production rates are estimates. Only unload events credit stock.
     // Population upkeep and smelter fuel remain continuous costs, separate from carried goods.
     c.res.wood=Math.max(0,c.res.wood-st.upkeep.wood*h);
@@ -2309,13 +2316,17 @@ export function settle(c: City, now: number) {
       for(const tile of camps)gatheringFood+=gatherFoodPerHour(c,D,tile)*h;
     }
     // Gathering costs never gate production: an empty village must be able to recover.
-    c.res.food -= st.upkeep.food*h+gatheringFood;
+    const foodCharge=st.upkeep.food*h+gatheringFood;
+    c.res.food -= foodCharge;
+    recordResourceFlow(c,nt,'spent','wood',woodBefore-c.res.wood);
+    recordResourceFlow(c,nt,'spent','stone',stoneBefore-c.res.stone);
     for (const r of RES) c.res[r] = Math.min(st.storage[r], c.res[r]);
     stepHauling(c, nt, hauling, st.storage, smelt, milling);
     for (const herd of c.herds) if (herd.n < herd.max) herd.n = Math.min(herd.max, herd.n + HERD_REGROW * h);
 
     const popBefore = c.people.length;
     const shortage=c.res.food<0;
+    recordResourceFlow(c,nt,'spent','food',Math.max(0,foodCharge+Math.min(0,c.res.food)));
     if(t>=c.hungerStartsAt)stepHunger(c,nt,nt-t,shortage);
     if (shortage) {
       c.res.food = 0;
@@ -2411,7 +2422,7 @@ export function farmGroupCareQuote(c:City,start:number){
 }
 
 function beginFarmCare(c:City,b:Building,tile:number,cost:Partial<Res>,at:number){
-  pay(c,cost);b.tendUntil=at+FARM_TEND_MS;
+  pay(c,cost,-1,at);b.tendUntil=at+FARM_TEND_MS;
   // Only unfinished harvesting is canceled. Paid-for cargo still reaches storage.
   for(const p of c.people)if(p.task.t==='work'&&p.task.at===tile&&p.haul?.phase==='work')delete p.haul;
 }
@@ -2505,7 +2516,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     if(!b?.doneAt||b.doneAt<=now)return "Công trình không còn đang xây.";
     const cost=speedBuildCost(b,now);
     if(c.res.diamond<cost)return `Cần ${cost} kim cương để hoàn tất.`;
-    c.res.diamond-=cost;b.doneAt=now;
+    c.res.diamond-=cost;recordResourceFlow(c,now,'spent','diamond',cost);b.doneAt=now;
     // Use the normal construction completion path, including staffing and wonders.
     completeBuilding(c,b,now);autoStaff(c, now);
     log(c,now,`Dùng ${cost} kim cương hoàn tất ${def(b.k).n}.`,"good");return null;
@@ -2632,6 +2643,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     const ms = plan.duration,suppliesFood=marchSupplies(units,ms,c.era).food;
     if(c.res.food<suppliesFood)return `Cần ${suppliesFood} lương thực dự trữ cho cả đi và về.`;
     c.res.food-=suppliesFood;
+    recordResourceFlow(c,now,'spent','food',suppliesFood);
     for (const u of UKEYS) if (units[u]) c.army[u]! -= units[u]!;
     pruneHomeOrders(c);
     c.exps.push({ id: c.nextExp++, units, camp: camp.id, depart: now, arrive: now + ms, back: now + 2 * ms, resolved: false, route:plan.route, ships:plan.ships, suppliesFood, logisticsVersion:1, combatVersion:1 });

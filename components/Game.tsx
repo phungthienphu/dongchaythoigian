@@ -30,6 +30,8 @@ import { buildAvailability } from "@/lib/build-availability";
 import { placementHint, placementTiles } from "@/lib/build-placement";
 import BattleView from "./BattleView";
 import ArmyManagement from "./ArmyManagement";
+import EconomySummary from './EconomySummary';
+import {recentResourceFlow} from '@/lib/resource-history';
 import BattleReports from "./BattleReports";
 import DiplomacyMessages, { diplomacyText } from "./DiplomacyMessages";
 import { useDiplomacy } from "./useDiplomacy";
@@ -272,6 +274,7 @@ function ControlPanel(props: {
       </div>
       {tab === "people" && (
         <>
+          <p className="small muted">Công suất ròng dự kiến; mở Thu chi để xem hàng thực nhận và chi phí gần đây.</p>
           <ul className="units">
             {RES.map((r) => <li key={r}><span>{RN[r]}</span><b className={rate[r] < 0 ? "danger" : "ok"}>{rate[r] >= 0 ? "+" : ""}{fmt(rate[r])}/giờ</b></li>)}
           </ul>
@@ -358,6 +361,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [pickedSoldier, setPickedSoldier] = useState<string | null>(null);
   const [guardEditing, setGuardEditing] = useState(false);
   const [armyManagement,setArmyManagement]=useState(false);
+  const [economyOpen,setEconomyOpen]=useState(false);
   const [battleOpen, setBattleOpen] = useState<string | null>(null);
 
   const reads = useRef(new ReadFlights());
@@ -954,6 +958,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   }
 
   const st = stats(c, D, t), upkeep=upkeepRates(c.era);
+  const resourceFlow=recentResourceFlow(c,t);
   const si = seasonIndexAt(c, t), season = si % 4;
   const nextSeasonIn = c.t0 + (si + 1) * SEASON_MS - t;
   const busyN = busyBuilders(c), maxB = builders(c);
@@ -1038,6 +1043,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           <div className="titlerow">
             <h1>{name}</h1>
             <button onClick={()=>setHelpOpen(true)}>Cách chơi</button>
+            {!visiting&&<button onClick={()=>setEconomyOpen(true)}>Thu chi</button>}
             {me.user ? (
               <button className="acct" onClick={() => openPanel("friends")} title={me.user.email}>
                 {me.user.picture ? <img src={me.user.picture} alt="" referrerPolicy="no-referrer" /> : <span className="av">{me.user.name[0]}</span>}
@@ -1074,12 +1080,12 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
             const pct = Math.min(100, (c.res[r] / st.storage[r]) * 100);
             const waiting = c.people.some(p => p.haul?.resource === r && p.haul.carried > 0 && st.storage[r]-c.res[r] < p.haul.carried);
             return (
-              <div className="chip" key={r} tabIndex={0} title={`${RN[r]} trong kho: ${fmt(c.res[r])} / ${fmt(st.storage[r])} sức chứa. Thanh ngang biểu thị mức đầy kho. Dòng thu nhập là số ròng ước tính, không phải cộng tài nguyên tự động; dân phải mang hàng về nộp.${r === "food" ? ` Nuôi ${st.upkeep.civilians} dân và ${st.upkeep.foodSoldiers} quân chưa có dự trữ: ${Number((st.upkeep.food/60).toFixed(2))} thực/phút (${st.upkeep.food/6} thực/10 phút). Trại hái lượm dùng thêm tối đa ${st.gatherFoodUse/60} thực/phút khi sản xuất (2 thực/phút mỗi trại được kênh có nước tưới trong 1 ô, nếu không là 4), cộng riêng với sức ăn dân/quân. Trừ dần cả khi offline; khẩu phần hành quân đã trả không bị tính lần nữa.` : r === "wood" ? ` Dân và quân dùng ${st.upkeep.wood} gỗ/giờ cho sinh hoạt và bảo dưỡng, kể cả quân đi xa; bếp dùng ${st.fireWoodUse/6} gỗ/10 phút, lò đúc dùng thêm tối đa ${(st.woodUse-st.fireWoodUse-st.wheelWoodUse)/60} gỗ/phút, cối nước dùng thêm tối đa ${st.wheelWoodUse/60} gỗ/phút khi sản xuất. Xây, nâng cấp và luyện quân còn trừ riêng chi phí. Hết gỗ, lò đúc và cối nước tạm ngừng sản xuất; dân vẫn giữ việc.` : r === "stone" ? ` Lò đúc tiêu hao tối đa ${st.stoneUse/60} đá/phút; thiếu gỗ hoặc đá thì giảm/ngừng đúc. Xây dựng và nâng cấp còn trừ chi phí riêng.` : " Xây dựng, nâng cấp và luyện quân có thể tiêu tốn tài nguyên."}` }>
+              <div className="chip" key={r} tabIndex={0} title={`${RN[r]} trong kho: ${fmt(c.res[r])} / ${fmt(st.storage[r])} sức chứa. Thanh ngang biểu thị mức đầy kho. Dòng Đã nhận là hàng thực sự nộp kho gần đây; mở Thu chi để xem chi phí và công suất dự kiến.${r === "food" ? ` Nuôi ${st.upkeep.civilians} dân và ${st.upkeep.foodSoldiers} quân chưa có dự trữ: ${Number((st.upkeep.food/60).toFixed(2))} thực/phút (${st.upkeep.food/6} thực/10 phút). Trại hái lượm dùng thêm tối đa ${st.gatherFoodUse/60} thực/phút khi sản xuất (2 thực/phút mỗi trại được kênh có nước tưới trong 1 ô, nếu không là 4), cộng riêng với sức ăn dân/quân. Trừ dần cả khi offline; khẩu phần hành quân đã trả không bị tính lần nữa.` : r === "wood" ? ` Dân và quân dùng ${st.upkeep.wood} gỗ/giờ cho sinh hoạt và bảo dưỡng, kể cả quân đi xa; bếp dùng ${st.fireWoodUse/6} gỗ/10 phút, lò đúc dùng thêm tối đa ${(st.woodUse-st.fireWoodUse-st.wheelWoodUse)/60} gỗ/phút, cối nước dùng thêm tối đa ${st.wheelWoodUse/60} gỗ/phút khi sản xuất. Xây, nâng cấp và luyện quân còn trừ riêng chi phí. Hết gỗ, lò đúc và cối nước tạm ngừng sản xuất; dân vẫn giữ việc.` : r === "stone" ? ` Lò đúc tiêu hao tối đa ${st.stoneUse/60} đá/phút; thiếu gỗ hoặc đá thì giảm/ngừng đúc. Xây dựng và nâng cấp còn trừ chi phí riêng.` : " Xây dựng, nâng cấp và luyện quân có thể tiêu tốn tài nguyên."}` }>
                 <Icon k={r} />
                 <div className="cv">
                   <span className={"v" + (pct >= 100 ? " full" : "")}>{fmt(c.res[r])}<small>/{fmt(st.storage[r])}</small></span>
                   <span className="bar"><i style={{ width: pct + "%" }} /></span>
-                  <span title="Thu nhập ròng ước tính sau tiêu hao; hàng chỉ vào kho khi dân mang về nộp." className={"d" + (rate > 0.05 ? " up" : rate < -0.05 ? " down" : "")}>{waiting ? "Kho chật · dân chờ nộp" : `${rate >= 0 ? "+" : ""}${r==='food'?(rate/60).toLocaleString('vi-VN',{maximumFractionDigits:2}):fmt(rate)}/${r==='food'?'phút':'giờ'}*`}</span>
+                  <span title={`Hàng đã nộp kho: ${fmt(resourceFlow.received[r])}; đã chi: ${resourceFlow.spent[r].toLocaleString('vi-VN',{maximumFractionDigits:1})}, trong ${(resourceFlow.elapsedMs/60000).toLocaleString('vi-VN',{maximumFractionDigits:1})} phút gần nhất. Công suất ròng dự kiến: ${fmt(rate)}/giờ, chưa phản ánh đầy đủ vận chuyển và chăm đất. Mở Thu chi để xem chi tiết.`} className="d">{waiting ? "Kho chật · dân chờ nộp" : resourceFlow.elapsedMs>0?`Đã nhận +${fmt(resourceFlow.received[r])} · ${(resourceFlow.elapsedMs/60000).toLocaleString('vi-VN',{maximumFractionDigits:1})}ph`:'Đang đo thực nhận'}</span>
                 </div>
               </div>
             );
@@ -1249,6 +1255,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       )}
 
       {armyManagement&&!visiting&&<ArmyManagement city={c} now={t} busy={busy} act={act} onClose={()=>setArmyManagement(false)}/>}
+      {economyOpen&&!visiting&&<EconomySummary city={c} now={t} stats={st} onClose={()=>setEconomyOpen(false)}/>}
       {finalReview&&<dialog ref={finalDialog} aria-label="Chọn kỳ quan cuối" className="final-wonder-modal" onCancel={e=>{e.preventDefault();setFinalReview(null);}}><div className="final-wonder-card"><h2>{B[finalReview].n}</h2><p>{B[finalReview].d}</p><p>Khi hoàn thành, lựa chọn này cố định. Trong lúc xây có thể hủy theo luật hoàn trả; hoàn thành rồi chỉ có thể sửa chữa.</p><button onClick={()=>{finalConfirmed.current=finalReview;pickTool(finalReview);setFinalReview(null);}}>Đồng ý đánh đổi · chọn vị trí</button><button onClick={()=>setFinalReview(null)}>Quay lại</button></div></dialog>}
       <div className="hud-bottom">
         {planting&&<button onClick={()=>setPlanting(false)}>Kết thúc trồng cây</button>}
@@ -1404,7 +1411,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                 ) : (
                   <p className="small">Sức chứa trại: <b>{used}/{cap}</b> · Quân ở nhà: <b>⚔ {fmt(homePower)}</b></p>
                 )}
-                <button onClick={()=>setArmyManagement(true)}>Quản lý quân · sa thải / đuổi</button>
+                <button onClick={()=>setArmyManagement(true)}>Quản lý quân · giải ngũ</button>
                 <ul className="units train">
                   {UKEYS.filter(u=>UNITS[u].era<=rules.maxEra).map((u) => {
                     const U = UNITS[u], needsBuilding=U.building && !Object.values(c.b).some(b=>b.k===U.building && b.lvl>0 && !b.burned && !b.flooded), locked = U.era > c.era || !!needsBuilding;
