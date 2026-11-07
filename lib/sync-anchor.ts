@@ -8,11 +8,11 @@ function sign(value:string) {
   if(!secret || secret.length<32)throw new Error('Thiếu AUTH_SECRET.');
   return createHmac('sha256',secret).update('city-sync-v1:'+value).digest('base64url');
 }
-export function citySync(doc:{_id:string;ver:number;citySync?:SyncLedger},session:number,at:number):CitySync {
+export function citySync(doc:{_id:string;ver:number;citySync?:SyncLedger;state?:{last:number}},session:number,at:number,checkpointAt=doc.state?.last??at):CitySync {
   const a:Anchor={cityId:doc._id,session,engine:ENGINE_VER,revision:doc.ver,at,until:at+ANCHOR_WINDOW_MS};
   const raw=Buffer.from(JSON.stringify(a)).toString('base64url');
   const ledger=doc.citySync?.session===session?doc.citySync:undefined;
-  return {...a,anchor:`${raw}.${sign(raw)}`,ack:ledger?.ack??0,results:ledger?.results??[]};
+  return {...a,checkpointAt,anchor:`${raw}.${sign(raw)}`,ack:ledger?.ack??0,results:ledger?.results??[]};
 }
 export function readAnchor(token:string):Anchor|null {
   if(token.length>2048)return null;

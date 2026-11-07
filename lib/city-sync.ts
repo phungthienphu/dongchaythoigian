@@ -11,7 +11,7 @@ export const ANCHOR_WINDOW_MS = 90_000;
 export type SyncCommand = { seq:number; id:string; at:number; anchor:string; action:Action };
 export type SyncResult = { seq:number; id:string; error:string|null; at:number; rescheduled?:boolean; digest?:string };
 export type SyncLedger = { session:number; ack:number; lastAt:number; results:SyncResult[] };
-export type CitySync = { cityId:string; session:number; engine:number; revision:number; ack:number; results:SyncResult[]; anchor:string; at:number; until:number };
+export type CitySync = { cityId:string; session:number; engine:number; revision:number; ack:number; results:SyncResult[]; anchor:string; at:number; until:number; checkpointAt?:number };
 export type BatchRequest = { engine:number; session:number; commands:SyncCommand[] };
 export type BatchResponse = { state:City; serverNow:number; sync:CitySync };
 export const byteLength = (value:unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;

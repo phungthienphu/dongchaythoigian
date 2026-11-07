@@ -5,7 +5,7 @@ import { applyCommandBatch, validBatch, QUEUE_AGE_MS, type SyncCommand } from '.
 import { syncFixture, syncCommands } from '../tests/sync-workload';
 
 const command=(seq:number,at:number,action:SyncCommand['action']):SyncCommand=>({seq,at,action,id:`id-${seq}`,anchor:'signed'});
-test('batch preserves work, delivery, construction and recruitment timeline without losing the ten seconds',()=>{
+test('batch preserves work and delivery timeline without losing the ten seconds',()=>{
   for(const pop of [3,50,200]) {
     const direct=syncFixture(pop),batched=structuredClone(direct);
     const commands=syncCommands().map((c,n)=>command(n+1,c.at,c.action));
@@ -19,6 +19,15 @@ test('domain rejection consumes only its sequence and later valid commands still
   const c=syncFixture();
   const results=applyCommandBatch(c,[command(1,500,{type:'upgrade',x:1,y:1}),command(2,800,{type:'assign',ids:[1],task:{t:'idle'}})],10000);
   assert.ok(results[0].error);assert.equal(results[1].error,null);assert.equal(c.people[0].task.t,'idle');
+});
+test('construction and recruitment complete on the same timestamps as immediate requests',()=>{
+  const direct=syncFixture(3);direct.b[idx(22,20)]={k:'barracks',lvl:3,doneAt:null};
+  const batched=structuredClone(direct);
+  const commands=[command(1,500,{type:'build',k:'house',x:10,y:10}),command(2,900,{type:'train',u:'club',n:2})];
+  for(const c of commands)assert.equal(applyAction(direct,c.action,c.at),null);
+  settle(direct,600000);
+  assert.ok(applyCommandBatch(batched,commands,10000).every(r=>!r.error));settle(batched,600000);
+  assert.deepEqual(batched,direct);assert.equal(batched.b[idx(10,10)].doneAt,null);assert.equal(batched.army.club,2);
 });
 test('external checkpoint is never rewound; active combat and expired commands cannot mutate',()=>{
   const c=syncFixture();settle(c,20000);

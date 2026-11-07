@@ -33,7 +33,7 @@ const make=(seq=1,at=500)=>({engine:ENGINE_VER,session:1,commands:[{seq,id:`comm
 const reset=()=>{doc=makeDoc();writes=0;reads=0;now=10000;unauthorized=false;conflict=false;};
 test('one batch does one city read/write, ACK survives lost response and duplicate retry does no write',async()=>{
   reset();const req=make(),metrics=newCommandMetrics('city');
-  const a=await saveCityBatch(user,req,metrics);expect(a!.sync.ack).toBe(1);expect(writes).toBe(1);expect(reads).toBe(1);
+  const a=await saveCityBatch(user,req,metrics);expect(a!.sync.ack).toBe(1);expect(writes).toBe(1);expect(reads).toBe(1);expect(metrics.commands).toEqual({assign:1});
   const before=structuredClone(doc);const b=await saveCityBatch(user,req,newCommandMetrics('city'));
   expect(b!.sync.ack).toBe(1);expect(doc).toEqual(before);expect(writes).toBe(1);
 });

@@ -15,7 +15,7 @@ export async function GET() {
   try {
     const out = await withCity(pid, () => null, { readOnlyFallback: true });
     if (!out) return NextResponse.json({ needsName: true }, { status: 404 });
-    return NextResponse.json({ name: out.doc.name, state: out.doc.state, serverNow: out.now, ...(user.sessionVersion?{sync:citySync(out.doc,user.sessionVersion,out.now),batchEnabled:process.env.CITY_BATCH_ENABLED==='true'}:{}) });
+    return NextResponse.json({ name: out.doc.name, state: out.doc.state, serverNow: out.now, ...(user.sessionVersion?{sync:citySync(out.doc,user.sessionVersion,out.now,out.checkpointAt??out.doc.state.last),batchEnabled:process.env.CITY_BATCH_ENABLED==='true'}:{}) });
   } catch (error) {
     if (error instanceof UnsupportedCityVersionError) return NextResponse.json({ error: error.message }, { status: 409 });
     throw error;

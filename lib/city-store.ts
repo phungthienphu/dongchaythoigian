@@ -65,7 +65,11 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
           await col.updateOne({_id:pid},{$pull:{envoyOutbox:{key:{$in:doc.envoyOutbox.map(entry=>entry.key)}}}});
         } catch { /* Keep the durable outbox for the next request. */ }
       }
-      return {doc:{...doc,state:ownerSnapshots.checkpoint(doc,now)},result:null as T,now};
+      const state=ownerSnapshots.checkpoint(doc,now),projectedScore=score(state);
+      // Keep the public ranking/world population current without a full City write.
+      if(doc.score!==undefined && (doc.score!==projectedScore || doc.pop!==state.pop || doc.templeAt!==state.templeAt))
+        await col.updateOne({_id:pid,ver:doc.ver},{$set:{score:projectedScore,pop:state.pop,templeAt:state.templeAt}});
+      return {doc:{...doc,state},result:null as T,now,checkpointAt:s.last};
     }
     if (doc.state.battleId) {
       if (opts.readOnlyFallback) return { doc, result: null as T, now };
