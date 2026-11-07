@@ -1,3 +1,4 @@
+import { drawAnimalArt, drawSoldierArt, drawFutureArt } from "./actor-art";
 import type {EngineRules} from '@/lib/eras';
 import { BoundedCache } from "@/lib/bounded-cache";
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
@@ -342,14 +343,8 @@ function stilts(r: RC, x: number, y: number, u0: number, v0: number, u1: number,
   for (const [u, v] of [[u0, v1], [u1, v1], [u1, v0], [(u0 + u1) / 2, v1]] as const) box(r, x, y, u - 0.025, v - 0.025, u + 0.025, v + 0.025, 0, h, "#6b4526", "#5c3b20", "#4b301a");
 }
 function buffalo(r: RC, x: number, y: number, u: number, v: number) {
-  const [sx, sy] = tp(r, x, y)(u, v), c = r.c, s = Math.max(r.v.s * 1.3, 0.6), step = Math.sin(r.anim / 700) * 0.8 * s;
-  c.fillStyle = "rgba(20,30,10,.28)"; c.beginPath(); c.ellipse(sx, sy, 8 * s, 2.4 * s, 0, 0, Math.PI * 2); c.fill();
-  c.fillStyle = "#3d3a3a";
-  for (const lx of [-5, -2.5, 2.5, 5]) c.fillRect(sx + lx * s - 0.9 * s + (lx > 0 ? step : -step), sy - 5 * s, 1.8 * s, 5 * s);
-  c.beginPath(); c.ellipse(sx, sy - 7.5 * s, 7 * s, 3.6 * s, 0, 0, Math.PI * 2); c.fill();
-  c.beginPath(); c.ellipse(sx + 7.5 * s, sy - 7 * s, 2.6 * s, 2.2 * s, 0, 0, Math.PI * 2); c.fill();
-  c.strokeStyle = "#d8cdb6"; c.lineWidth = Math.max(1, 1.2 * s);
-  c.beginPath(); c.arc(sx + 7.5 * s, sy - 9 * s, 3.4 * s, Math.PI * 1.05, Math.PI * 1.95); c.stroke();
+  const [sx, sy] = tp(r, x, y)(u, v);
+  drawAnimalArt(r.c, "buffalo", sx, sy, Math.max(r.v.s * .66, .35), { time: r.anim, graze: true });
 }
 
 /** Extras that sit behind the main building (drawn first). */
@@ -645,12 +640,9 @@ function drawFutureBuilding(r:RC,k:BKey,x:number,y:number,lvl:number,i:number){
     return true;
   }
   if(k==='coalmine'){
-    concrete(-.31,-.3,.31,.08,3,16);poly(c,[q(-.21,.09,3),q(.21,.09,3),q(.21,.09,14),q(-.21,.09,14)],'#243537');
-    for(const u of [-.26,.26])line(r,q(u,.12,3),q(u,.12,25),'#927854',2);
-    line(r,q(-.26,.12,25),q(.26,.12,25),'#b2a189',3);
-    for(const u of [-.1,.1])line(r,q(u,.1,3),q(u,.45,3),'#9eacac',1.5);
-    box(r,x,y,-.13,.24,.13,.43,4,10,'#5e7377','#3c555b','#2c4248');
-    for(const u of [-.08,.03,.11])box(r,x,y,u-.04,.27,u+.04,.36,10,14,'#586564','#3d4848','#293638');return true;
+    const [sx, sy] = q(0, 0);
+    drawFutureArt(c, "coal", sx, sy, r.v.s * .85, { time: r.anim, active: running });
+    return true;
   }
   if(k==='ironbridge'||k==='dam'){
     const dam=k==='dam';concrete(-.43,-.33,.43,.33,3,dam?29:14);
@@ -1255,33 +1247,8 @@ function drawVillager(r: RC, vl: Villager) {
 }
 
 function drawAnimal(r: RC, kind: "deer" | "boar", fx: number, fy: number, face: 1 | -1, graze: boolean, buck: boolean, seed: number) {
-  const c = r.c, s = Math.max(r.v.s * 1.3, 0.6);
   const [sx, sy] = P(r.v, fx, fy);
-  const body = kind === "deer" ? "#a8693a" : "#4d3d33", belly = kind === "deer" ? "#e8cfa8" : "#6b574a";
-  c.fillStyle = "rgba(20,30,10,.28)"; c.beginPath(); c.ellipse(sx, sy, 6 * s, 2 * s, 0, 0, Math.PI * 2); c.fill();
-  const legH = kind === "deer" ? 6 : 3.5, step = Math.sin(r.anim / 300 + seed * 9) * (graze ? 0 : 1.2) * s;
-  c.strokeStyle = darken(body, 0.3); c.lineWidth = Math.max(1, 1.2 * s);
-  c.beginPath();
-  for (const lx of [-3.5, -2, 2.5, 4]) { c.moveTo(sx + lx * s * face, sy - legH * s); c.lineTo(sx + lx * s * face + (lx > 0 ? step : -step), sy); }
-  c.stroke();
-  const by = sy - legH * s - 2.5 * s;
-  c.fillStyle = body; c.beginPath(); c.ellipse(sx, by, 5.5 * s, kind === "deer" ? 3 * s : 3.6 * s, 0, 0, Math.PI * 2); c.fill();
-  c.fillStyle = belly; c.beginPath(); c.ellipse(sx, by + 1.2 * s, 3.8 * s, 1.4 * s, 0, 0, Math.PI); c.fill();
-  const hx = sx + face * 5.5 * s, hy = graze ? by + 3.5 * s : by - (kind === "deer" ? 4 : 1) * s;
-  c.strokeStyle = body; c.lineWidth = Math.max(1.5, 2.2 * s);
-  c.beginPath(); c.moveTo(sx + face * 3.5 * s, by - 1 * s); c.lineTo(hx, hy); c.stroke();
-  c.fillStyle = body; c.beginPath(); c.ellipse(hx + face * 1.2 * s, hy, 2.4 * s, 1.6 * s, 0, 0, Math.PI * 2); c.fill();
-  if (kind === "deer") {
-    c.fillStyle = "#fff"; c.beginPath(); c.arc(sx - face * 5.2 * s, by - 1 * s, 1 * s, 0, Math.PI * 2); c.fill();
-    if (buck) {
-      c.strokeStyle = "#e8d8b0"; c.lineWidth = Math.max(1, 0.9 * s); c.beginPath();
-      c.moveTo(hx, hy - 1 * s); c.lineTo(hx - face * 1 * s, hy - 5 * s); c.lineTo(hx - face * 2.5 * s, hy - 6 * s);
-      c.moveTo(hx - face * 0.6 * s, hy - 3.5 * s); c.lineTo(hx + face * 1 * s, hy - 5 * s); c.stroke();
-    }
-  } else {
-    c.fillStyle = "#f2ead8"; c.beginPath(); c.arc(hx + face * 2.6 * s, hy + 0.8 * s, 0.8 * s, 0, Math.PI * 2); c.fill();
-    c.fillStyle = "#2f241e"; c.fillRect(sx - 3 * s, by - 3.6 * s, 6 * s, 1 * s);
-  }
+  drawAnimalArt(r.c, kind, sx, sy, Math.max(r.v.s * .8, .38), { time: r.anim, face, walking: !graze, graze, antlers: buck, seed });
 }
 
 /** Envoy identity: blue-green cloak, travel staff, scroll and era-specific headwear. */
@@ -1299,14 +1266,6 @@ export function drawEnvoyActor(c: CanvasRenderingContext2D, era: number, x: numb
   c.fillStyle="#5cbed0";c.beginPath();c.moveTo(6*s,-28*s);c.lineTo(15*s,-26*s+Math.sin(anim/220)*s);c.lineTo(11*s,-23*s);c.lineTo(6*s,-23*s);c.closePath();c.fill();c.restore();
 }
 
-const UNIT_LOOK: Record<UKey, { shirt: string; weapon: "gun"|"crossbow"|"club" | "sling" | "spear" | "bow" | "sword" | "supplies" | "medicine" }> = {
-  crossbow:{shirt:'#617a71',weapon:'crossbow'},cavalry:{shirt:'#a24e40',weapon:'spear'},musket:{shirt:'#687b68',weapon:'gun'},cannon:{shirt:'#5c6759',weapon:'gun'},infantry:{shirt:'#4e6d51',weapon:'gun'},armor:{shirt:'#516957',weapon:'gun'},
-  wagon: {shirt:"#a67d43",weapon:"supplies"}, medic: {shirt:"#dbdcc6",weapon:"medicine"},
-  club: { shirt: "#8a5a2b", weapon: "club" }, sling: { shirt: "#a37a4a", weapon: "sling" },
-  spear: { shirt: "#b07a2e", weapon: "spear" }, bow: { shirt: "#4f7a3a", weapon: "bow" },
-  sword: { shirt: "#5a6672", weapon: "sword" }, elephant: { shirt: "#8f8f8f", weapon: "spear" },
-};
-
 /** A transport has a deep hull, blue canopy, oars and a wake; never a walking soldier on water. */
 export function drawTransportBoat(c:CanvasRenderingContext2D,x:number,y:number,s:number,time:number,face:1|-1=1,passengers=0){
   c.save();c.translate(x,y+Math.sin(time/500)*1.2*s);c.scale(s*face,s);
@@ -1322,88 +1281,8 @@ export function drawTransportBoat(c:CanvasRenderingContext2D,x:number,y:number,s
 }
 
 export function drawSoldier(r: Pick<RC, "c" | "v" | "anim">, u: UKey, fx: number, fy: number, face: 1 | -1, walking: boolean, seed: number, fighting = false, barbarian = false) {
-  const c = r.c, s = Math.max(r.v.s * 1.45, 0.7);
-  const [sx, groundY] = P(r.v, fx, fy);
-  let sy=groundY;
-  const ph = r.anim / 140 + seed * 10;
-  if(u==='armor'||u==='cannon'){
-    const tank=u==='armor',kick=fighting?Math.max(0,Math.sin(r.anim/130))*2:0;
-    c.save();c.translate(sx,sy);c.scale(s*face,s);
-    c.fillStyle='rgba(0,0,0,.25)';c.beginPath();c.ellipse(0,1,17,5,0,0,Math.PI*2);c.fill();
-    c.fillStyle=tank?'#34463b':'#665344';c.fillRect(-15,-7,28,7);
-    for(const offset of [-11,-3,6,12]){c.fillStyle='#2c3530';c.beginPath();c.arc(offset,-1,tank?3:4,0,Math.PI*2);c.fill();c.strokeStyle='#b2ad87';c.beginPath();c.arc(offset,-1,1.5,0,Math.PI*2);c.stroke();}
-    c.fillStyle=tank?'#6c8060':'#7d885e';c.fillRect(-12,-12,24,6);c.fillStyle=tank?'#829472':'#9ba27d';c.fillRect(-6,-19,14,8);
-    c.strokeStyle='#515b4b';c.lineWidth=tank?4:5;c.beginPath();c.moveTo(4-kick,-17);c.lineTo(24-kick,-20);c.stroke();
-    if(fighting&&Math.sin(r.anim/130)>.8){c.fillStyle='#ffe29b';c.beginPath();c.moveTo(24,-23);c.lineTo(31,-20);c.lineTo(24,-17);c.fill();}
-    c.fillStyle='#d0c995';c.fillRect(-4,-17,3,3);c.restore();return;
-  }
-  if(u==='cavalry'){
-    c.save();c.translate(sx,sy);c.scale(s*face,s);const step=walking?Math.sin(ph)*3:0;
-    c.fillStyle='#6e4933';c.beginPath();c.ellipse(0,-7,10,5,0,0,Math.PI*2);c.fill();
-    c.strokeStyle='#503322';c.lineWidth=2;for(const [x,n]of [[-7,1],[-4,-1],[5,-1],[8,1]]){c.beginPath();c.moveTo(x,-6);c.lineTo(x+step*n,2);c.stroke();}
-    c.fillStyle='#8e6546';c.beginPath();c.moveTo(6,-8);c.lineTo(8,-19);c.lineTo(14,-18);c.lineTo(15,-13);c.lineTo(10,-11);c.closePath();c.fill();
-    c.strokeStyle='#d4b87f';c.lineWidth=1;c.beginPath();c.moveTo(13,-14);c.lineTo(2,-11);c.stroke();c.fillStyle='#b14e3d';c.fillRect(-4,-11,10,3);c.restore();sy-=8*s;
-  }
-  if (u === "elephant") {
-    const e = s * 1.6, step = walking ? Math.sin(ph * 0.6) * 1.5 * e : 0;
-    c.fillStyle = "rgba(20,30,10,.3)"; c.beginPath(); c.ellipse(sx, sy, 9 * e, 3 * e, 0, 0, Math.PI * 2); c.fill();
-    c.fillStyle = "#7d7f80";
-    for (const lx of [-5, -2, 3, 6]) c.fillRect(sx + lx * e * face - 1.2 * e + (lx > 0 ? step : -step), sy - 7 * e, 2.4 * e, 7 * e);
-    c.fillStyle = "#8f9192"; c.beginPath(); c.ellipse(sx, sy - 10 * e, 8 * e, 5 * e, 0, 0, Math.PI * 2); c.fill();
-    c.beginPath(); c.arc(sx + face * 7 * e, sy - 12 * e, 3.6 * e, 0, Math.PI * 2); c.fill();
-    c.strokeStyle = "#8f9192"; c.lineWidth = 2 * e; c.beginPath(); c.moveTo(sx + face * 9.5 * e, sy - 11 * e); c.quadraticCurveTo(sx + face * 12 * e, sy - 6 * e, sx + face * 10 * e, sy - 3 * e); c.stroke();
-    c.fillStyle = "#f2ead8"; c.beginPath(); c.moveTo(sx + face * 9 * e, sy - 10 * e); c.lineTo(sx + face * 12.5 * e, sy - 9 * e); c.lineTo(sx + face * 9 * e, sy - 9 * e); c.fill();
-    c.fillStyle = "#c9503e"; c.fillRect(sx - 4 * e, sy - 15.5 * e, 8 * e, 2 * e);
-    c.fillStyle = "#e2b240"; c.beginPath(); c.arc(sx - 1 * e, sy - 18 * e, 2 * e, 0, Math.PI * 2); c.fill();
-    return;
-  }
-  const look = barbarian ? { shirt: "#4a1f1a", weapon: UNIT_LOOK[u].weapon } : UNIT_LOOK[u];
-  const bob = walking ? Math.abs(Math.sin(ph)) * 1.2 * s : 0;
-  c.fillStyle = "rgba(20,30,10,.3)"; c.beginPath(); c.ellipse(sx, sy, 4 * s, 1.8 * s, 0, 0, Math.PI * 2); c.fill();
-  c.strokeStyle = "#3b2a1e"; c.lineWidth = Math.max(1.2, 1.6 * s); c.lineCap = "round";
-  const leg = walking ? Math.sin(ph) * 2.2 * s : 0, hipY = sy - 5 * s - bob;
-  c.beginPath(); c.moveTo(sx - 1 * s, hipY); c.lineTo(sx - 1 * s + leg, sy); c.moveTo(sx + 1 * s, hipY); c.lineTo(sx + 1 * s - leg, sy); c.stroke();
-  c.fillStyle = look.shirt; c.beginPath(); c.moveTo(sx - 3 * s, hipY + 0.5 * s); c.lineTo(sx + 3 * s, hipY + 0.5 * s); c.lineTo(sx + 2.3 * s, sy - 11 * s - bob); c.lineTo(sx - 2.3 * s, sy - 11 * s - bob); c.closePath(); c.fill();
-  const hy = sy - 13.5 * s - bob;
-  c.fillStyle = "#e0b48a"; c.beginPath(); c.arc(sx, hy, 2.3 * s, 0, Math.PI * 2); c.fill();
-  // helmet by era
-  c.fillStyle = u === "sword" ? "#9aa3ad" : u === "spear" || u === "bow" ? "#c08a3a" : "#5a3a22";
-  c.beginPath(); c.arc(sx, hy - 0.5 * s, 2.5 * s, Math.PI, 0); c.fill();
-  const swing = fighting ? Math.sin(r.anim / 120 + seed * 20) : 0;
-  const shX = sx + face * 2 * s, shY = sy - 10 * s - bob;
-  c.lineWidth = Math.max(1, 1.2 * s);
-  if(look.weapon==="supplies") {
-    const wx=sx-face*9*s,wy=sy-2*s;
-    c.fillStyle="#704a2a";c.fillRect(wx-5*s,wy-5*s,10*s,4*s);
-    c.strokeStyle="#4a3525";c.lineWidth=1.5*s;c.beginPath();c.moveTo(wx,wy-2*s);c.lineTo(shX,shY+3*s);c.stroke();
-    for(const offset of [-3,3]){c.fillStyle="#4d3b2c";c.beginPath();c.arc(wx+offset*s,wy+1*s,2.4*s,0,Math.PI*2);c.fill();c.strokeStyle="#c5a479";c.beginPath();const a=walking?r.anim/180:0;c.moveTo(wx+offset*s-Math.cos(a)*2*s,wy+s-Math.sin(a)*2*s);c.lineTo(wx+offset*s+Math.cos(a)*2*s,wy+s+Math.sin(a)*2*s);c.stroke();}
-    for(const offset of [-2,2]){c.fillStyle="#c8b37a";c.beginPath();c.ellipse(wx+offset*s,wy-6*s,2.5*s,3.5*s,0,0,Math.PI*2);c.fill();}
-  } else if(look.weapon==="medicine") {
-    c.fillStyle="#527b5b";c.fillRect(shX-2*s,shY+2*s,5*s,5*s);
-    c.strokeStyle="#e6e3c8";c.beginPath();c.moveTo(shX,shY+2*s);c.lineTo(shX,shY+6*s);c.moveTo(shX-2*s,shY+4*s);c.lineTo(shX+2*s,shY+4*s);c.stroke();
-    c.fillStyle="#dddcc6";c.fillRect(sx-2*s,hy-2*s,4*s,s);
-    if(fighting){c.strokeStyle="#9bdc8b";c.beginPath();c.arc(shX+4*s,shY-2*s,3*s+Math.sin(r.anim/180)*s,0,Math.PI*2);c.stroke();}
-  } else if(look.weapon==='gun'||look.weapon==='crossbow'){
-    c.strokeStyle='#765b3e';c.lineWidth=3*s;c.beginPath();c.moveTo(shX-face*4*s,shY+2*s);c.lineTo(shX+face*8*s,shY-s);c.stroke();
-    c.strokeStyle='#b1b7a9';c.lineWidth=1.3*s;c.beginPath();c.moveTo(shX,shY+s);c.lineTo(shX+face*11*s,shY-1.7*s);c.stroke();
-    if(look.weapon==='crossbow'){c.strokeStyle='#bea16d';c.beginPath();c.moveTo(shX+face*5*s,shY-6*s);c.quadraticCurveTo(shX+face*9*s,shY,shX+face*5*s,shY+5*s);c.stroke();}
-    else if(fighting&&Math.sin(r.anim/130+seed)>.8){c.fillStyle='#ffdf88';c.beginPath();c.arc(shX+face*12*s,shY-2*s,2.5*s,0,Math.PI*2);c.fill();}
-  } else if (look.weapon === "spear") {
-    c.strokeStyle = "#6b4526"; const tx = shX + face * (3 + swing * 3) * s;
-    c.beginPath(); c.moveTo(shX - face * 2 * s, shY + 6 * s); c.lineTo(tx, shY - 10 * s); c.stroke();
-    c.fillStyle = "#d9a050"; c.beginPath(); c.moveTo(tx, shY - 13 * s); c.lineTo(tx - 1.3 * s, shY - 9.5 * s); c.lineTo(tx + 1.3 * s, shY - 9.5 * s); c.fill();
-  } else if (look.weapon === "bow") {
-    c.strokeStyle = "#7a5230"; c.beginPath(); c.arc(shX + face * 2 * s, shY - 1 * s, 4.5 * s, face > 0 ? -1.3 : Math.PI - 1.8, face > 0 ? 1.3 : Math.PI + 1.8); c.stroke();
-  } else if (look.weapon === "sword") {
-    c.fillStyle = "#6f7a85"; c.beginPath(); c.ellipse(sx - face * 2.5 * s, sy - 8 * s - bob, 2.2 * s, 3.4 * s, 0, 0, Math.PI * 2); c.fill();
-    c.strokeStyle = "#dfe4ea"; const a = -0.9 + swing * 1.2;
-    c.beginPath(); c.moveTo(shX, shY); c.lineTo(shX + face * Math.cos(a) * 8 * s, shY - Math.sin(a) * 8 * s); c.stroke();
-  } else {
-    c.strokeStyle = look.weapon === "club" ? "#6b4526" : "#a07648"; const a = -0.5 + swing * 1.1;
-    c.beginPath(); c.moveTo(shX, shY); c.lineTo(shX + face * Math.cos(a) * 6 * s, shY - Math.sin(a) * 6 * s); c.stroke();
-    if (look.weapon === "club") { c.fillStyle = "#6b4526"; c.beginPath(); c.arc(shX + face * Math.cos(a) * 6 * s, shY - Math.sin(a) * 6 * s, 1.6 * s, 0, Math.PI * 2); c.fill(); }
-  }
-  c.lineCap = "butt";
+  const [sx, sy] = P(r.v, fx, fy);
+  drawSoldierArt(r.c, u, sx, sy, Math.max(r.v.s * 1.08, .52), { time: r.anim, face, walking, seed, fighting, hostile: barbarian });
 }
 
 function drawCampSite(r: RC, k: Camp) {
