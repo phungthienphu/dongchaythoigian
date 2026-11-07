@@ -60,6 +60,7 @@ export function isActionInput(value: unknown): value is Action {
     case 'relocateDock': return point(value) && tile(value.to);
     case 'moveSoldier': return typeof value.id === 'string' && /^(club|sling|spear|bow|sword|elephant|wagon|medic|crossbow|cavalry|musket|cannon|infantry|armor):\d{1,3}$/.test(value.id) && point(value);
     case 'train': return known(UNITS, value.u) && integer(value.n, 1, 50);
+    case 'releaseTroops': return troops(value.units) && (value.mode==='demobilize'||value.mode==='expel');
     case 'recall': return integer(value.exp, 1);
     case 'attack': return integer(value.camp, 1) && troops(value.units);
     case 'assign': return Array.isArray(value.ids) && value.ids.length <= 10_000 && value.ids.every(id => integer(id, 1)) && new Set(value.ids).size === value.ids.length && task(value.task) && positions(value.pos);

@@ -2230,10 +2230,9 @@ export function settle(c: City, now: number) {
   while (t < end) {
     const nt = t + HAUL_TILE_MS; // fixed persisted ticks: polling never changes delivery or starvation timing
     if(c.era>=4 && t>=c.farmAutoStartsAt)for(const {tile,b,cost} of hauling.civic.fields){
-      if(!isBuildingActive(b)||b.doneAt||b.tendUntil||farmRemaining(b)>0||missing(c,cost))continue;
+      if(!isBuildingActive(b)||b.doneAt||b.tendUntil||farmRemaining(b)>0||c.res.food<(cost.food??0)||c.res.wood<(cost.wood??0))continue;
       beginFarmCare(c,b,tile,cost,t);
       if(!hauling.civic.pending.includes(b))hauling.civic.pending.push(b);
-      dirty=true;
     }
     for (const b of hauling.civic.pending) {
       if(isField(b.k) && b.tendUntil && b.tendUntil<=nt){
@@ -2400,6 +2399,24 @@ export function farmAutoStatus(c:City,b:Building){
   return shortage?`Chờ tự cải tạo: ${shortage} Có đủ sẽ tự làm lại; nông dân giữ công việc.`:'Đã đủ vật liệu, ruộng sẽ tự cải tạo ở nhịp xử lý tiếp theo.';
 }
 
+/** Quote and validate against home troops only. Removing tail slots keeps all
+ * surviving actor IDs and orders stable. Empty ferries still finish returning. */
+export function armyReleaseQuote(c:City,units:Troops,mode:'demobilize'|'expel',at=c.last){
+  const count=troopCount(units),rates=upkeepRates(c.era);
+  const housing=stats(c,derive(c),at).housing,freeHousing=Math.max(0,housing-c.people.length);
+  let error:string|null=count>0?null:'Chọn ít nhất 1 quân.';
+  if(civiliansInDanger(c,at))error='Làng đang bị tấn công hoặc quân địch sắp tới; chưa thể giải ngũ.';
+  for(const u of UKEYS){
+    const n=units[u]??0,home=c.army[u]??0;
+    if(!Number.isSafeInteger(n)||n<0||n>home){error=`${UNITS[u].n}: chỉ có ${home} quân ở nhà.`;break;}
+    if((c.ferryBookings??[]).some(b=>b.id.startsWith(`${u}:`)&&Number(b.id.split(':')[1])>=home-n&&Number(b.id.split(':')[1])<home&&(b.arrive??b.back)>at)){
+      error=`${UNITS[u].n} đang qua sông; chờ lên bờ rồi giải ngũ.`;break;
+    }
+  }
+  if(!error&&mode==='demobilize'&&count>freeHousing)error=`Chỉ còn ${freeHousing} chỗ ở, cần ${count} chỗ để chuyển quân thành dân. Giảm số lượng hoặc xây thêm nhà.`;
+  return {count,freeHousing,error,foodSavedPerMinute:count*(rates.soldier.food-(mode==='demobilize'?rates.civilian.food:0))/60,woodSavedPerHour:count*(rates.soldier.wood-(mode==='demobilize'?rates.civilian.wood:0))};
+}
+
 export type Action =
   | { type: "build"; k: BKey; x: number; y: number; confirmFinal?:boolean }
   | { type: "upgradeStorage"; resource: ResKey; x: number; y: number }
@@ -2420,6 +2437,7 @@ export type Action =
   | { type: "assignN"; n: number; task: TaskInput; pos?: Record<string, number> } // pos: where each person stands on screen
   | { type: "setWorkforce"; counts: Res; scouts: number }
   | { type: "train"; u: UKey; n: number }
+  | { type: "releaseTroops"; units:Troops; mode:"demobilize"|"expel" }
   | { type: "attack"; camp: number; units: Troops }
   | { type: "alarm" }
   | { type: "recall"; exp: number }
@@ -2429,6 +2447,14 @@ export type Action =
 export function applyAction(c: City, a: Action, now: number, rules:EngineRules=RELEASE_RULES): string | null {
   if (!isActionInput(a)) return "Yêu cầu không hợp lệ.";
   settle(c, now);
+  if(a.type==='releaseTroops'){
+    const quote=armyReleaseQuote(c,a.units,a.mode,now);if(quote.error)return quote.error;
+    for(const u of UKEYS){const n=a.units[u]??0;if(!n)continue;c.army[u]=(c.army[u]??0)-n;}
+    pruneHomeOrders(c);
+    if(a.mode==='demobilize')for(let n=0;n<quote.count;n++)addPerson(c);
+    log(c,now,a.mode==='demobilize'?`Giải ngũ ${quote.count} quân thành dân rảnh. Không hoàn phí huấn luyện.`:`Đã đuổi ${quote.count} quân khỏi làng. Không hoàn phí huấn luyện.`,'warn');
+    return null;
+  }
   if(a.type==="setPowerPriority"){if(!c.modern||rules.maxEra<6)return "Điện mở ở Hiện đại.";c.modern.priority=[...a.priority];stepPower(c,now,now,B);return null;}
   if(a.type==="plantTree")return rules.maxEra>=5?plantTree(c,idx(a.x,a.y),now):"Sắp ra mắt.";
   if(a.type==="toggleBuilding"){const b=c.b[idx(a.x,a.y)];if(!b||def(b.k).era>rules.maxEra||!canToggle(def(b.k)))return "Chỉ bật/tắt cơ sở công nghiệp và dịch vụ mới.";b.off=!b.off;if(c.modern)stepPower(c,now,now,B);return null;}

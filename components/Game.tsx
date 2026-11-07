@@ -29,6 +29,7 @@ import HowToPlay from "./HowToPlay";
 import { buildAvailability } from "@/lib/build-availability";
 import { placementHint, placementTiles } from "@/lib/build-placement";
 import BattleView from "./BattleView";
+import ArmyManagement from "./ArmyManagement";
 import BattleReports from "./BattleReports";
 import DiplomacyMessages, { diplomacyText } from "./DiplomacyMessages";
 import { useDiplomacy } from "./useDiplomacy";
@@ -356,6 +357,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [busy, setBusy] = useState(false);
   const [pickedSoldier, setPickedSoldier] = useState<string | null>(null);
   const [guardEditing, setGuardEditing] = useState(false);
+  const [armyManagement,setArmyManagement]=useState(false);
   const [battleOpen, setBattleOpen] = useState<string | null>(null);
 
   const reads = useRef(new ReadFlights());
@@ -1245,6 +1247,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         </div>
       )}
 
+      {armyManagement&&!visiting&&<ArmyManagement city={c} now={t} busy={busy} act={act} onClose={()=>setArmyManagement(false)}/>}
       {finalReview&&<dialog ref={finalDialog} aria-label="Chọn kỳ quan cuối" className="final-wonder-modal" onCancel={e=>{e.preventDefault();setFinalReview(null);}}><div className="final-wonder-card"><h2>{B[finalReview].n}</h2><p>{B[finalReview].d}</p><p>Khi hoàn thành, lựa chọn này cố định. Trong lúc xây có thể hủy theo luật hoàn trả; hoàn thành rồi chỉ có thể sửa chữa.</p><button onClick={()=>{finalConfirmed.current=finalReview;pickTool(finalReview);setFinalReview(null);}}>Đồng ý đánh đổi · chọn vị trí</button><button onClick={()=>setFinalReview(null)}>Quay lại</button></div></dialog>}
       <div className="hud-bottom">
         {planting&&<button onClick={()=>setPlanting(false)}>Kết thúc trồng cây</button>}
@@ -1400,6 +1403,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                 ) : (
                   <p className="small">Sức chứa trại: <b>{used}/{cap}</b> · Quân ở nhà: <b>⚔ {fmt(homePower)}</b></p>
                 )}
+                <button onClick={()=>setArmyManagement(true)}>Quản lý quân · sa thải / đuổi</button>
                 <ul className="units train">
                   {UKEYS.filter(u=>UNITS[u].era<=rules.maxEra).map((u) => {
                     const U = UNITS[u], needsBuilding=U.building && !Object.values(c.b).some(b=>b.k===U.building && b.lvl>0 && !b.burned && !b.flooded), locked = U.era > c.era || !!needsBuilding;

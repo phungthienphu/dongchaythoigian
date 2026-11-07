@@ -540,3 +540,12 @@ a.google.small { padding: 4px 10px; font-size: 12.5px; }
   .zoom button { width: 44px; height: 44px; }
   .stepper button { width: 44px; }
 }
+
+.army-management .final-wonder-card { width:min(680px,calc(100vw - 24px)); max-width:680px; box-sizing:border-box; }
+.army-management .x { float:right; margin:0; }
+.army-table-wrap { overflow-x:auto; }
+.army-management table { width:100%; border-collapse:collapse; font-size:13px; }
+.army-management th,.army-management td { padding:8px 6px; border-bottom:1px solid var(--line); text-align:left; }
+.army-management td input { width:64px; box-sizing:border-box; }
+.army-management fieldset { margin-top:16px; border:1px solid var(--line); }
+.army-management label { display:block; margin:8px 0; }

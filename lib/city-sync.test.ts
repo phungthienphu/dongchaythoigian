@@ -46,3 +46,9 @@ test('batch envelope rejects gaps, malformed actions, unsupported engine and too
   assert.equal(validBatch(body),true);
   for(const value of [{...body,engine:0},{...body,session:0},{...body,commands:[]},{...body,commands:[first,{...first,seq:3}]},{...body,commands:[{...first,action:{type:'giveResources',food:99999}}]}, {...body,commands:Array.from({length:33},(_,n)=>({...first,seq:n+1}))}])assert.equal(validBatch(value),false);
 });
+test('army release has identical home counts, civilian IDs and upkeep with ten second batching',()=>{
+ const direct=syncFixture(3);direct.army={club:5};direct.b[idx(19,20)]={k:'house',lvl:3,doneAt:null};
+ const batched=structuredClone(direct),commands=[command(1,500,{type:'releaseTroops',mode:'demobilize',units:{club:2}}),command(2,900,{type:'releaseTroops',mode:'expel',units:{club:1}})];
+ for(const c of commands)assert.equal(applyAction(direct,c.action,c.at),null);settle(direct,10000);
+ assert.ok(applyCommandBatch(batched,commands,10000).every(r=>!r.error));assert.deepEqual(batched,direct);assert.equal(batched.army.club,2);assert.equal(batched.people.length,5);
+});
