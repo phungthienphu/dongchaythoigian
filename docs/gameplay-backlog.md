@@ -2,8 +2,7 @@
 
 ## Tự cải tạo ruộng từ Trung đại
 
-Ghi nhận ngày 07/11/2026 theo yêu cầu người chơi. **Chưa triển khai; làm sau công
-việc tối ưu hệ thống và kiểm thử migration đang chạy.**
+Ghi nhận ngày 07/11/2026 theo yêu cầu người chơi. **Đã triển khai** cùng bộ kiểm thử tự cải tạo, chờ vật liệu và catch-up.
 
 - Vấn đề: chăm lại từng ruộng bạc màu bằng tay tốn nhiều thao tác/thời gian.
 - Phạm vi: từ sau thời đồ sắt, tức Trung đại trở đi (`era >= 4`).

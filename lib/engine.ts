@@ -231,6 +231,7 @@ export type City = {
   upkeepStartsAt?: number;
   wheelFuelStartsAt?: number;
   gatherFoodStartsAt?: number;
+  farmAutoStartsAt?: number;
   ver: number;
   seed: number;
   t: number[];
@@ -557,7 +558,7 @@ export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
     ver: ENGINE_VER, seed, t, seen: new Array(W * H).fill(0), oldbed: [], xs, camp, b: {}, dep: {}, herds,
     people: [], nextId: 1,
     res: { food: 100, wood: 120, stone: 30, copper: 0, gold: 0, diamond: 0, coal:0 }, pop: 0, popAcc: 0, era: 1,
-    t0: now, last: now, upkeepStartsAt:now, wheelFuelStartsAt:now, gatherFoodStartsAt:now, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
+    t0: now, last: now, upkeepStartsAt:now, wheelFuelStartsAt:now, gatherFoodStartsAt:now, farmAutoStartsAt:now, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
   };
   enrichCopperDeposits(c);
   enrichPreciousDeposits(c);
@@ -1227,7 +1228,7 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredL
 /** References last only for this settlement context; structural changes rebuild it. */
 function civicContext(c:City){
  const entries=Object.entries(c.b),pick=(keys:string[])=>entries.filter(([,b])=>keys.includes(b.k));
- return {pending:entries.map(([,b])=>b).filter(b=>b.doneAt||b.tendUntil),
+ return {fields:entries.filter(([,b])=>isField(b.k)).map(([tile,b])=>({tile:+tile,b,cost:farmTendCost(b,c.era)})),pending:entries.map(([,b])=>b).filter(b=>b.doneAt||b.tendUntil),
   bonus:pick(['school','academy','university','hospital','apartment']),
   power:entries.filter(([,b])=>def(b.k).supply||def(b.k).demand),
   transport:pick(['transport','ironbridge']),cleaners:pick(['treatment','park']),
@@ -1566,7 +1567,7 @@ function takeCargo(c: City, h: Haul, at: number): number {
     if(!isField(b.k))return h.capacity;
     if(b.tendUntil)return 0;
     const amount=Math.min(h.capacity,farmRemaining(b));b.fertility=farmRemaining(b)-amount;
-    if(amount>0 && b.fertility===0)log(c,at,"Ruộng đã bạc màu, nông dân tạm nghỉ. Chọn ruộng để cải tạo đất và gieo lại.","warn");
+    if(amount>0 && b.fertility===0 && c.era<4)log(c,at,"Ruộng đã bạc màu, nông dân tạm nghỉ. Chọn ruộng để cải tạo đất và gieo lại.","warn");
     return amount;
   }
   if (h.source.kind === "herd") {
@@ -2204,6 +2205,7 @@ export function settle(c: City, now: number) {
   // Existing villages finish their offline catch-up before the new mill cost starts.
   c.wheelFuelStartsAt??=now;
   c.gatherFoodStartsAt??=now;
+  c.farmAutoStartsAt??=now;
   if (now <= c.last) return;
   let t = c.haulAt ?? c.last;
   c.haulAt = t;
@@ -2223,10 +2225,16 @@ export function settle(c: City, now: number) {
   for (const p of c.people) if (!p.haul) beginHaul(c, p, t, hauling);
   while (t < end) {
     const nt = t + HAUL_TILE_MS; // fixed persisted ticks: polling never changes delivery or starvation timing
+    if(c.era>=4 && t>=c.farmAutoStartsAt)for(const {tile,b,cost} of hauling.civic.fields){
+      if(!isBuildingActive(b)||b.doneAt||b.tendUntil||farmRemaining(b)>0||missing(c,cost))continue;
+      beginFarmCare(c,b,tile,cost,t);
+      if(!hauling.civic.pending.includes(b))hauling.civic.pending.push(b);
+      dirty=true;
+    }
     for (const b of hauling.civic.pending) {
       if(isField(b.k) && b.tendUntil && b.tendUntil<=nt){
         b.fertility=farmCapacity(b);delete b.tendUntil;dirty=true;
-        log(c,nt,"Ruộng đã cải tạo và gieo lại, nông dân tiếp tục làm việc.","good");
+        if(c.era<4)log(c,nt,"Ruộng đã cải tạo và gieo lại, nông dân tiếp tục làm việc.","good");
       }
       if (b.doneAt && b.doneAt <= nt) {
         completeBuilding(c,b,nt);dirty = true;
@@ -2371,6 +2379,20 @@ export const farmCapacity = (b: Building) => 600 * Math.max(1,b.lvl)*(b.k==="est
 export const farmRemaining = (b: Building) => Math.max(0,b.fertility ?? farmCapacity(b));
 export const farmTendCost = (b: Building, era = 1): Partial<Res> => eraCost({ food: 20*Math.max(1,b.lvl)*(b.k==="estate"?4:1), wood: 5*Math.max(1,b.lvl)*(b.k==="estate"?4:1) }, era, 2);
 
+function beginFarmCare(c:City,b:Building,tile:number,cost:Partial<Res>,at:number){
+  pay(c,cost);b.tendUntil=at+FARM_TEND_MS;
+  // Only unfinished harvesting is canceled. Paid-for cargo still reaches storage.
+  for(const p of c.people)if(p.task.t==='work'&&p.task.at===tile&&p.haul?.phase==='work')delete p.haul;
+}
+export function farmAutoStatus(c:City,b:Building){
+  if(c.era<4)return null;
+  if(b.tendUntil)return 'Đang tự cải tạo; chi phí đã thanh toán, hết tài nguyên vẫn hoàn tất.';
+  if(!isBuildingActive(b)||b.doneAt)return 'Tự cải tạo chờ ruộng hoạt động trở lại.';
+  if(farmRemaining(b)>0)return 'Tự cải tạo khi bạc màu: trừ đúng giá bên dưới, hoàn tất sau 30 giây.';
+  const shortage=missing(c,farmTendCost(b,c.era));
+  return shortage?`Chờ tự cải tạo: ${shortage} Có đủ sẽ tự làm lại; nông dân giữ công việc.`:'Đã đủ vật liệu, ruộng sẽ tự cải tạo ở nhịp xử lý tiếp theo.';
+}
+
 export type Action =
   | { type: "build"; k: BKey; x: number; y: number; confirmFinal?:boolean }
   | { type: "upgradeStorage"; resource: ResKey; x: number; y: number }
@@ -2435,8 +2457,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     if(b.tendUntil) return "Ruộng đang được cải tạo và gieo lại.";
     if(farmRemaining(b)>=farmCapacity(b)) return "Ruộng còn đầy dinh dưỡng, chưa cần cải tạo.";
     const cost=farmTendCost(b,c.era),err=missing(c,cost);if(err)return err;
-    pay(c,cost);b.tendUntil=now+FARM_TEND_MS;
-    for(const p of c.people)if(p.task.t==="work" && p.task.at===idx(a.x,a.y) && p.haul?.phase==="work")delete p.haul;
+    beginFarmCare(c,b,idx(a.x,a.y),cost,now);
     log(c,now,"Đang cải tạo đất và gieo lại ruộng, hoàn tất sau 30 giây.");
     return null;
   }

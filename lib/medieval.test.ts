@@ -70,6 +70,6 @@ test('crafting pays inputs once, never multiplies gold by active gathering speed
 });
 test('estate has four real workers, finite soil and prepaid tending that finishes with an empty pantry',()=>{
  const c=fixture(),tile=idx(21,20);c.b[tile]={k:'estate',lvl:1,doneAt:null,fertility:40};staff(c,tile,4);
- const before=c.res.food;settle(c,10_000);assert.equal(farmRemaining(c.b[tile]),0);assert.ok(c.res.food>before);
- assert.equal(applyAction(c,{type:'tendFarm',x:21,y:20},c.last,LOCAL_RULES),null);c.res.food=0;settle(c,c.last+30_000);assert.equal(c.b[tile].tendUntil,undefined);assert.ok(farmRemaining(c.b[tile])>0);assert.equal(farmCapacity(c.b[tile]),2400);
+ const before=c.res.food;settle(c,10_000);assert.equal(farmRemaining(c.b[tile]),0);assert.ok(c.res.food<before);assert.ok(Math.abs(c.res.wood-(19960-4*4*10/3600))<1e-7);
+ assert.ok(c.b[tile].tendUntil);c.res.food=0;settle(c,c.b[tile].tendUntil!);assert.equal(c.b[tile].tendUntil,undefined);assert.ok(farmRemaining(c.b[tile])>0);assert.equal(farmCapacity(c.b[tile]),2400);
 });
