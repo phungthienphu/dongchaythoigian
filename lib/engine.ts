@@ -220,6 +220,7 @@ export type Haul = {
 export type Refuge = { route: number[]; at: number; arrive: number; pausedAt: number; x: number; y: number; building?: number; returnAt?: number; back?: number; returnProgress?: number };
 export type Person = { assignment?: "manual" | "scout"; refuge?: Refuge; id: number; name: string; task: Task; pos?: number; haul?: Haul }; // pos: tile they last headed to
 export type Herd = { id: number; at: number; kind: "deer" | "boar"; n: number; max: number };
+export type DisasterNotice = { id:string; at:number; kind:"flood"|"earthquake"|"river"|"dock"; phase:"warning"|"impact"|"protected"; msg:string; tiles:number[] };
 export type LogEntry = { caravanId?: string; at: number; msg: string; cls?: "warn" | "good" };
 export type RaidEncounter = { start:number; engage:number; resolveAt:number; end:number; route:number[]; power:number; won?:boolean };
 export type City = {
@@ -258,6 +259,7 @@ export type City = {
   shift: { warn: number; at: number; xs: number[] | null; done: boolean } | null;
   templeAt: number | null;
   log: LogEntry[];
+  disasterNotices?: DisasterNotice[];
   provisionedSoldiers?: number; // deployed soldiers whose food was prepaid for this expedition
   deployedArmy?: Troops; // world marches / multiplayer battle, maintained by server
   shieldUntil?: number;
@@ -414,6 +416,13 @@ export const costText = (cost: Partial<Res>) =>
 function log(c: City, at: number, msg: string, cls?: LogEntry["cls"]) {
   c.log.unshift(cls ? { at, msg, cls } : { at, msg });
   if (c.log.length > 60) c.log.length = 60;
+}
+
+/** Separate bounded inbox: economic log traffic cannot erase offline disaster reports. */
+function notifyDisaster(c:City,at:number,kind:DisasterNotice["kind"],phase:DisasterNotice["phase"],msg:string,tiles:number[]=[]){
+  log(c,at,msg,phase==="protected"?"good":"warn");
+  const id=`${kind}:${phase}:${at}`;
+  c.disasterNotices=[{id,at,kind,phase,msg,tiles:[...new Set(tiles)].slice(0,24)},...(c.disasterNotices??[]).filter(n=>n.id!==id)].slice(0,30);
 }
 
 function reveal(c: City, center: number, rad: number) {
@@ -1194,7 +1203,7 @@ function syncDockBanks(c:City,at:number){
     if(!dockOnRiver(c,tile)){if(!b.stranded){b.stranded=true;dry.push(tile);}}
     else delete b.stranded;
   }
-  if(dry.length)log(c,at,`${dry.length} bến cảng mắc cạn, ngừng đóng thuyền và đón chuyến qua sông. Chọn cảng → Chuyển bến để đưa ra bờ sông mới; giữ nguyên cấp và thuyền đã đóng.`,"warn");
+  if(dry.length)notifyDisaster(c,at,"dock","impact",`${dry.length} bến cảng mắc cạn, ngừng đóng thuyền và đón chuyến qua sông. Chọn cảng → Chuyển bến để đưa ra bờ sông mới; giữ nguyên cấp và thuyền đã đóng.`,dry);
 }
 export function dockRelocationPlan(c:City,from:number,to:number,rules:EngineRules=RELEASE_RULES){
   const b=c.b[from],distance=cheb(from,to),lvl=Math.max(1,b?.lvl??1);
@@ -1689,7 +1698,7 @@ function stepFrontier(c:City,at:number){
   }
   const d=c.disaster!;
   if(!d.warned&&at>=d.at-FRONTIER_WARNING_MS){
-    d.warned=true;log(c,at,d.kind==='flood'?'Cảnh báo: lũ bất thường tới sau 5 phút. Kiểm tra đê và công trình sát sông.':`Cảnh báo: động đất sau 5 phút quanh ô (${d.center%W+1},${Math.floor(d.center/W)+1}). Chuẩn bị tài nguyên sửa công trình.`,'warn');
+    d.warned=true;notifyDisaster(c,at,d.kind,'warning',d.kind==='flood'?'Cảnh báo: lũ bất thường tới sau 5 phút. Kiểm tra đê và công trình sát sông.':`Cảnh báo: động đất sau 5 phút quanh ô (${d.center%W+1},${Math.floor(d.center/W)+1}). Chuẩn bị tài nguyên sửa công trình; đê không ngăn động đất.`,[d.center]);
   }
   if(at>=d.at){
     const random=rng(c.seed^Math.imul(Math.floor(d.at/MIN)+19,2654435761));
@@ -1697,7 +1706,7 @@ function stepFrontier(c:City,at:number){
     else{
       const targets=buildings(c).filter(([i,b])=>isBuildingActive(b)&&!b.doneAt&&cheb(i,d.center)<=3).sort(([a],[b])=>cheb(a,d.center)-cheb(b,d.center)||a-b).slice(0,d.level+1);
       for(const [,b]of targets){b.burned=true;b.damageCause='earthquake';}
-      log(c,at,`Động đất làm hư ${targets.length} công trình quanh ô (${d.center%W+1},${Math.floor(d.center/W)+1}). Công trình vẫn giữ vị trí và cấp; bấm Sửa để hoạt động lại.`,'warn');
+      notifyDisaster(c,at,'earthquake',targets.length?'impact':'protected',`Động đất ${targets.length?`làm hư ${targets.length} công trình (${targets.map(([,b])=>def(b.k).n).join(', ')})`:'không làm hư công trình nào'} quanh ô (${d.center%W+1},${Math.floor(d.center/W)+1}). Công trình vẫn giữ vị trí và cấp; bấm Sửa để hoạt động lại.`,targets.map(([tile])=>tile));
     }
     delete c.disaster;scheduleDisaster(c,at);changed=true;
   }
@@ -1718,6 +1727,7 @@ function newCourse(c: City, r: () => number) {
       return Math.max(1, Math.min(W - 3, Math.round(x + off * k)));
     });
     const set = riverSet(xs);
+    if([...oldRiver].some(i=>protectedLand[i]&&!set.has(i)))continue;
     if ([...set].some((i) => isRock(c.t[i]) && c.t[i]!==HL || i === c.camp || !oldRiver.has(i)&&protectedLand[i])) continue;
     if (xs.every((x, y) => x === c.xs[y])) continue;
     return xs;
@@ -1729,27 +1739,28 @@ function newCourse(c: City, r: () => number) {
 function replanProtectedCourse(c:City,at:number){
   const shift=c.shift;if(!shift||shift.done||!shift.xs)return false;
   const oldRiver=riverSet(c.xs),protection=derive(c).prot;
-  if(![...riverSet(shift.xs)].some(i=>!oldRiver.has(i)&&protection[i]))return false;
+  const next=riverSet(shift.xs);
+  if(![...next].some(i=>!oldRiver.has(i)&&protection[i])&&![...oldRiver].some(i=>protection[i]&&!next.has(i)))return false;
   shift.xs=newCourse(c,rng(c.seed^Math.imul(Math.floor(at/1000)+29,2654435761)));
   return true;
 }
 
 function flood(c: City, D: Derived, at: number, r: () => number, extra=false) {
   if (!extra && r() > 0.6) { log(c, at, "Mùa thu êm, sông không tràn bờ."); return; }
-  const hit: string[] = [];
+  const hit: string[] = [],tiles:number[]=[];
   for (const [i, b] of buildings(c)) {
     if (!floodProtection(c,i) && !b.flooded && D.rd[i] === 1 && !isFloodproof(b.k) && !D.prot[i] && r() < 0.45) {
       b.flooded = true;
       if(c.era>=6)b.floodUntil=at+(retentionProtected(c,i)?.5:1)*6*HOUR*(!extra&&c.modern?.floodForecast?.at===at&&c.modern.floodForecast.major?1.5:1);
-      hit.push(def(b.k).n);
+      hit.push(def(b.k).n);tiles.push(i);
     }
   }
   for (const p of c.people) if (p.task.t === "work" && c.b[p.task.at]?.flooded) p.task = { t: "idle" };
   c.boostUntil = at + 4 * SEASON_MS;
   const tail = "Phù sa mới: hái lượm và ruộng trên đất phù sa +50% trong một năm.";
-  log(c, at, hit.length
+  notifyDisaster(c, at, "flood",hit.length?"impact":"protected", hit.length
     ? `${extra?'Lũ bất thường':'Lũ mùa thu'} làm ngập ${hit.length} công trình (${[...new Set(hit)].join(", ")}). Bấm vào để sửa. ${tail}`
-    : `Lũ tràn bờ nhưng không gây hại. ${tail}`, hit.length ? "warn" : "good");
+    : `Lũ tràn bờ nhưng không gây hại. Đê và vị trí công trình giúp làng an toàn. ${tail}`, tiles);
 }
 
 function applyShift(c: City, at: number) {
@@ -1757,15 +1768,15 @@ function applyShift(c: City, at: number) {
   const s = c.shift!;
   if(s.xs!.every((x,y)=>x===c.xs[y])){
     s.done=true;
-    log(c,at,"Đê và địa hình giữ được dòng sông cũ: không có tuyến đổi dòng an toàn qua vùng chưa được bảo vệ. Không mất công trình do đổi dòng; vẫn cần đề phòng lũ tràn bờ.","good");return;
+    notifyDisaster(c,at,"river","protected","Đê và địa hình giữ được dòng sông cũ: không có tuyến đổi dòng an toàn qua vùng chưa được bảo vệ. Không mất công trình do đổi dòng; vẫn cần đề phòng lũ tràn bờ.");return;
   }
   const oldS = riverSet(c.xs), newS = riverSet(s.xs!);
-  let lost = 0;
+  let lost = 0,salvaged=0;const lostNames:string[]=[],affected:number[]=[];
   const bed = new Set(c.oldbed);
   for (const i of oldS) if (!newS.has(i)) { c.t[i] = G; bed.add(i); }
   for (const i of newS) {
-    if(c.b[i]?.k==="dock"){c.b[i].flooded=true;c.b[i].stranded=true;}
-    else if (c.b[i]) { delete c.b[i]; lost++; }
+    if(c.b[i]?.k==="dock"){c.b[i].flooded=true;c.b[i].stranded=true;salvaged++;affected.push(i);}
+    else if (c.b[i]) { lostNames.push(def(c.b[i].k).n);affected.push(i);delete c.b[i]; lost++; }
     c.t[i] = R; bed.delete(i); delete c.dep[i];
   }
   c.oldbed = [...bed];
@@ -1779,7 +1790,7 @@ function applyShift(c: City, at: number) {
   c.boostUntil = at + 4 * SEASON_MS;
   const D = derive(c);
   const dry = buildings(c).filter(([i, b]) => b.k === "canal" && b.lvl >= 1 && !D.wet[i]).length;
-  log(c, at, `Đại hồng thủy: sông đổi dòng${lost ? `, nuốt ${lost} công trình` : ""}. Lòng sông cũ thành bãi bồi màu mỡ.${dry ? ` ${dry} đoạn kênh mất nguồn nước.` : ""}`, "warn");
+  notifyDisaster(c, at,"river",lost||salvaged||dry?"impact":"protected", `Đại hồng thủy: sông đổi dòng${lost ? `, mất ${lost} công trình (${[...new Set(lostNames)].join(", ")})` : ", không mất công trình"}.${salvaged?` ${salvaged} cảng bị ngập/mắc cạn: Chuyển bến rồi Sửa, giữ cấp và thuyền.`:""} Lòng sông cũ thành bãi bồi màu mỡ.${dry ? ` ${dry} đoạn kênh mất nguồn nước; nối lại với sông.` : ""} Đất được đê che giữ nguyên.`,affected);
 }
 
 /** Lose a share of each unit type, rounding with the seeded RNG. */
@@ -2103,7 +2114,7 @@ function onSeason(c: City, si: number) {
   const s = c.shift;
   if (s && !s.done && si === s.warn) {
     s.xs = newCourse(c, r);
-    log(c, at, "Già làng xem nước: mùa thu tới sông có thể đổi dòng. Ô viền nét đứt là tuyến dự báo. Xây hoặc sửa đê để bảo vệ đất; dòng mới tránh vùng được đê che.", "warn");
+    notifyDisaster(c,at,"river","warning","Già làng xem nước: mùa thu tới sông có thể đổi dòng. Ô viền nét đứt là tuyến dự báo. Xây hoặc sửa đê để bảo vệ đất; dòng mới tránh vùng được đê che.");
   }
   if (si % 4 === 2) {
     if (s && !s.done && si === s.at && s.xs) applyShift(c, at);

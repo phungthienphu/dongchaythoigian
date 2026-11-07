@@ -35,3 +35,9 @@ test('a fully protected migration corridor keeps the original river course',()=>
  for(let y=27;y<=69;y+=3)for(let x=30;x<=54;x+=3){const i=idx(x,y);if(c.t[i]!==R)c.b[i]={k:'levee',lvl:1,doneAt:null};}
  settle(c,1000);expect(c.xs).toEqual(old);expect(c.shift!.done).toBe(true);expect(c.log.some(e=>e.msg.includes('giữ được dòng sông cũ'))).toBe(true);
 });
+test('reinforcing the existing river bank also prevents a protected dock from losing its water',()=>{
+ const c=fixture(),dock=idx(39,48);c.b[dock]={k:'dock',lvl:1,doneAt:null};c.b[idx(39,47)]={k:'levee',lvl:1,doneAt:null};
+ const old=riverSet(c.xs),protection=derive(c).prot;settle(c,1000);
+ expect(c.b[dock].stranded).not.toBe(true);expect(c.t[idx(40,48)]).toBe(R);
+ expect([...old].filter(i=>protection[i]&&c.t[i]!==R)).toEqual([]);
+});

@@ -486,3 +486,19 @@ a.google.small { padding: 4px 10px; font-size: 12.5px; }
 }
 .dock-move-review { padding: 12px; border: 1px solid var(--accent); border-radius: 6px; }
 .dock-move-review button { margin: 4px 6px 0 0; }
+.disaster-notifications { margin: 8px 0 14px; padding: 14px 16px; border: 1px solid #b9844b; background: #302d22; border-radius: 6px; }
+.disaster-notice-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.disaster-notice-heading h2 { font: 700 20px var(--display); margin: 0; }
+.disaster-notice-heading p { font-size: 12px; color: var(--muted); margin: 5px 0 12px; }
+.disaster-notice-heading > button { flex-shrink: 0; }
+.disaster-notifications ul { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 12px; }
+.disaster-notifications li { border-top: 1px solid #60523c; padding-top: 12px; }
+.disaster-notifications li > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.disaster-notifications li b { color: #edb47b; font-size: 13px; }
+.disaster-notifications li.protected b { color: var(--ok); }
+.disaster-notifications time { font-size: 11px; color: var(--muted); }
+.disaster-notifications li p { font-size: 12px; line-height: 1.7; margin: 7px 0; }
+.disaster-notifications summary { cursor: pointer; margin-bottom: 14px; }
+.game .disaster-notifications { position: fixed; z-index: 26; top: 160px; left: 16px; width: min(390px, calc(100vw - 100px)); max-height: 50dvh; overflow: auto; margin: 0; box-shadow: 0 4px 20px #0005; }
+.game .disaster-notifications h2 { font-size: 18px; }
+@media (max-width: 680px) { .game .disaster-notifications { top: 134px; left: 12px; width: calc(100vw - 24px); max-height: 42dvh; } }

@@ -23,6 +23,7 @@ import { expeditionReadiness } from "@/lib/expedition-readiness";
 import ExpeditionReadiness from "./ExpeditionReadiness";
 import WorldMap from "./WorldMap";
 import WelcomeScreen from "./WelcomeScreen";
+import DisasterNotifications from "./DisasterNotifications";
 import FriendSearch from "./FriendSearch";
 import HowToPlay from "./HowToPlay";
 import { buildAvailability } from "@/lib/build-availability";
@@ -830,7 +831,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const noticeCity=cityRef.current;
   const noticeKey=noticeCity?`dong-notices:${noticeCity.seed}:${noticeCity.t0}`:"";
   const diplomaticNotices=diplomacy.messages.map(m=>({caravanId:undefined as string|undefined,at:m.decidedAt??m.requestedAt??m.arrive,msg:diplomacyText(m),cls:"good"}));
-  const latestNoticeAt=Math.max(0,...(noticeCity?.log??[]).map(l=>l.at),...diplomaticNotices.map(l=>l.at));
+  const latestNoticeAt=Math.max(0,...(noticeCity?.log??[]).map(l=>l.at),...(noticeCity?.disasterNotices??[]).map(l=>l.at),...diplomaticNotices.map(l=>l.at));
   useEffect(()=>{
     if(!noticeKey)return;
     let at=0;try{at=Number(localStorage.getItem(noticeKey))||0;}catch{}
@@ -843,7 +844,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   },[panel,noticeKey,latestNoticeAt]);
   const c = cityRef.current, D = dRef.current;
   const t = now();
-  const notices=[...(c?.log??[]),...diplomaticNotices].sort((a,b)=>b.at-a.at);
+  const archivedDisasters=(c?.disasterNotices??[]).filter(n=>!c?.log.some(l=>l.at===n.at&&l.msg===n.msg)).map(n=>({caravanId:undefined as string|undefined,at:n.at,msg:n.msg,cls:n.phase==='protected'?'good' as const:'warn' as const}));
+  const notices=[...(c?.log??[]),...archivedDisasters,...diplomaticNotices].sort((a,b)=>b.at-a.at);
 
   if (loading) return <main className="wrap"><p className="muted">Đang tải thành phố…</p></main>;
 
@@ -928,6 +930,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           onContextMenu={(e) => { e.preventDefault(); pickTool(null); setPicked(new Set()); }}
         />
       </div>
+
+      {!worldOpen&&!battleOpen&&!visitRef.current&&<DisasterNotifications city={c} onLocate={tile=>{setWorldOpen(false);setSelected({x:tile%W,y:Math.floor(tile/W)});setPanel(null);focusOn(fitRef.current,camRef.current,tile%W+.5,Math.floor(tile/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));}} onHistory={()=>setPanel("log")}/>}
 
       <header className="hud-top">
         <div className="brand">
@@ -1177,7 +1181,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       {helpOpen && <HowToPlay maxEra={rules.maxEra} onClose={()=>setHelpOpen(false)} />}
       {!worldOpen && !battleOpen && panel!=="log" && me.user && <BattleReports wars={war.wars} playerId={me.user.id} />}
       {battleOpen && <BattleView id={battleOpen} onClose={() => { setBattleOpen(null); void loadCity(); void war.refresh(); }} onSettled={() => { void loadCity(); void war.refresh(); }} />}
-      {!worldOpen && !battleOpen && readNotice.key===noticeKey && notices[0]?.at>readNotice.at && panel!=="log" && <div className="war-alerts" role="status"><span>{notices[0].cls==="warn"?"⚠ ":"✉ "}{notices[0].msg}</span><button onClick={()=>openPanel("log")}>Xem thông báo</button><CaravanNoticeLink id={notices[0].caravanId} onTrack={trackCaravan}/></div>}
+      {!worldOpen && !battleOpen && readNotice.key===noticeKey && notices[0]?.at>readNotice.at && !c.disasterNotices?.some(n=>n.at===notices[0]?.at&&n.msg===notices[0]?.msg) && panel!=="log" && <div className="war-alerts" role="status"><span>{notices[0].cls==="warn"?"⚠ ":"✉ "}{notices[0].msg}</span><button onClick={()=>openPanel("log")}>Xem thông báo</button><CaravanNoticeLink id={notices[0].caravanId} onTrack={trackCaravan}/></div>}
       {!worldOpen && !battleOpen && (war.wars.some((w) => w.status !== "completed") || war.error) && (
         <aside className="war-alerts" aria-live="polite">
           {war.error && <p className="small">{war.error}</p>}
