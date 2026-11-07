@@ -839,7 +839,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     return (
       <main className="wrap start">
         <h1>Dòng Sông Thời Đại</h1>
-        <p className="lede">Dựng một khu định cư bên sông và đưa nó từ thời đồ đá lên thời đồ sắt. Giao việc cho dân làng, săn thú, khám phá vùng đất, luyện quân phá trại man rợ. Thành phố vẫn chạy khi bạn rời đi.</p>
+        <p className="lede">Dựng một khu định cư bên sông và đưa nó từ thời đồ đá lên {ERA_NAMES[rules.maxEra].toLowerCase()}. Giao việc cho dân làng, săn thú, khám phá vùng đất, luyện quân phá trại man rợ. Thành phố vẫn chạy khi bạn rời đi.</p>
         {!me.user && (
           <p className="small">Đã có thành phố? <a className="google" href="/api/auth/login">Đăng nhập bằng Google</a> để chơi tiếp trên máy này.</p>
         )}

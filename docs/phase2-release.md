@@ -30,3 +30,10 @@ Không xóa hoặc hạ cấp trụ ở làng cũ vượt hạn mức. Chỉ t�
 ## Giới hạn theo dõi sau phát hành
 
 Benchmark offline và phần chưa QA được giữ trong `phase2-local-qa.md`: mẫu Hiện đại 24 giờ ~8,7 giây wall, 14 ngày ~32,6 giây trên máy local. Không suy diễn thành mức CPU Vercel; vẫn cần đo tải thật, thời gian bắt kịp save lớn, cân bằng từ làng nghèo và PvP đời mới hai tài khoản. Phát hành này không tự nâng gói hosting hoặc thay cơ chế thu thập/tiêu hao để che vấn đề CPU.
+
+## Bằng chứng triển khai ban đầu
+
+- `98cde3f`: cân bằng trụ; `f89f99e`: mở đời 4–6; đã push thường lên `main`.
+- Vercel production `dpl_HAmAYbuHkFme8QjUYN2uNoZ1LSz1` Ready từ `f89f99e81aed60d3bcedcab08fcd9aa953b24dbe`, alias `https://dongchaythoigian.vercel.app`.
+- Worker version `189c300d-6086-42c3-9d23-53469c8d92a3`, `https://dong-song-battles.phungthienphu.workers.dev`; cron mỗi phút giữ nguyên. GET phòng không xác thực trả 401; `/dev/eras` trên web thật trả 404.
+- Browser production tải được trang vào game. Chưa có phiên đăng nhập trong trình duyệt kiểm tra, nên chưa dùng tài khoản thật để thử lên đời/đánh nhau. Không tạo tài khoản hoặc làng thử trên production. Phần giới thiệu được đổi theo thời đại đã phát hành thay cho câu cũ chỉ tới đời Sắt.

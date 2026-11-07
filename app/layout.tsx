@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Alegreya, Be_Vietnam_Pro } from "next/font/google";
+import {eraNames,RELEASED_ERA} from '@/lib/eras';
 import "./globals.css";
 
 const display = Alegreya({ subsets: ["latin", "vietnamese"], weight: ["700", "800"], variable: "--font-display" });
@@ -7,7 +8,7 @@ const body = Be_Vietnam_Pro({ subsets: ["latin", "vietnamese"], weight: ["400", 
 
 export const metadata: Metadata = {
   title: "Dòng Sông Thời Đại",
-  description: "Dựng thành phố ven sông từ thời đồ đá tới thời đồ sắt.",
+  description: `Dựng thành phố ven sông từ thời đồ đá tới ${eraNames[RELEASED_ERA].toLowerCase()}.`,
 };
 export const viewport: Viewport = { themeColor: "#17201e", viewportFit: "cover" };
 
