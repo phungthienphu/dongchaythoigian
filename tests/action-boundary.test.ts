@@ -1,6 +1,7 @@
 // @ts-expect-error Bun runtime API
 import {mock,test,expect} from 'bun:test';
 import {newCity} from '../lib/engine';
+import './skip-command-metrics';
 let settlements=0;
 mock.module('../lib/city-store',()=>({playerId:async()=> 'guest',withCity:async(_pid:string,mutate:any)=>{settlements++;const state=newCity(Date.now(),123);return{doc:{state},result:mutate(state,Date.now()),now:Date.now()};}}));
 const {POST}=await import('../app/api/city/action/route');

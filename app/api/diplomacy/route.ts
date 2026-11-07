@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { playerId } from '@/lib/city-store';
 import { cities, envoyVisits } from '@/lib/db';
 import { decideDiplomacy, diplomaticView } from '@/lib/diplomacy';
+import { trackOnlineCommand } from '@/lib/online-commands';
 
 export async function GET() {
   const pid=await playerId();if(!pid)return NextResponse.json({error:'Chưa có thành phố.'},{status:401});
@@ -13,8 +14,11 @@ export async function GET() {
 }
 export async function POST(req:Request) {
   const pid=await playerId();if(!pid)return NextResponse.json({error:'Chưa có thành phố.'},{status:401});
-  const body=await req.json().catch(()=>null);
-  if(!body || typeof body.id!=='string' || body.id.length>200 || !['request','accept','decline'].includes(body.action))return NextResponse.json({error:'Yêu cầu không hợp lệ.'},{status:400});
-  try{await decideDiplomacy(pid,body.id,body.action,Date.now());return NextResponse.json({ok:true});}
-  catch(error){return NextResponse.json({error:(error as Error).message},{status:409});}
+  return trackOnlineCommand(pid,'diplomacy',async metrics=>{
+    const body=await req.json().catch(()=>null);
+    if(!body || typeof body.id!=='string' || body.id.length>200 || !['request','accept','decline'].includes(body.action))return NextResponse.json({error:'Yêu cầu không hợp lệ.'},{status:400});
+    metrics.command=`diplomacy.${body.action}`;
+    try{await decideDiplomacy(pid,body.id,body.action,Date.now());return NextResponse.json({ok:true});}
+    catch(error){return NextResponse.json({error:(error as Error).message},{status:409});}
+  });
 }

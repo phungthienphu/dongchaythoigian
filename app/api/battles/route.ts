@@ -3,6 +3,7 @@ import { battlePlayerId } from "@/lib/city-store";
 import { warView } from "@/lib/war-view";
 import { battles, cities } from "@/lib/db";
 import { launchAttack, socketUrl, warConfigured, returnArmy, startBattle } from "@/lib/war";
+import { trackOnlineCommand } from "@/lib/online-commands";
 
 export async function GET() {
   const pid = await battlePlayerId();
@@ -22,8 +23,11 @@ export async function GET() {
 export async function POST(req: Request) {
   const pid = await battlePlayerId();
   if (!pid) return NextResponse.json({ error: "Cần đăng nhập Google và sở hữu thành phố để tham chiến." }, { status: 401 });
-  const body = await req.json().catch(() => null);
-  if (!body) return NextResponse.json({ error: "Yêu cầu không hợp lệ." }, { status: 400 });
-  try { return NextResponse.json({ battle: await launchAttack(pid, body.target, body.troops) }); }
-  catch (e) { return NextResponse.json({ error: (e as Error).message }, { status: 409 }); }
+  return trackOnlineCommand(pid, 'battle', async metrics => {
+    const body = await req.json().catch(() => null);
+    if (!body) return NextResponse.json({ error: "Yêu cầu không hợp lệ." }, { status: 400 });
+    metrics.command = 'battle.launch';
+    try { return NextResponse.json({ battle: await launchAttack(pid, body.target, body.troops) }); }
+    catch (e) { return NextResponse.json({ error: (e as Error).message }, { status: 409 }); }
+  });
 }

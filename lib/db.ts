@@ -1,5 +1,6 @@
 import { MongoClient, type Collection } from "mongodb";
 import type { City } from "./engine";
+import type { OnlineCommandBucket } from "./command-metrics";
 
 export type CityDoc = {
   _id: string; // player id from the `pid` cookie
@@ -57,6 +58,11 @@ export async function mongoClient() {
     await d.collection("envoy_visits").createIndex({ to: 1, eventAt: -1 });
     await d.collection("envoy_visits").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await d.collection("users").createIndex({ friendCode: 1 }, { unique: true });
+    // Optional analytics must not prevent loading a village if index setup fails.
+    await Promise.all([
+      d.collection("online_command_stats").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+      d.collection("online_command_stats").createIndex({ bucket: -1, cityId: 1 }),
+    ]).catch(() => console.warn('online_command_metrics_index_failed'));
     return client;
   });
   return await g._mongo;
@@ -82,3 +88,4 @@ export async function envoyVisits() {
 
 export async function marketOrders(){return (await db()).collection<import('./market-types').MarketOrder>('market_orders');}
 export async function caravans(){return (await db()).collection<import('./market-types').Caravan>('caravans');}
+export async function onlineCommandStats(){return (await db()).collection<OnlineCommandBucket>('online_command_stats');}

@@ -2,6 +2,7 @@
 // @ts-expect-error Bun test module
 import {mock,test,expect} from 'bun:test';
 import {newCity,G,idx,troopCount} from '../lib/engine';
+import './skip-command-metrics';
 let pid:string|null='seller',failWrite=false;
 let hints:string[]=[];
 const now=Date.now();
@@ -40,6 +41,16 @@ test('two concurrent buyers produce one convoy and one charge; repeated buy is s
  expect(city('buyer').res.gold+city('other').res.gold).toBe(180);await buy();expect(city('buyer').res.gold).toBe(80);
  const s=tables.ships[0];await advanceCaravan(s._id,s.arrive);expect(city('buyer').res.stone).toBe(300);expect(city('seller').res.gold).toBe(120);
  await advanceCaravan(s._id,s.back+1000);await advanceCaravan(s._id,s.back+2000);expect(city('buyer').res.stone).toBe(300);expect(tables.ships[0].status).toBe('completed');
+});
+test('market telemetry marks actual replays without changing payments or troops',async()=>{
+ reset();const metrics={replayed:false};
+ const sale={type:'create' as const,resource:'stone' as const,amount:100,currency:'gold' as const,price:20,escorts:{},requestId:'metrics_sale_123'};
+ await marketAction('seller',sale,metrics);expect(metrics.replayed).toBe(false);
+ await marketAction('seller',sale,metrics);expect(metrics.replayed).toBe(true);
+ const purchase={type:'buy' as const,id:tables.orders[0]._id,requestId:'metrics_buy_123'};
+ await marketAction('buyer',purchase,metrics);expect(metrics.replayed).toBe(false);
+ await marketAction('buyer',purchase,metrics);expect(metrics.replayed).toBe(true);
+ expect(city('buyer').res.gold).toBe(80);expect(tables.ships.length).toBe(1);
 });
 test('full warehouse and active battle keep cargo safe, then deliver exactly once',async()=>{
  reset();await create();await buy();let s=tables.ships[0];city('buyer').res.stone=500;city('seller').res.gold=500;

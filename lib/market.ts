@@ -17,14 +17,15 @@ function receive(c:City,r:ResKey,n:number){if(c.battleId||c.res[r]+n>stats(c,der
 async function hint(ids:string[]){if(warConfigured())await Promise.allSettled([...new Set(ids)].map(id=>workerRequest(`/rooms/player-${id}/notify`,{})));}
 const journey=(c:City,id:string,route:number[],depart:number,arrive:number,back:number,extra={})=>{c.merchantJourneys=[...(c.merchantJourneys??[]).filter(j=>j.back>depart),{id,depart,arrive,back,villageRoute:route,...extra}];};
 
-export async function marketAction(pid:string,a:MarketAction){
+export async function marketAction(pid:string,a:MarketAction,metrics?:{replayed:boolean}){
  if(!validMarketAction(a))throw new Error('Thao tác giao thương không hợp lệ.');
  const now=Date.now(),orders=await marketOrders(),ships=await caravans(),col=await cities();
  const changed=await transaction(async session=>{
+  if(metrics)metrics.replayed=false;
   const me=await col.findOne({_id:pid},{session});if(!me)throw new Error('Không có làng.');prepare(me,now);
   if(a.type==='create'){
    if((a.resource==='coal'||a.currency==='coal')&&me.state.era<5)throw new Error('Giao thương than mở từ Công nghiệp.');
-   const id=`${pid}:${a.requestId}`;if(await orders.findOne({_id:id},{session}))return[pid];usable(me);
+   const id=`${pid}:${a.requestId}`;if(await orders.findOne({_id:id},{session})){if(metrics)metrics.replayed=true;return[pid];}usable(me);
    if(await orders.countDocuments({seller:pid,status:'open'},{session})>=10)throw new Error('Tối đa 10 lô hàng đang bán.');
    if(a.price>stats(me.state,derive(me.state),now).storage[a.currency])throw new Error('Giá lớn hơn sức chứa Kho: nâng Kho trước khi đăng bán.');
    if(me.state.res[a.resource]<a.amount)throw new Error('Không đủ hàng trong kho.');
@@ -34,12 +35,12 @@ export async function marketAction(pid:string,a:MarketAction){
    note(me.state,now,`Đã giữ riêng ${a.amount} ${RN[a.resource]} cho lô hàng ở Chợ.`);await save(me,session);return[pid];
   }
   if(a.type==='cancel'){
-   const order=await orders.findOne({_id:a.id,seller:pid},{session});if(!order)throw new Error('Không tìm thấy lô hàng của bạn.');if(order.status==='cancelled')return[pid];if(order.status!=='open')throw new Error('Hàng đã bán, không thể hủy.');
+   const order=await orders.findOne({_id:a.id,seller:pid},{session});if(!order)throw new Error('Không tìm thấy lô hàng của bạn.');if(order.status==='cancelled'){if(metrics)metrics.replayed=true;return[pid];}if(order.status!=='open')throw new Error('Hàng đã bán, không thể hủy.');
    usable(me,false);if(!receive(me.state,order.resource,order.amount))throw new Error('Kho chật, dùng bớt hàng hoặc nâng Kho trước khi hủy.');returnUnits(me.state,order.escorts,order.escorts);
    await orders.updateOne({_id:order._id},{$set:{status:'cancelled'}},{session});await save(me,session);return[pid];
   }
   if(a.type==='buy'){
-   const id=`${pid}:${a.requestId}`;if(await ships.findOne({_id:id},{session}))return[pid];usable(me);
+   const id=`${pid}:${a.requestId}`;if(await ships.findOne({_id:id},{session})){if(metrics)metrics.replayed=true;return[pid];}usable(me);
    const order=await orders.findOne({_id:a.id,status:'open'},{session});if(!order)throw new Error('Lô hàng đã được mua hoặc hủy.');if(order.seller===pid)throw new Error('Không thể tự mua hàng của mình.');
    const seller=await col.findOne({_id:order.seller},{session});usable(seller);prepare(seller,now);
    if((order.resource==='coal'||order.currency==='coal')&&(me.state.era<5||seller.state.era<5))throw new Error('Cả hai làng phải từ Công nghiệp để giao thương than.');
@@ -60,7 +61,7 @@ export async function marketAction(pid:string,a:MarketAction){
   }
   // One interception per convoy; only independently discovered routes are targetable.
   const ship=await ships.findOne({_id:a.id},{session});if(!ship)throw new Error('Không tìm thấy đoàn xe.');
-  if(ship.raid?.by===pid&&ship.raid.requestId===a.requestId)return[pid];usable(me,false);
+  if(ship.raid?.by===pid&&ship.raid.requestId===a.requestId){if(metrics)metrics.replayed=true;return[pid];}usable(me,false);
   const view=caravanView(ship,pid,me.state);if(!view?.canRaid||!me.world)throw new Error('Không thấy tuyến đường hoặc đoàn xe không còn có thể bị chặn.');
   if(!fighters(a.units!))throw new Error('Cần ít nhất một chiến binh để cướp.');
   const meet=interception(ship,me.world,now);if(!meet)throw new Error('Không thể đuổi kịp đoàn xe trước khi tới đích.');

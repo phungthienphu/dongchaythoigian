@@ -2,6 +2,7 @@
 // @ts-expect-error Bun test API
 import { mock, test, expect } from 'bun:test';
 import { newCity } from '../lib/engine';
+import './skip-command-metrics';
 import { knowsNation } from '../lib/world-discovery';
 let pid:string|null='host', failCityWrite=false;
 const time=Date.now();

@@ -5,6 +5,7 @@ import { ENGINE_VER, score, settle, enrichCopperDeposits, enrichPreciousDeposits
 
 import { registerEnvoyVisits } from "./diplomacy";
 import { resolveDiscoveries } from "./world";
+import type { CommandMetrics } from "./command-metrics";
 
 export const PID_COOKIE = "pid";
 export class UnsupportedCityVersionError extends Error {
@@ -35,17 +36,21 @@ export async function battlePlayerId(): Promise<string | null> {
  * Load the player's city, let `mutate` change it (after settling to now), and save it back.
  * Uses the `ver` field for optimistic locking so two tabs can't overwrite each other.
  */
-export async function withCity<T>(pid: string, mutate: (c: City, now: number) => T, opts: { readOnlyFallback?: boolean; requestId?: string } = {}) {
+export async function withCity<T>(pid: string, mutate: (c: City, now: number) => T, opts: { readOnlyFallback?: boolean; requestId?: string; metrics?: CommandMetrics } = {}) {
   const col = await cities();
   const uid = readSession((await cookies()).get(SESSION_COOKIE)?.value);
   for (let attempt = 0; attempt < 5; attempt++) {
+    if (opts.metrics) opts.metrics.attempts++;
     if (attempt) await new Promise((r) => setTimeout(r, 30 + Math.random() * 70));
     const doc = await col.findOne({ _id: pid });
     if (!doc || (doc.owner && doc.owner !== uid)) return null;
     if (doc.state.ver !== ENGINE_VER) throw new UnsupportedCityVersionError();
     const now = Date.now();
     const receipt = opts.requestId && doc.actionReceipts?.find((r) => r.id === opts.requestId);
-    if (receipt) return { doc, result: receipt.result as T, now };
+    if (receipt) {
+      if (opts.metrics) opts.metrics.replayed = true;
+      return { doc, result: receipt.result as T, now };
+    }
     normalizeResources(doc.state);
     if (doc.state.battleId) {
       if (opts.readOnlyFallback) return { doc, result: null as T, now };
@@ -55,12 +60,19 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
     const c = doc.state;
     await resolveDiscoveries(pid, c, now);
     const arrivals = structuredClone(c.trips ?? []);
-    settle(c, now);
+    if (opts.metrics) {
+      const started = performance.now();
+      try { settle(c, now); }
+      finally { opts.metrics.settleMs += performance.now() - started; }
+    } else settle(c, now);
     const addedOre=enrichCopperDeposits(c);
     if(addedOre)c.log.unshift({at:now,msg:`Bổ sung ${addedOre} mỏ đồng trên các đồi đá chưa khai thác. Mỗi mỏ đồng còn hoạt động có trữ lượng tối đa 1.200; hãy khám phá thêm quanh làng.`,cls:"good"});
     const precious=enrichPreciousDeposits(c);
     if(precious)c.log.unshift({at:now,msg:`Phát hiện thêm ${precious} mỏ vàng và kim cương trên các đồi chưa khai thác. Vàng mở ở đời đồng; kim cương mở ở đời sắt.`,cls:"good"});
-    const result = mutate(c, now);
+    const started = opts.metrics ? performance.now() : 0;
+    let result: T;
+    try { result = mutate(c, now); }
+    finally { if (opts.metrics) opts.metrics.commandMs += performance.now() - started; }
     const envoyOutbox=[...new Map([...(doc.envoyOutbox??[]),...[...arrivals,...(c.trips??[])].filter(tr=>tr.target).map(({id,depart,target,targetName,arrive})=>({key:`${pid}:${depart}:${id}`,trip:{id,depart,target,targetName,arrive}}))].filter(entry=>entry.trip.arrive+7*24*60*60_000>now).map(entry=>[entry.key,entry])).values()];
     const res = await col.updateOne(
       { _id: pid, ver: doc.ver },

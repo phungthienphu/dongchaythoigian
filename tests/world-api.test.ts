@@ -2,6 +2,7 @@
 // @ts-expect-error Bun provides this runtime API; application TypeScript uses Node types.
 import { mock, test, expect } from 'bun:test';
 import { newCity, idx, type City } from '../lib/engine';
+import './skip-command-metrics';
 const now=Date.now();
 const mine={_id:'me',name:'Mine',owner:'u-me',world:{x:10,y:10},state:newCity(now,1),ver:1};
 const friend={_id:'friend',name:'Secret friend',owner:'u-friend',world:{x:91,y:87},state:newCity(now,2),ver:1};
