@@ -31,6 +31,8 @@ Thử trên làng QA đã đăng chợ: `candidate:false`, blocker
 `active-relation:marketOrders`, revision 6 / ACK 2. Sáu test kiểm tra bảo toàn toàn
 bộ source, checksum ổn định qua thứ tự key, phát hiện đổi tài nguyên/ACK/owner,
 postpone các quan hệ, phiên/engine cũ và dữ liệu không portable.
+Một fixture Mongo profile không có quan hệ đang hoạt động trả `candidate:true`,
+revision 1 / ACK 20, envelope 43.100 bytes; không in snapshot và không ghi City.
 
 ## Giới hạn bắt buộc
 

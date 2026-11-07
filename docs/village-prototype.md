@@ -37,10 +37,9 @@ request tiếp theo tiếp tục tới đúng target. Trong khi tính bù, batch
 chối 409 và **không** tăng ACK. Target không được đổi giữa chừng. Khi xong trả 200;
 retry checkpoint đã hoàn tất không ghi. Engine và tốc độ tài nguyên không đổi.
 
-Đã đối chiếu state hash cuối với một lần `settle` cho bảy workload, bao gồm
-50 dân/14 ngày. Thêm nhiều checkpoint làm tăng row writes và requests; phải tính
-khoản này vào budget. Test 200 dân/14 ngày chạy riêng và chưa được coi là pass
-trước khi có kết quả cuối. Prototype từ chối khoảng ban đầu >14 ngày; xử lý save
+Đã đối chiếu state hash cuối với một lần `settle` cho tám workload, bao gồm
+50 và 200 dân/14 ngày. Thêm nhiều checkpoint làm tăng row writes và requests;
+phải tính khoản này vào budget. Prototype từ chối khoảng ban đầu >14 ngày; xử lý save
 cũ hơn cap cần thiết kế riêng, không sửa timestamp bằng tay để giả lập tương đương.
 
 ## Chạy thử an toàn
@@ -79,7 +78,10 @@ catch-up đang dở; marker không có token hoặc snapshot. `resume` kiểm tr
   gap/conflict/anchor/session; lỗi domain; concurrent; SQL rollback sau write;
   compact receipt; thay phiên. Catch-up các workload khớp hash với engine chung.
 - Restart workerd thật: checkpoint, revision, ACK và retry giữ nguyên. Kiểm tra
-  restart trong catch-up đang dở có mode riêng, cần ghi nhận kết quả cuối.
+  restart trong catch-up đang dở đã qua: target/tiến độ giữ nguyên, hoàn tất ra
+  đúng state tham chiếu, ACK không bị tiêu thụ. Worst-case cũng qua kiểm tra lại
+  hash/ACK sau restart. Một lượt test bị ngắt bởi Wrangler hot reload; runner đã
+  bổ sung retry đúng payload, không sinh ID mới khi kết quả chưa rõ.
 - 3 test Node/WebCrypto anchor qua; type-check app/prototype và combat regression
   qua. Wrangler dry-run bundle ~209 KiB (~58 KiB gzip), không tạo resource cloud.
 - Các số thời gian là wall time trên máy dev có tác vụ QA song song; không phải
@@ -95,6 +97,11 @@ catch-up đang dở; marker không có token hoặc snapshot. `resume` kiểm tr
 | Offline 1h | 1 | 151 ms | 177 ms | `5973be72bc379a01` |
 | Offline 24h | 4 | 387 ms | 1.575 ms | `2b0e158df5b83700` |
 | Offline 14 ngày / 50 dân | 56 | 503 ms | 23.603 ms | `5576908e194fd00e` |
+| Offline 14 ngày / 200 dân | 56 | 5.979 ms | 197.871 ms | `9924dd1fe04cd260` |
+
+Worst-case giảm thời gian mỗi request bằng checkpoint, không giảm tổng công CPU
+tính bù. Bài này cần 112 rows read / 56 rows written, storage 98.304 bytes. Chưa
+được dùng số wall local này để kết luận CPU/request hay GB-s trên Cloudflare.
 
 ## Limits đã đối chiếu và phần còn thiếu
 
