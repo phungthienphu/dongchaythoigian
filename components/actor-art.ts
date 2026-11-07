@@ -9,8 +9,7 @@ export type FutureArt = "tank" | "fighter" | "radar" | "oil" | "coal" | "helicop
 type C = CanvasRenderingContext2D;
 type Pt = readonly [number, number];
 const TAU = Math.PI * 2;
-const ink = "#263834";
-function shape(c: C, points: readonly Pt[], fill: string, edge = ink, width = .7) {
+function shape(c: C, points: readonly Pt[], fill: string, edge = "", width = .7) {
   c.beginPath(); points.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y)); c.closePath();
   c.fillStyle = fill; c.fill(); if (edge) { c.strokeStyle = edge; c.lineWidth = width; c.stroke(); }
 }

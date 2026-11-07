@@ -4,7 +4,7 @@ Ngày 07/11/2026. Preview: `/dev/art`, độc lập tài khoản và database.
 
 ## Phong cách và cách dùng
 
-Canvas Isometric 2.5D, bóng tiếp đất, viền mảnh, mặt sáng phía trên và mặt tối bên hông. Vải đỏ đất, đồng vàng, thép xanh xám; công nghệ tương lai dùng xanh ngọc. Hình dạng và trang bị phải phân biệt được ngay cả khi không có tên.
+Canvas Isometric 2.5D, bóng tiếp đất, bỏ viền bao đen mặc định, mặt sáng phía trên và mặt tối bên hông. Vải đỏ đất, đồng vàng, thép xanh xám; công nghệ tương lai dùng xanh ngọc. Hình dạng và trang bị phải phân biệt được ngay cả khi không có tên.
 
 Nguồn hình dùng chung nằm trong `components/actor-art.ts`, không có phụ thuộc React, engine, mạng hoặc ảnh bên ngoài:
 
