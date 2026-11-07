@@ -1,6 +1,6 @@
 // @ts-expect-error Bun runtime API
 import {test,expect} from 'bun:test';
-import {newCity,G,R,H,idx,settle,applyAction,dockRelocationPlan,shipCapacity,shipsFree,isBuildingActive,type City} from './engine';
+import {newCity,G,R,H,idx,settle,applyAction,dockRelocationPlan,canPlace,derive,shipCapacity,shipsFree,isBuildingActive,type City} from './engine';
 const source=idx(14,12),target=idx(19,12);
 function fixture(){
  const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.people=[];c.pop=0;c.b={};c.camps=[];c.herds=[];c.era=2;c.transportShips=2;c.res={food:1000,wood:1000,stone:0,copper:0,gold:0,diamond:0,coal:0};
@@ -39,4 +39,22 @@ test('offline completion matches small settlements, and a destination drying out
  const c=fixture();applyAction(c,{type:'relocateDock',x:14,y:12,to:target},0);
  const online=structuredClone(c);settle(c,80000);for(let t=1000;t<=80000;t+=1000)settle(online,t);expect(c).toEqual(online);
  const dry=fixture();applyAction(dry,{type:'relocateDock',x:14,y:12,to:target},0);dry.t.fill(G);settle(dry,80000);expect(dry.b[target].stranded).toBe(true);expect(shipCapacity(dry)).toBe(0);
+});
+
+test('relocating at or above the dock limit replaces a dock and still enforces destination and builder rules',()=>{
+ for(const total of [3,4]){
+  const c=fixture();
+  for(let n=1;n<total;n++)c.b[idx(14,12+n)]={k:'dock',lvl:1,doneAt:null};
+  const before=structuredClone(c);
+  expect(dockRelocationPlan(c,source,target).error).toBeNull();expect(c).toEqual(before);
+  expect(canPlace(c,derive(c),'dock',19,18,undefined,true)).toContain('tối đa (3)');
+  expect(dockRelocationPlan(c,source,idx(18,12)).error).toContain('sát sông');
+  c.b[target]={k:'hut',lvl:1,doneAt:null};expect(dockRelocationPlan(c,source,target).error).toContain('đã có công trình');delete c.b[target];
+  expect(applyAction(c,{type:'relocateDock',x:14,y:12,to:target},0)).toBeNull();
+  expect(Object.values(c.b).filter(b=>b.k==='dock').length).toBe(total);expect(c.b[source]).toBeUndefined();
+  expect(c.b[target].lvl).toBe(2);expect(c.transportShips).toBe(2);expect(c.res.wood).toBe(720);
+ }
+ const c=fixture();
+ for(let n=1;n<=3;n++)c.b[idx(14,12+n)]={k:'hut',lvl:0,doneAt:10000};
+ expect(dockRelocationPlan(c,source,target).error).toContain('thợ đang bận');
 });

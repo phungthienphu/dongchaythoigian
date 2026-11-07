@@ -1258,7 +1258,7 @@ export function dockRelocationPlan(c:City,from:number,to:number,rules:EngineRule
   const cost:Partial<Res>={wood:(40+20*distance)*lvl,food:(20+10*distance)*lvl};
   const duration=(30+10*distance)*1000;
   const error=b?.k!=="dock"||b.lvl<1?"Chọn bến cảng đã xây xong.":b.doneAt?"Cảng đang xây, nâng cấp hoặc di chuyển.":from===to?"Chọn một bờ sông khác.":
-    canPlace(c,derive(c),"dock",to%W,Math.floor(to/W),rules,true)??missing(c,cost);
+    canPlace(c,derive(c),"dock",to%W,Math.floor(to/W),rules,true,from)??missing(c,cost);
   return {distance,cost,duration,error};
 }
 
@@ -2322,7 +2322,7 @@ export function settle(c: City, now: number) {
   c.last = now;
 }
 
-export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rules:EngineRules=RELEASE_RULES,skipCost=false): string | null {
+export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rules:EngineRules=RELEASE_RULES,skipCost=false,relocatingDockFrom?:number): string | null {
   const d = def(k), i = idx(x, y), t = c.t[i];
   if(d.era>rules.maxEra)return "Thời đại này sắp ra mắt.";
   if (!c.seen[i]) return "Vùng này chưa khám phá.";
@@ -2347,7 +2347,9 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rul
   if (d.need === "bank" && D.rd[i] !== 1 && !near(N4,j=>c.b[j]?.k==="levee")) return "Đê phải sát bờ sông hoặc nối thẳng vào đoạn đê khác (không chéo).";
   const finalError=finalWonderError(c,k,c.last);if(finalError)return finalError;
   const limit=buildingLimit(c,k);
-  if (limit!==undefined && count(c, k) >= limit) return k==='watchtower'?`Đã đủ giới hạn ${count(c,k)}/${limit} trụ ở thời đại này.`:`Đã đủ số lượng tối đa (${limit}).`;
+  // Relocation replaces an existing dock, even on legacy villages above the cap.
+  const movingDock=k==="dock" && relocatingDockFrom!==undefined && c.b[relocatingDockFrom]?.k==="dock" && c.b[relocatingDockFrom].lvl>=1;
+  if (!movingDock && limit!==undefined && count(c, k) >= limit) return k==='watchtower'?`Đã đủ giới hạn ${count(c,k)}/${limit} trụ ở thời đại này.`:`Đã đủ số lượng tối đa (${limit}).`;
   if (busyBuilders(c) >= builders(c)) return "Tất cả thợ đang bận.";
   return skipCost?null:missing(c, buildingCost(k, c.era));
 }
