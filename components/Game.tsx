@@ -44,6 +44,9 @@ import MarketPanel from "./MarketPanel";
 import { useMarket } from "./useMarket";
 import { useWars } from "./useWars";
 import { OptimisticCityQueue } from "@/lib/optimistic-city";
+import { BatchedCityQueue, SyncTransportError, type SaveStatus } from '@/lib/batched-city';
+import { controlCityTab } from '@/lib/city-queue-storage';
+import type { BatchRequest, BatchResponse, CitySync } from '@/lib/city-sync';
 import { SESSION_ENDED_EVENT, SESSION_ENDED_MESSAGE } from "@/lib/session-client";
 import type { Nation } from "@/lib/world";
 
@@ -171,7 +174,7 @@ function Stepper({ value, max, onChange, label }: { value: number; max: number; 
   );
 }
 
-function FriendsPanel({ me, reload, onVisit }: { me: Me; reload: () => Promise<void>; onVisit: (id:string)=>void }) {
+function FriendsPanel({ me, reload, onVisit, onLogout }: { me: Me; reload: () => Promise<void>; onVisit: (id:string)=>void; onLogout:()=>Promise<void> }) {
   const [code, setCode] = useState("");
   const [note, setNote] = useState<{ text: string; err?: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -237,7 +240,7 @@ function FriendsPanel({ me, reload, onVisit }: { me: Me; reload: () => Promise<v
           ))}
         </ul>
       ) : <p className="muted small">Chưa có bạn nào. Gửi mã mời của bạn cho bạn bè để họ nhập vào đây.</p>}
-      <form method="post" action="/api/auth/logout" onSubmit={async (e) => { e.preventDefault(); await fetch("/api/auth/logout", { method: "POST" }); location.reload(); }}>
+      <form method="post" action="/api/auth/logout" onSubmit={async (e) => { e.preventDefault(); await onLogout(); }}>
         <button type="submit" className="link">Đăng xuất</button>
       </form>
     </>
@@ -358,7 +361,10 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const reads = useRef(new ReadFlights());
   const panelRef = useRef(panel); panelRef.current = panel;
   const cityRef = useRef<City | null>(null);
-  const actionQueue = useRef<OptimisticCityQueue | null>(null);
+  const actionQueue = useRef<OptimisticCityQueue | BatchedCityQueue | null>(null);
+  const [saveStatus,setSaveStatus]=useState<SaveStatus>('saved');
+  const controlRef=useRef<{key:string;dispose:()=>void}|null>(null);
+  const controlEpoch=useRef(0);
   const sessionEndedRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const dRef = useRef<Derived | null>(null);
@@ -391,6 +397,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const stopSession = useCallback(() => {
     sessionEndedRef.current = true;
     actionQueue.current?.stop();
+    controlEpoch.current++;controlRef.current?.dispose();controlRef.current=null;
     cityRef.current = null; dRef.current = null; visitRef.current = null;
     setMe({ user: null, friends: [] }); setNeedsName(true); setLoading(false);
     setBattleOpen(null); setWorldOpen(false); setSaving(false); setBusy(false);
@@ -400,8 +407,9 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     window.addEventListener(SESSION_ENDED_EVENT, stopSession);
     return () => window.removeEventListener(SESSION_ENDED_EVENT, stopSession);
   }, [stopSession]);
+  useEffect(()=>()=>{controlEpoch.current++;controlRef.current?.dispose();controlRef.current=null;actionQueue.current?.stop();actionQueue.current=null;},[]);
 
-  const accept = useCallback((data: { state: City; serverNow: number; name?: string }) => {
+  const accept = useCallback((data: { state: City; serverNow: number; name?: string; sync?:CitySync; batchEnabled?:boolean }) => {
     if (sessionEndedRef.current) return false;
     offsetRef.current = data.serverNow - Date.now();
     const publish = (state: City) => {
@@ -411,6 +419,53 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       setSaving(actionQueue.current?.isPending ?? false);
       bump();
     };
+    const loadCheckpoint=async():Promise<BatchResponse>=>{
+      const res=await fetch('/api/city',{cache:'no-store',signal:AbortSignal.timeout(15_000)});
+      if(res.status===401){stopSession();throw new Error(SESSION_ENDED_MESSAGE);}
+      const value=await res.json();
+      if(!res.ok||!value.sync)throw new Error(value.error??'Chưa tải được checkpoint của làng.');
+      offsetRef.current=value.serverNow-Date.now();return value;
+    };
+    if(data.sync && !actionQueue.current) {
+      publish(data.state);
+      const key=`${data.sync.cityId}:${data.sync.session}:${data.sync.engine}`;
+      if(!controlRef.current) {
+        setSaveStatus('initializing');
+        const dispose=controlCityTab(key,(active,storage)=>{
+          const epoch=++controlEpoch.current;
+          if(!active){actionQueue.current?.stop();actionQueue.current=null;setSaveStatus('readonly');setSaving(false);return;}
+          void (async()=>{
+            try {
+              const fresh=await loadCheckpoint();
+              if(sessionEndedRef.current||epoch!==controlEpoch.current)return;
+              if(fresh.sync.cityId!==data.sync!.cityId||fresh.sync.session!==data.sync!.session||fresh.sync.engine!==data.sync!.engine)throw new Error("Phiên chơi đã đổi; hãy tải lại trang.");
+              const queue=new BatchedCityQueue({
+                state:fresh.state,sync:fresh.sync,rules,storage,now:()=>Date.now()+offsetRef.current,
+                delayMs:fresh.batchEnabled?10_000:0,onState:publish,
+                onStatus:s=>{setSaveStatus(s);setSaving(s==='queued'||s==='sending'||s==='offline');},
+                onError:text=>setMsg({text,err:true}),reload:loadCheckpoint,
+                checkpoint:async()=>{
+                  const res=await fetch('/api/city/checkpoint',{method:'POST',signal:AbortSignal.timeout(15_000)});
+                  if(res.status===401){stopSession();throw new Error(SESSION_ENDED_MESSAGE);}
+                  const value=await res.json();if(!res.ok)throw new Error(value.error??'Chưa lưu được mốc làng.');
+                  offsetRef.current=value.serverNow-Date.now();return value;
+                },
+                send:async(body:BatchRequest)=>{
+                  const res=await fetch('/api/city/batch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(15_000)});
+                  if(res.status===401){stopSession();throw new Error(SESSION_ENDED_MESSAGE);}
+                  const value=await res.json();
+                  if(!res.ok)throw new SyncTransportError(value.error??'Chưa lưu được thao tác.',res.status);
+                  offsetRef.current=value.serverNow-Date.now();return value as BatchResponse;
+                },
+              });
+              actionQueue.current=queue;await queue.initialize();
+            } catch {if(!sessionEndedRef.current){setSaveStatus('error');setMsg({text:'Chưa lấy được quyền điều khiển làng. Hãy tải lại trang khi có mạng.',err:true});}}
+          })();
+        });
+        controlRef.current={key,dispose};
+      }
+      if(data.name)setName(data.name);return true;
+    }
     if (!actionQueue.current) {
       actionQueue.current = new OptimisticCityQueue({
         rules, state: data.state, now: () => Date.now() + offsetRef.current,
@@ -436,7 +491,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       });
       publish(data.state);
     } else {
-      const accepted=actionQueue.current.setAuthoritative(data.state);
+      const queue=actionQueue.current;
+      const accepted=queue instanceof BatchedCityQueue?queue.setAuthoritative(data.state,queue.version,data.sync):queue.setAuthoritative(data.state);
       if(data.name)setName(data.name);
       return accepted;
     }
@@ -444,10 +500,19 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     return true;
   }, [stopSession]);
 
+  const externalCity=useCallback(async <T,>(run:()=>Promise<T>):Promise<T>=>{
+    const queue=actionQueue.current;
+    if(queue instanceof BatchedCityQueue)return queue.exclusive(run);
+    if(controlRef.current&&!queue)throw new Error('Làng đang được điều khiển ở tab khác.');
+    if(queue?.isPending)throw new Error('Đang lưu thao tác, hãy thử lại sau giây lát.');
+    return run();
+  },[]);
+
   const loadCity = useCallback(() => reads.current.run("city", async () => {
     try {
     if (sessionEndedRef.current) return;
     if (actionQueue.current?.isPending) return;
+    if(actionQueue.current instanceof BatchedCityQueue){await actionQueue.current.refresh();return;}
     const generation = actionQueue.current?.version;
     const res = await fetch("/api/city", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
     if (res.status === 401) {
@@ -476,10 +541,14 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     } catch { setMsg({text:"Mất kết nối khi tải bản đồ thế giới.",err:true}); }
   }), []);
 
-  const diplomacy = useDiplomacy(!loading && !needsName, () => { void loadCity(); void loadWorld(); });
+  const diplomacy = useDiplomacy(!loading && !needsName, () => { void loadCity(); void loadWorld(); },externalCity);
   const [marketTarget,setMarketTarget]=useState<string>();
-  const market = useMarket(!loading && !needsName && !!me.user?.hasCity, panel === "market" || worldOpen, () => { void loadCity(); }, panel === "market",marketTarget);
-  const war = useWars(!loading && !needsName && !!me.user?.hasCity, () => { void loadCity(); void diplomacy.refresh(); void market.refresh(); });
+  const market = useMarket(!loading && !needsName && !!me.user?.hasCity, panel === "market" || worldOpen, () => { void loadCity(); }, panel === "market",marketTarget,externalCity);
+  const war = useWars(!loading && !needsName && !!me.user?.hasCity, () => {
+    const queue=actionQueue.current;
+    if(queue instanceof BatchedCityQueue&&queue.isPending)void queue.flush().then(()=>loadCity());else void loadCity();
+    void diplomacy.refresh(); void market.refresh();
+  });
   useEffect(()=>{if(panel==="log")void diplomacy.refresh();},[panel,diplomacy.refresh]);
 
   const sharedLocations=diplomacy.messages.filter(m=>m.side==="host"&&m.decision==="accepted").map(m=>m.id).join("|");
@@ -553,12 +622,16 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     }, 1000);
     const refreshVisible = () => {
       if (document.visibilityState !== "visible") return;
-      void loadCity(); void loadMe(); void diplomacy.refresh();
+      const queue=actionQueue.current;
+      if(queue instanceof BatchedCityQueue)void queue.checkpointIfDue().then(saved=>{if(!saved)void loadCity();});else void loadCity();
+      void loadMe(); void diplomacy.refresh();
       if (panelRef.current === "rank") void loadBoard();
     };
     const sync = setInterval(refreshVisible, 60_000);
     const foreground = () => {
       if (document.visibilityState !== "visible") return;
+      const queue=actionQueue.current;
+      if(queue instanceof BatchedCityQueue)void (queue.isPending?queue.flush():queue.refresh());
       refreshVisible();
       const v = visitRef.current; if (v) void loadVisit(v.id, false);
     };
@@ -633,7 +706,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       }
       a = { ...a, pos };
     }
-    const result = actionQueue.current?.enqueue(a) ?? Promise.resolve(false);
+    if(!actionQueue.current){setMsg({text:'Chưa có quyền điều khiển làng ở tab này.',err:true});return false;}
+    const result = actionQueue.current.enqueue(a);
     setSaving(actionQueue.current?.isPending ?? false);
     return result.finally(() => setSaving(actionQueue.current?.isPending ?? false));
   };
@@ -641,17 +715,13 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const sendEnvoy = async (id?: string) => {
     const city = cityRef.current;
     if (!city || busy) return;
-    if (actionQueue.current?.isPending) {
-      setMsg({ text: "Đang lưu thao tác, hãy cử sứ giả sau giây lát." });
-      return;
-    }
     setBusy(true);
     setMsg({text:"Đang cử sứ giả…"});
     try {
-      const res = await fetch("/api/world/envoy", {
+      const res = await externalCity(()=>fetch("/api/world/envoy", {
         method: "POST", signal:AbortSignal.timeout(15000), headers: { "content-type": "application/json" },
         body: JSON.stringify(id ? { target: id } : { explore: true }),
-      });
+      }));
       const data = await res.json();
       const accepted=data.state ? accept(data) : false;
       if(!res.ok || data.error){setMsg({text:data.error??"Không cử được sứ giả. Hãy thử lại.",err:true});return;}
@@ -1124,7 +1194,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               {canToggle(B[sel.k])&&sel.lvl>0&&<button disabled={busy} onClick={()=>act({type:'toggleBuilding',...selected})}>{sel.off?'Bật lại công trình':'Tắt công trình'}</button>}
               {sel.k === "envoy" && sel.lvl >= 1 && <>
                 <p className="small">Sứ giả riêng: {Math.max(0,envoyCount(c)-envoysAway(c))}/{envoyCount(c)} đang rảnh. Dân làng chỉ dò địa hình trong làng; tìm nước khác cần cử sứ giả.</p>
-                <button className="primary" disabled={busy || saving || !envoyCount(c) || envoysAway(c)>=envoyCount(c)} onClick={()=>sendEnvoy()}>Cử sứ giả rảnh đi do thám · 2 phút</button>
+                <button className="primary" disabled={busy || !envoyCount(c) || envoysAway(c)>=envoyCount(c)} onClick={()=>sendEnvoy()}>Cử sứ giả rảnh đi do thám · 2 phút</button>
                 <button onClick={()=>{setWorldOpen(true);setPanel(null);}}>Xem hành trình trên bản đồ thế giới</button>
               </>}
               {sel.k==="barracks" && sel.lvl>=1 && !armyStagingTiles(c,1).length && <p className="err small">Trại lính bị bịt kín. Chừa lối đất nối ra ngoài, đặt cổng thay tường hoặc dỡ công trình chắn lối; quân không tự phá nhà mình.</p>}
@@ -1133,7 +1203,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                 <DockPanel city={c} building={sel} now={t} busy={busy} onBuild={()=>{void act({type:"buildShip",...selected});}} onRelocate={()=>{setDockMove(selI);setDockTarget(null);setTool(null);setPicked(new Set());setPickedSoldier(null);setGuardEditing(false);setPlanting(false);setMsg(null);}}/>
                 {dockMove===selI&&<div className="dock-move-review" role="region" aria-label="Chuyển bến cảng"><p>Chọn ô đất trống sát sông trên bản đồ. Xem phí trước khi xác nhận.</p>{dockTarget&&(()=>{
                   const plan=dockRelocationPlan(c,selI,idx(dockTarget.x,dockTarget.y),rules);
-                  return <><p>Bờ mới ({dockTarget.x}, {dockTarget.y}) · {plan.distance} ô</p><p>{costText(plan.cost)} · {fmtDur(plan.duration)} · 1 đội thợ xây</p>{plan.error&&<p className="err" role="status">{plan.error}</p>}<button className="primary" disabled={busy||saving||!!plan.error} onClick={async()=>{if(await act({type:"relocateDock",...selected,to:idx(dockTarget.x,dockTarget.y)})){setSelected(dockTarget);setDockMove(null);setDockTarget(null);}}}>Xác nhận chuyển bến</button></>;
+                  return <><p>Bờ mới ({dockTarget.x}, {dockTarget.y}) · {plan.distance} ô</p><p>{costText(plan.cost)} · {fmtDur(plan.duration)} · 1 đội thợ xây</p>{plan.error&&<p className="err" role="status">{plan.error}</p>}<button className="primary" disabled={busy||!!plan.error} onClick={async()=>{if(await act({type:"relocateDock",...selected,to:idx(dockTarget.x,dockTarget.y)})){setSelected(dockTarget);setDockMove(null);setDockTarget(null);}}}>Xác nhận chuyển bến</button></>;
                 })()}<button onClick={()=>{setDockMove(null);setDockTarget(null);}}>Hủy chuyển bến</button></div>}
               </>}
               {sel.k === "market" && sel.lvl >= 1 && <button className="primary" onClick={()=>setPanel("market")}>Giao thương bằng đoàn xe</button>}
@@ -1153,7 +1223,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                   Lên cấp {sel.lvl + 1} ({costText(levelCost(sel.k, sel.lvl + 1, c.era))}, {fmtDur(buildMs(sel.k, sel.lvl + 1))})
                 </button>
               )}
-              <DemolitionPanel key={selI} city={c} tile={selI} now={t} disabled={busy||saving} onConfirm={async()=>{
+              <DemolitionPanel key={selI} city={c} tile={selI} now={t} disabled={busy} onConfirm={async()=>{
                 const ok=await act({type:"demolish",...selected});
                 if(ok){setSelected(null);setMsg({text:"Đã phá dỡ và hoàn vật liệu vào kho. Chi tiết trong Thông báo."});}
                 return ok;
@@ -1205,7 +1275,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
             <button onClick={() => pickTool(null)}>Xong</button>
           </div>
         )}
-        <div className={"status" + (status?.err ? " err" : "")}>{saving && <span className="save-state">Đang lưu… · </span>}{status?.text ?? "Bấm vào dân để chọn rồi bấm vào rừng, đồi, đàn thú hoặc sương mù để giao việc. Mở Cửa hàng để xây nhà."}</div>
+        <div className={"status" + (status?.err ? " err" : "")}><span className="save-state" role="status">{({initializing:'Đang mở làng…',queued:'Chờ lưu',sending:'Đang đồng bộ…',saved:'Đã lưu',offline:'Mất kết nối · chưa lưu xong',readonly:'Tab khác đang điều khiển · tab này chỉ xem',error:'Cần kiểm tra đồng bộ'})[actionQueue.current instanceof OptimisticCityQueue?(saving?'sending':'saved'):saveStatus]} · </span>{(saveStatus==='offline'||saveStatus==='error')&&<button onClick={()=>{const q=actionQueue.current;if(q instanceof BatchedCityQueue)void q.refresh().then(()=>q.flush());}}>Thử đồng bộ</button>}{status?.text ?? "Bấm vào dân để chọn rồi bấm vào rừng, đồi, đàn thú hoặc sương mù để giao việc. Mở Cửa hàng để xây nhà."}</div>
       </div>
 
       {!visitRef.current&&c.era>=5&&<EraOfflineSummary city={c} now={t}/>}
@@ -1220,7 +1290,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
             <div key={w._id} className={w.side === "defender" ? "incoming" : ""}>
               <b>{w.side === "defender" ? `${w.attackerName} tiến đánh làng!` : `Đoàn quân tới ${w.defenderName}`}</b>
               <span className="small">{w.status === "marching" ? ` · tới sau ${fmtDur(w.arrive - t)}` : w.status === "returning" ? ` · về sau ${fmtDur((w.back ?? t) - t)}` : " · đang giao chiến"}</span>
-              {w.status === "fighting" && <button onClick={() => { setBattleOpen(w._id); setPanel(null); }}>Chỉ huy trận</button>}
+              {w.status === "fighting" && <button onClick={() => { void externalCity(async()=>{setBattleOpen(w._id);setPanel(null);}).catch(e=>setMsg({text:e.message,err:true})); }}>Chỉ huy trận</button>}
             </div>
           ))}
         </aside>
@@ -1248,10 +1318,10 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           onRetryWar={()=>void war.refresh()}
           feedback={msg}
           onAttack={async (id, troops) => {
-            if (busy || actionQueue.current?.isPending) { setMsg({ text: "Đang lưu thao tác, chờ giây lát trước khi xuất quân." }); return; }
+            if (busy) return;
             setBusy(true);
             try {
-              const res = await fetch("/api/battles", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target: id, troops }) });
+              const res = await externalCity(()=>fetch("/api/battles", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target: id, troops }) }));
               const data = await res.json();
               if (!res.ok) throw new Error(data.error ?? "Không xuất quân được.");
               setMsg({ text: "Đoàn quân đã lên đường." });
@@ -1440,7 +1510,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
             )}
 
             {panel === "market" && <MarketPanel initialTarget={marketTarget} market={market} city={c} now={t} onWorld={()=>{setWorldOpen(true);setPanel(null);}} />}
-            {panel === "friends" && <FriendsPanel me={me} reload={loadMe} onVisit={(id) => { setPanel(null);setWorldOpen(false);setSelected(null);setPicked(new Set());setTool(null);void loadVisit(id,true); }} />}
+            {panel === "friends" && <FriendsPanel me={me} reload={loadMe} onLogout={async()=>{
+              const queue=actionQueue.current;
+              if(queue instanceof BatchedCityQueue&&!await queue.flush()){setMsg({text:'Chưa lưu xong. Hãy nối mạng trước khi đăng xuất.',err:true});return;}
+              await fetch('/api/auth/logout',{method:'POST'});location.reload();
+            }} onVisit={(id) => { setPanel(null);setWorldOpen(false);setSelected(null);setPicked(new Set());setTool(null);void loadVisit(id,true); }} />}
 
             {panel === "rank" && (
               <ol className="board-list">

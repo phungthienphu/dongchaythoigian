@@ -3,7 +3,7 @@ import {useCallback,useEffect,useRef,useState} from 'react';
 import {ReadFlights} from '@/lib/read-flights';
 import {unseenMarketOrders} from '@/lib/market-notices';
 import type {MarketAction,MarketData} from '@/lib/market-types';
-export function useMarket(ready:boolean,open:boolean,onChanged:()=>void,viewed=open,target?:string){
+export function useMarket(ready:boolean,open:boolean,onChanged:()=>void,viewed=open,target?:string,withMutation:<T>(run:()=>Promise<T>)=>Promise<T>=run=>run()){
  const [data,setData]=useState<MarketData|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [seen,setSeen]=useState({player:'',at:0});
  const reads=useRef(new ReadFlights()),readEpoch=useRef(0);
@@ -58,7 +58,8 @@ export function useMarket(ready:boolean,open:boolean,onChanged:()=>void,viewed=o
  const act=async(a:Omit<Extract<MarketAction,{type:'create'}>,'requestId'>|Omit<Extract<MarketAction,{type:'buy'|'cancel'|'raid'}>,'requestId'>)=>{
   if(locked.current)return false;locked.current=true;setBusy(true);setError('');
   const key=JSON.stringify(a);if(pending.current?.key!==key)pending.current={key,id:crypto.randomUUID()};
-  try{const res=await fetch('/api/market'+(target?'?caravan='+encodeURIComponent(target):''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...a,requestId:pending.current.id}),signal:AbortSignal.timeout(20000)});const value=await res.json();if(!res.ok){pending.current=null;throw new Error(value.error??'Giao thương thất bại.');}pending.current=null;readEpoch.current++;generation.current++;await refresh();changed.current();return true;}
+  const requestId=pending.current.id;
+  try{const res=await withMutation(()=>fetch('/api/market'+(target?'?caravan='+encodeURIComponent(target):''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...a,requestId}),signal:AbortSignal.timeout(20000)}));const value=await res.json();if(!res.ok){pending.current=null;throw new Error(value.error??'Giao thương thất bại.');}pending.current=null;readEpoch.current++;generation.current++;await refresh();changed.current();return true;}
   catch(e){readEpoch.current++;generation.current++;await refresh();changed.current();setError((e as Error).name==='TimeoutError'?'Chưa nhận được kết quả. Bấm Làm mới để kiểm tra lô hàng trước khi thử lại.':(e as Error).message);return false;}
   finally{locked.current=false;setBusy(false);}
  };
