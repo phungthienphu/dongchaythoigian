@@ -8,7 +8,8 @@ tài liệu này. Giữ MongoDB là nơi ghi chính; chưa có migration Village
 | Nơi ghi | Dữ liệu / cách chống ghi đè | Phối hợp batch |
 |---|---|---|
 | `city-store.ts` / city action | City, enrichment, discovery, envoy outbox; CAS `ver` | Batch cùng CAS, một load/save thường; giữ metadata sync ngoài City |
-| GET city / world | Trước đây settle và ghi cả City | Chỉ checkpoint khi có bootstrap/enrichment/discovery/outbox cần ghi; đọc thường dùng cache có revision, không ghi |
+| GET city / world | Trước đây settle và ghi cả City | Đọc thường dùng cache có revision; không ghi full City. Bootstrap/discovery checkpoint hiếm; retry outbox chỉ pull đúng key; ranking chỉ cập nhật metadata khi đổi |
+| POST city/checkpoint | Mốc bền vững cho làng đang xem nhưng không có lệnh | Client điều khiển gửi tối đa một lần/5 phút khi idle/visible; cùng CAS, giữ ACK; không tạo batch rỗng |
 | `market.ts` action / caravan reconcile | Escrow, hàng, tài nguyên, quân, journey; Mongo transaction và `ver++` | Flush client trước action; writer bên kia vẫn có thể thắng, batch không rewind |
 | `war.ts` launch/start/result/return/cancel | Quân, tài nguyên, battle lock, thiệt hại; transaction và `ver++` | Flush trước xuất quân/chuyển combat; batch gặp battle lock thì từ chối lệnh, vẫn ACK kết quả |
 | `diplomacy.ts` accept | Thêm discovery; transaction và `ver++` | Flush trước quyết định; revision làm mất hiệu lực cache |
@@ -49,6 +50,9 @@ ACK chỉ xuất hiện sau CAS thành công. Receipt cùng CityDoc; duplicate <
 chạy lại, kể cả receipt chi tiết đã compact. Cùng seq khác ID/nội dung bị từ chối
 khi receipt còn giữ. Mất ACK: đọc checkpoint/ACK rồi gửi lại đúng phần chưa ACK;
 không tạo ID mới. CAS conflict tải lại và tính lại trên checkpoint mới.
+ACK batch chỉ gửi receipt thuộc range được hỏi, không gửi digest nội bộ. GET
+checkpoint gửi tối đa 256 receipt để khôi phục mất ACK. `checkpointAt` là mốc đã
+ghi DB, tách khỏi thời gian của snapshot mô phỏng để đọc.
 
 Client hiển thị ngay; Promise enqueue biểu thị nhận local, không chờ 10 giây.
 IndexedDB ghi trước khi báo nhận local bền vững. Deadline 10 giây từ lệnh đầu,
@@ -62,6 +66,14 @@ giữ payload chưa rõ kết quả và đối chiếu ACK trước retry. Index
 gửi ngay và không hứa phục hồi sau đóng trang. Đổi phiên khóa controller, giữ
 queue cũ riêng để không tự gửi bằng phiên mới. Engine mismatch khóa queue để đọc
 checkpoint tương thích; không tự xóa hàng đợi.
+Nếu không đọc được hoặc hàng đợi local sai cấu trúc, khóa controller và giữ dữ
+liệu nguyên vẹn để thử đọc lại; không chuyển sang ghi đè rỗng. Nếu đã đọc được
+nhưng lần ghi mới lỗi, báo rõ và gửi ngay. Trình duyệt không có IndexedDB nhưng
+có Web Locks dùng memory/gửi ngay, không hứa phục hồi sau đóng trang.
+
+`CITY_BATCH_ENABLED=true` bật delay 10 giây, `CITY_BATCH_CANARY_IDS` giới hạn
+làng thử. Mặc định/tắt flag vẫn dùng queue/receipt bền vững và API batch, gửi
+ngay; không quay lại API cũ. Server luôn nhận in-flight batch hợp lệ.
 
 ## Đo và nghiệm thu
 

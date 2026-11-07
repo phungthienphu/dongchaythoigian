@@ -2,6 +2,8 @@
 
 Đọc [kế hoạch tổng thể](./cloudflare-migration-plan.md) trước. Đây là description
 để tạo ticket triển khai; **chưa phải danh sách chức năng đã hoàn thành**.
+Tiến độ cập nhật ở bảng trong kế hoạch tổng thể; bằng chứng và phần còn thiếu ở
+[sync-release.md](./sync-release.md), [sync-baseline.md](./sync-baseline.md).
 Mỗi task code cần commit riêng, báo rõ local / staging / production và bằng chứng.
 Không dùng tài khoản production để thử phá dữ liệu hoặc replay lệnh có tác dụng ghi.
 
@@ -58,8 +60,10 @@ là cùng một phiên; phối hợp sequence nhiều tab thuộc T03.
 
 **Hiện trạng:** code commit `5076aa7`, đã có 35 kiểm thử liên quan qua và build qua.
 Chi tiết kỹ thuật: [single-session.md](./single-session.md). Chưa coi là nghiệm thu
-production; lần probe `/rooms/player-release-probe/session` ngày 07/11 trả 404,
-cho thấy Worker đang chạy chưa nhận diện endpoint mới. Code đã push nhánh riêng.
+production. Code web đã vào `main`/push đến `af463b9`. Worker đã deploy version
+`9a7a9f44-6097-47b7-bef6-26dab0084ecb`; probe không quyền tại
+`/rooms/player-release-probe/session` trả **401**, router mới đã nhận endpoint.
+OAuth takeover trên hai browser thật và quyền WebSocket cũ vẫn cần QA.
 
 **Hoàn thành khi:**
 - Worker và web dùng phiên bản tương thích; endpoint phiên từ chối người không
@@ -100,8 +104,9 @@ mới; đóng/mở nhiều tab không gây nhân đôi hoặc thiếu sequence.
 **Kiểm thử:** fake clock, IndexedDB failure, mất ACK, reload, nền điện thoại,
 reconnect, hai tab, phiên bị thu hồi, tương tác chợ/combat giữa deadline.
 **Phụ thuộc:** T01, T02 và API T04 để QA tích hợp.
-**Rollback:** chặn nhận lệnh mới, xác minh/flush queue theo receipt rồi chuyển sang
-API cũ; lệnh uncertain giữ nguyên để đối chiếu. Không xóa queue khi bật/tắt flag.
+**Rollback:** tắt độ trễ bằng `CITY_BATCH_ENABLED=false`; tiếp tục queue/API batch
+và gửi ngay, giữ IDs/sequence/receipt. Không hạ bundle về API cũ khi còn lệnh
+uncertain; không xóa queue khi bật/tắt flag. Chi tiết trong runbook.
 
 ## T04 — Batch API, giảm xử lý lặp và ghi dữ liệu khi đọc
 
@@ -130,8 +135,8 @@ kiện gameplay vẫn tới hạn đúng; fixture kết quả tương đương b
 DB ops và byte trước/sau cho chuỗi thao tác dày lẫn thưa.
 **Kiểm thử:** API contract, CAS conflict, partial rejection, lost response, timeline,
 GET đồng thời mutation, outbox pending và cặp T03/T04 trên browser.
-**Phụ thuộc:** T01, T02. **Rollback:** API cũ vẫn đọc được schema; ngừng nhận batch
-mới và giải quyết queue như T03 trước khi đổi flag.
+**Phụ thuộc:** T01, T02. **Rollback:** API cũ vẫn đọc được schema; rollback delay
+như T03, tiếp tục nhận in-flight batch. Hạ code cũ cần đối chiếu hết queue trước.
 
 ## G-A — Gate sau tối ưu kiến trúc hiện tại
 
