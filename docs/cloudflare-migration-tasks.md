@@ -179,6 +179,10 @@ stress và báo cáo duration/rows/requests thực. Không dùng namespace produ
 
 **Description:** chuyển từng làng mà không có hai bản cùng nhận lệnh.
 
+**Tiến độ local:** đã có preflight không mutation, envelope/checksum và runner
+Mongo snapshot chỉ đọc, 6 test qua. Xem [village-preflight.md](./village-preflight.md).
+Chưa có ownership router, bàn giao owner hoặc import; không coi T06 đã hoàn thành.
+
 **Công việc:**
 - Metadata ownership: backend hiện tại, engine/schema version, epoch/fence,
   revision và trạng thái `mongo → migrating → durable-object`.
