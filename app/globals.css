@@ -484,3 +484,5 @@ a.google.small { padding: 4px 10px; font-size: 12.5px; }
   .welcome-info h2 { font-size: 26px; }
   .welcome-footer { flex-direction: column; gap: 6px; }
 }
+.dock-move-review { padding: 12px; border: 1px solid var(--accent); border-radius: 6px; }
+.dock-move-review button { margin: 4px 6px 0 0; }

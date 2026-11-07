@@ -196,7 +196,7 @@ const ERA_UP: Record<number, string> = {
 
 export const storageLevel = (b: Building, r: ResKey) => b.storageLevels?.[r] ?? b.lvl;
 
-export type Building = { floodUntil?:number; off?:boolean; damageCause?: 'earthquake'; shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
+export type Building = { stranded?: boolean; relocation?: { from: number; startedAt: number; duration: number }; floodUntil?:number; off?:boolean; damageCause?: 'earthquake'; shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
 export type Task =
   | { t: "idle"; at?: number } // at = where they stand and wait
   | { t: "work"; at: number }
@@ -355,7 +355,7 @@ export const BUILDING_ERA_NAMES: Partial<Record<BKey, string[]>> = {
 };
 export const buildingName = (c: City, k: BKey) => (k === "envoy" ? (ENVOY_HOUSE[c.era] ?? "Sứ quán") : DEFENSE_NAMES[k]?.[c.era] ?? BUILDING_ERA_NAMES[k]?.[c.era] ?? def(k).n);
 /** Built structures cease providing services while flooded or burned. */
-export const isBuildingActive = (b: Building | undefined): b is Building => !!b && b.lvl >= 1 && !b.flooded && !b.burned && !b.off;
+export const isBuildingActive = (b: Building | undefined): b is Building => !!b && b.lvl >= 1 && !b.flooded && !b.burned && !b.off && !b.stranded && !b.relocation;
 export const envoyCount = (c: City) => Object.values(c.b).reduce((a, b) => (b.k === "envoy" && isBuildingActive(b) ? Math.max(a, b.lvl) : a), 0);
 export const envoysAway = (c: City) => (c.trips ?? []).length;
 /** One-way travel time on the world map, faster with a higher-level envoy house. */
@@ -1182,6 +1182,29 @@ function haulingContext(c: City, D: Derived): HaulContext {
   const civic=civicContext(c);
   return { civic,transport:transportNetwork(c,undefined,civic.transport),medievalBonus:medievalBonus(c,undefined,civic.bonus), trees: new BoundedCache<string,RouteTree>(32,884736,tree=>tree.prev.length+tree.rank.length+tree.queue.length), drops: new BoundedCache<string,DropRoute|null>(512,65536,drop=>drop?.route.length??1), paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: (1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length))*(1+medievalBonus(c)) };
 }
+/** Docks need a cardinal river neighbor; canals cannot float transports. */
+export function dockOnRiver(c:City,tile:number){
+  const x=tile%W,y=Math.floor(tile/W);
+  return c.t[tile]!==R&&N4.some(([dx,dy])=>inb(x+dx,y+dy)&&c.t[idx(x+dx,y+dy)]===R);
+}
+function syncDockBanks(c:City,at:number){
+  const dry:number[]=[];
+  for(const [tile,b]of buildings(c)){
+    if(b.k!=="dock"||b.relocation)continue;
+    if(!dockOnRiver(c,tile)){if(!b.stranded){b.stranded=true;dry.push(tile);}}
+    else delete b.stranded;
+  }
+  if(dry.length)log(c,at,`${dry.length} bến cảng mắc cạn, ngừng đóng thuyền và đón chuyến qua sông. Chọn cảng → Chuyển bến để đưa ra bờ sông mới; giữ nguyên cấp và thuyền đã đóng.`,"warn");
+}
+export function dockRelocationPlan(c:City,from:number,to:number,rules:EngineRules=RELEASE_RULES){
+  const b=c.b[from],distance=cheb(from,to),lvl=Math.max(1,b?.lvl??1);
+  const cost:Partial<Res>={wood:(40+20*distance)*lvl,food:(20+10*distance)*lvl};
+  const duration=(30+10*distance)*1000;
+  const error=b?.k!=="dock"||b.lvl<1?"Chọn bến cảng đã xây xong.":b.doneAt?"Cảng đang xây, nâng cấp hoặc di chuyển.":from===to?"Chọn một bờ sông khác.":
+    canPlace(c,derive(c),"dock",to%W,Math.floor(to/W),rules,true)??missing(c,cost);
+  return {distance,cost,duration,error};
+}
+
 export const SHIP_CAPACITY=10;
 export const shipCost=(era:number):Partial<Res>=>eraCost({wood:400,copper:100,gold:40,food:80},era,3);
 export const shipBuildMs=(b:Building)=>Math.ceil(90_000/Math.max(1,b.lvl));
@@ -1726,7 +1749,8 @@ function applyShift(c: City, at: number) {
   const bed = new Set(c.oldbed);
   for (const i of oldS) if (!newS.has(i)) { c.t[i] = G; bed.add(i); }
   for (const i of newS) {
-    if (c.b[i]) { delete c.b[i]; lost++; }
+    if(c.b[i]?.k==="dock"){c.b[i].flooded=true;c.b[i].stranded=true;}
+    else if (c.b[i]) { delete c.b[i]; lost++; }
     c.t[i] = R; bed.delete(i); delete c.dep[i];
   }
   c.oldbed = [...bed];
@@ -1735,6 +1759,7 @@ function applyShift(c: City, at: number) {
     if ((tk.t === "work" && !c.b[tk.at]) || ((tk.t === "chop" || tk.t === "mine") && c.t[tk.at] === R)) p.task = { t: "idle" };
   }
   c.xs = s.xs!;
+  syncDockBanks(c,at);
   s.done = true;
   c.boostUntil = at + 4 * SEASON_MS;
   const D = derive(c);
@@ -1959,7 +1984,7 @@ function stepArmy(c: City, nt: number,docks=buildings(c).filter(([,b])=>b.k==="d
   if(c.merchantJourneys?.some(j=>j.back<=nt))c.merchantJourneys=c.merchantJourneys.filter(j=>j.back>nt);
   if(c.ferryBookings)c.ferryBookings=c.ferryBookings.filter(b=>b.back>nt);
   for(const [,b]of docks){
-    if(b.lvl<1||b.burned||b.flooded){if(b.shipQueue)b.shipQueue=b.shipQueue.map(done=>done+HAUL_TILE_MS);continue;}
+    if(b.lvl<1||b.burned||b.flooded||b.off||b.stranded||b.relocation){if(b.shipQueue)b.shipQueue=b.shipQueue.map(done=>done+HAUL_TILE_MS);continue;}
     while(b.shipQueue?.length&&b.shipQueue[0]<=nt){const done=b.shipQueue.shift()!;c.transportShips=(c.transportShips??0)+1;log(c,done,"Đóng xong một thuyền vận tải (10 chỗ).","good");}
   }
   pruneHomeOrders(c);
@@ -2072,6 +2097,12 @@ function onSeason(c: City, si: number) {
 }
 
 function completeBuilding(c:City,b:Building,at:number){
+  if(b.relocation){
+    delete b.relocation;b.doneAt=null;
+    const tile=buildings(c).find(([,building])=>building===b)?.[0];
+    b.stranded=tile===undefined||!dockOnRiver(c,tile);
+    log(c,at,b.stranded?"Đã chuyển bến nhưng sông lại rời bờ mới; cảng còn mắc cạn, cần chọn bờ khác.":"Chuyển bến hoàn tất, cảng hoạt động lại. Giữ nguyên cấp và đội thuyền.",b.stranded?"warn":"good");return;
+  }
   if(isStorage(b.k) && b.storageUpgrade){
     const r=b.storageUpgrade;
     b.storageLevels![r]=storageLevel(b,r)+1;
@@ -2088,6 +2119,7 @@ function completeBuilding(c:City,b:Building,at:number){
 /** Advance the city to `now`: finish construction, run seasons, produce, grow. Mutates `c`. */
 export function settle(c: City, now: number) {
   normalizeResources(c);
+  syncDockBanks(c,c.last);
   initializeMedieval(c,now);
   initializeIndustry(c,now);
   initializeModern(c,now);
@@ -2214,7 +2246,7 @@ export function settle(c: City, now: number) {
   c.last = now;
 }
 
-export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rules:EngineRules=RELEASE_RULES): string | null {
+export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rules:EngineRules=RELEASE_RULES,skipCost=false): string | null {
   const d = def(k), i = idx(x, y), t = c.t[i];
   if(d.era>rules.maxEra)return "Thời đại này sắp ra mắt.";
   if (!c.seen[i]) return "Vùng này chưa khám phá.";
@@ -2235,13 +2267,13 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rul
   if(k==="reservoir"&&!hasWaterSource(c,D,i))return "Hồ chứa phải kề sông hoặc kênh đang có nước (không chéo).";
   if((k==="retention")&&!hasWaterSource(c,D,i))return "Hồ điều hòa cần kề sông/kênh có nước.";
   if (d.need === "water" && !near(N4, (j) => c.t[j] === R || c.b[j]?.k === "canal")) return "Kênh phải nối thẳng (không chéo) vào sông hoặc kênh khác.";
-  if (d.need === "river" && !near(N4, (j) => c.t[j] === R)) return "Cối nước phải sát sông (không chéo).";
+  if (d.need === "river" && !near(N4, (j) => c.t[j] === R)) return `${def(k).n} phải sát sông (không chéo).`;
   if (d.need === "bank" && D.rd[i] !== 1 && !near(N4,j=>c.b[j]?.k==="levee")) return "Đê phải sát bờ sông hoặc nối thẳng vào đoạn đê khác (không chéo).";
   const finalError=finalWonderError(c,k,c.last);if(finalError)return finalError;
   const limit=buildingLimit(c,k);
   if (limit!==undefined && count(c, k) >= limit) return k==='watchtower'?`Đã đủ giới hạn ${count(c,k)}/${limit} trụ ở thời đại này.`:`Đã đủ số lượng tối đa (${limit}).`;
   if (busyBuilders(c) >= builders(c)) return "Tất cả thợ đang bận.";
-  return missing(c, buildingCost(k, c.era));
+  return skipCost?null:missing(c, buildingCost(k, c.era));
 }
 
 export function reqMet(c: City, rules:EngineRules=RELEASE_RULES) {
@@ -2267,6 +2299,7 @@ export type Action =
   | { type: "upgrade"; x: number; y: number }
   | { type: "repair"; x: number; y: number }
   | { type: "buildShip"; x: number; y: number }
+  | { type: "relocateDock"; x: number; y: number; to: number }
   | { type: "speedBuild"; x: number; y: number }
   | { type: "tendFarm"; x: number; y: number }
   | { type: "demolish"; x: number; y: number }
@@ -2292,8 +2325,17 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
   if(a.type==="setPowerPriority"){if(!c.modern||rules.maxEra<6)return "Điện mở ở Hiện đại.";c.modern.priority=[...a.priority];stepPower(c,now,now,B);return null;}
   if(a.type==="plantTree")return rules.maxEra>=5?plantTree(c,idx(a.x,a.y),now):"Sắp ra mắt.";
   if(a.type==="toggleBuilding"){const b=c.b[idx(a.x,a.y)];if(!b||def(b.k).era>rules.maxEra||!canToggle(def(b.k)))return "Chỉ bật/tắt cơ sở công nghiệp và dịch vụ mới.";b.off=!b.off;if(c.modern)stepPower(c,now,now,B);return null;}
+  if(a.type==="relocateDock"){
+    const from=idx(a.x,a.y),plan=dockRelocationPlan(c,from,a.to,rules);
+    if(plan.error)return plan.error;
+    const b=c.b[from];pay(c,plan.cost);
+    delete c.b[from];c.b[a.to]=b;
+    b.relocation={from,startedAt:now,duration:plan.duration};b.doneAt=now+plan.duration;b.stranded=true;
+    for(const p of c.people)if(p.task.t==="work"&&p.task.at===from){p.task={t:"idle"};delete p.haul;}
+    log(c,now,`Thợ chuyển bến cảng ${plan.distance} ô, đã trả ${costText(plan.cost)}; mất ${Math.ceil(plan.duration/1000)} giây, dùng 1 đội thợ xây.`,"good");return null;
+  }
   if(a.type==="buildShip"){
-    const b=c.b[idx(a.x,a.y)];if(b?.k!=="dock"||!isBuildingActive(b)||b.doneAt)return "Cần Bến cảng đã xây xong, không cháy/ngập.";
+    const b=c.b[idx(a.x,a.y)];if(b?.k!=="dock"||!isBuildingActive(b)||b.doneAt)return "Cần Bến cảng hoạt động, không mắc cạn, cháy/ngập hoặc đang chuyển bến.";
     const queued=buildings(c).reduce((n,[,b])=>n+(b.shipQueue?.length??0),0);
     if((c.transportShips??0)+queued>=shipCapacity(c))return "Đã đủ thuyền theo sức chứa cảng; xây hoặc nâng thêm Bến cảng.";
     const cost=shipCost(c.era),err=missing(c,cost);if(err)return err;
@@ -2510,6 +2552,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     const d = def(b.k);
     if (!d.up) return "Công trình này không nâng cấp được.";
     if (b.doneAt) return "Đang xây dở.";
+    if (b.stranded) return "Cảng mắc cạn: chuyển bến ra bờ sông trước khi nâng cấp.";
     if (b.flooded || b.burned) return "Phải sửa trước khi nâng cấp.";
     if (b.lvl >= (b.k==="hall"?Math.min(levelCap(c,b.k),Math.max(3,rules.maxEra)):MAX_LVL)) return "Đã cấp tối đa.";
     if (b.lvl >= levelCap(c, b.k)) return hallLevel(c) ? `Cần nâng Đình làng lên cấp ${b.lvl + 1} trước.` : "Cần xây Đình làng (mở ở Thời đồ đồng) để nâng cấp công trình.";

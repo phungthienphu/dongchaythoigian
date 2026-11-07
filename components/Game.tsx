@@ -11,7 +11,7 @@ import { ReadFlights } from "@/lib/read-flights";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  buildingJobs,storageCapacity, availableForWork, isScout, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
+  dockRelocationPlan, buildingJobs,storageCapacity, availableForWork, isScout, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
   armyCap, armyUsed, buildingCost, trainingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -335,6 +335,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   useEffect(()=>{if(finalReview&&!finalDialog.current?.open)finalDialog.current?.showModal();},[finalReview]);
   const [tool, setTool] = useState<BKey | null>(null);
   const [selected, setSelected] = useState<Cell | null>(null);
+  const [dockMove, setDockMove] = useState<number | null>(null);
+  const [dockTarget, setDockTarget] = useState<Cell | null>(null);
   const [herdSel, setHerdSel] = useState<number | null>(null);
   const [hover, setHover] = useState<Cell | null>(null);
   const [picked, setPicked] = useState<Set<number>>(new Set());
@@ -724,6 +726,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     const c = cityRef.current;
     if (!c) return;
     const p = local(e);
+    if(dockMove!==null){const cell=cellAt(e);if(cell)setDockTarget(cell);return;}
     if(planting){const cell=cellAt(e);if(cell)await act({type:"plantTree",...cell});return;}
     if (guardEditing) {
       const cell = cellAt(e); if (!cell) return;
@@ -804,6 +807,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   };
 
   const pickTool = (k: BKey | null) => {
+    setDockMove(null);setDockTarget(null);
     setPlanting(false);
     setPickedSoldier(null);
     setGuardEditing(false);
@@ -817,7 +821,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setPlanting(false);setFinalReview(null);setPickedSoldier(null); setGuardEditing(false); setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
+      setDockMove(null);setDockTarget(null);setPlanting(false);setFinalReview(null);setPickedSoldier(null); setGuardEditing(false); setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -862,7 +866,10 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const cap = armyCap(c), used = armyUsed(c), homePower = troopPower(c.army);
 
   let status: { text: string; err?: boolean } | null = msg;
-  if (hover && tool) {
+  if (dockMove!==null) {
+    const plan=hover?dockRelocationPlan(c,dockMove,idx(hover.x,hover.y),rules):null;
+    status={text:plan?`Chuyển bến: ${plan.error??`${plan.distance} ô · ${costText(plan.cost)} · ${fmtDur(plan.duration)} · 1 đội thợ xây. Bấm để chọn, xác nhận trong bảng cảng.`}`:"Chọn ô đất trống sát sông để chuyển bến. Esc để hủy.",err:!!plan?.error};
+  } else if (hover && tool) {
     const bad = canPlace(c, D, tool, hover.x, hover.y,rules);
     status = bad ? { text: `${buildingName(c, tool)}: ${bad}`, err: true } : { text: `${buildingName(c, tool)}: bấm để xây. Ô: ${tileDesc(c, D, idx(hover.x, hover.y))}.` };
   } else if (hover && picked.size) {
@@ -1044,7 +1051,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               {sel.k==='gather'&&sel.lvl>=1&&<p className="small">Phí vận hành: {gatherFoodPerHour(c,D,selI)/60} thực/phút khi sản xuất. {gatherFoodPerHour(c,D,selI)===120?'Đang được kênh có nước tưới.':'Chưa có kênh có nước tưới trong 1 ô; sát sông hoặc kênh cạn vẫn tính 4 thực/phút.'} Cộng riêng với sức ăn dân; không thu lúc đi giao hàng hoặc chờ kho đầy.</p>}
               {sel.k==='wheel'&&sel.lvl>=1&&c.res.wood<=0&&<p className="err small">Cối nước hết gỗ, tạm ngừng sản xuất. Bổ sung gỗ để dân tự làm tiếp; hàng đang mang vẫn được nộp kho.</p>}
               {sel.k==='canal'&&sel.lvl>=1&&<p className={D.wet[selI]?'small':'err small'}>{D.wet[selI]?'Kênh đang có nước, tưới cho đất xung quanh.':'Kênh cạn: mất đường nối tới sông, không còn tưới đất. Nối lại kênh để có nước hoặc dùng Phá dỡ bên dưới để gỡ từng đoạn.'}</p>}
-              {sel.doneAt && <p className="small">{sel.lvl === 0 ? "Đang xây" : sel.storageUpgrade ? `Đang nâng ngăn ${RN[sel.storageUpgrade]}` : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
+              {sel.doneAt && <p className="small">{sel.relocation ? "Đang chuyển bến" : sel.lvl === 0 ? "Đang xây" : sel.storageUpgrade ? `Đang nâng ngăn ${RN[sel.storageUpgrade]}` : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
               {c.cropDamage?.tile===selI && c.cropDamage.until>t && <p className="err small">Ruộng bị thú rừng giẫm: năng suất còn 50%, phục hồi sau {fmtDur(c.cropDamage.until-t)}.</p>}
               {sel.doneAt && <button disabled={busy||c.res.diamond<speedBuildCost(sel,t)} onClick={()=>act({type:"speedBuild",...selected})}>Hoàn tất ngay · {speedBuildCost(sel,t)} kim cương (30 giây / viên)</button>}
               {(sel.flooded || sel.burned) && <p className="err small">{sel.damageCause==='earthquake'?"Hư hại do động đất, cần sửa để hoạt động lại.":sel.burned ? "Bị cháy, cần sửa để hoạt động lại." : "Bị ngập, không hoạt động."}</p>}
@@ -1088,7 +1095,13 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               </>}
               {sel.k==="barracks" && sel.lvl>=1 && !armyStagingTiles(c,1).length && <p className="err small">Trại lính bị bịt kín. Chừa lối đất nối ra ngoài, đặt cổng thay tường hoặc dỡ công trình chắn lối; quân không tự phá nhà mình.</p>}
               {["barracks","logistics","infirmary"].includes(sel.k) && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
-              {sel.k==="dock"&&sel.lvl>=1&&<DockPanel city={c} building={sel} now={t} busy={busy} onBuild={()=>{void act({type:"buildShip",...selected});}}/>}
+              {sel.k==="dock"&&sel.lvl>=1&&<>
+                <DockPanel city={c} building={sel} now={t} busy={busy} onBuild={()=>{void act({type:"buildShip",...selected});}} onRelocate={()=>{setDockMove(selI);setDockTarget(null);setTool(null);setPicked(new Set());setPickedSoldier(null);setGuardEditing(false);setPlanting(false);setMsg(null);}}/>
+                {dockMove===selI&&<div className="dock-move-review" role="region" aria-label="Chuyển bến cảng"><p>Chọn ô đất trống sát sông trên bản đồ. Xem phí trước khi xác nhận.</p>{dockTarget&&(()=>{
+                  const plan=dockRelocationPlan(c,selI,idx(dockTarget.x,dockTarget.y),rules);
+                  return <><p>Bờ mới ({dockTarget.x}, {dockTarget.y}) · {plan.distance} ô</p><p>{costText(plan.cost)} · {fmtDur(plan.duration)} · 1 đội thợ xây</p>{plan.error&&<p className="err" role="status">{plan.error}</p>}<button className="primary" disabled={busy||saving||!!plan.error} onClick={async()=>{if(await act({type:"relocateDock",...selected,to:idx(dockTarget.x,dockTarget.y)})){setSelected(dockTarget);setDockMove(null);setDockTarget(null);}}}>Xác nhận chuyển bến</button></>;
+                })()}<button onClick={()=>{setDockMove(null);setDockTarget(null);}}>Hủy chuyển bến</button></div>}
+              </>}
               {sel.k === "market" && sel.lvl >= 1 && <button className="primary" onClick={()=>setPanel("market")}>Giao thương bằng đoàn xe</button>}
               {sel.k === "hall" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("control")}>{control ? "Trung tâm điều khiển" : "Xem Đình làng"}</button>}
               {["storehouse","grandstore"].includes(sel.k) && sel.lvl >= 1 && <div><p className="small">Nâng riêng từng ngăn. Kho thường thêm 1.000 chỗ; Đại kho tăng 10.000 → 20.000 → 40.000.</p>{RES.filter(r=>r!=="coal"||c.era>=5).map(r=>{
@@ -1101,7 +1114,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               {!["storehouse","grandstore"].includes(sel.k) && B[sel.k].up && sel.lvl >= 1 && sel.lvl < (sel.k==="hall"?rules.maxEra:MAX_LVL) && sel.lvl >= levelCap(c, sel.k) && (
                 <p className="muted small">{hallLv ? `Nâng Đình làng lên cấp ${sel.lvl + 1} để nâng tiếp.` : "Xây Đình làng (Thời đồ đồng) để nâng cấp công trình."}</p>
               )}
-              {!["storehouse","grandstore"].includes(sel.k) && B[sel.k].up && sel.lvl >= 1 && sel.lvl < (sel.k==="hall"?rules.maxEra:MAX_LVL) && sel.lvl < levelCap(c, sel.k) && !sel.doneAt && !sel.flooded && !sel.burned && (
+              {!["storehouse","grandstore"].includes(sel.k) && B[sel.k].up && sel.lvl >= 1 && sel.lvl < (sel.k==="hall"?rules.maxEra:MAX_LVL) && sel.lvl < levelCap(c, sel.k) && !sel.doneAt && !sel.flooded && !sel.burned && !sel.stranded && (
                 <button disabled={busy} onClick={() => act({ type: "upgrade", ...selected })}>
                   Lên cấp {sel.lvl + 1} ({costText(levelCost(sel.k, sel.lvl + 1, c.era))}, {fmtDur(buildMs(sel.k, sel.lvl + 1))})
                 </button>

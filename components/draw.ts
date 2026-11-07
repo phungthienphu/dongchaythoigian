@@ -1772,6 +1772,11 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
             }
             smoke(r, x, y, 0, 0, 24, i);
           }
+          if (b.stranded && !b.relocation) {
+            const [sx,sy]=tp(r,x,y)(0,0,48);
+            c.fillStyle='#a76b33';c.beginPath();c.arc(sx,sy,8*v.s,0,Math.PI*2);c.fill();
+            c.fillStyle='#fff2ce';c.font=`bold ${Math.max(10,Math.round(11*v.s))}px sans-serif`;c.textAlign='center';c.textBaseline='middle';c.fillText('!',sx,sy);
+          }
           if (b.flooded) {
             const q = tp(r, x, y);
             poly(c, [q(-0.48, -0.48, 2), q(0.48, -0.48, 2), q(0.48, 0.48, 2), q(-0.48, 0.48, 2)], "rgba(70,150,210,.55)");
@@ -1783,7 +1788,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
             const [px,py]=tp(r,x,y)(0,0,48);c.fillStyle='#263f45';c.beginPath();c.arc(px,py,7*v.s,0,Math.PI*2);c.fill();c.fillStyle='#ffe18b';c.font=`bold ${Math.max(10,Math.round(12*v.s))}px sans-serif`;c.textAlign='center';c.fillText(b.off?'⏸':'ϟ',px,py+4*v.s);
           }
           if (b.doneAt) {
-            const total = B[b.k].sec * 1000 * 3 ** b.lvl;
+            const total = b.relocation?.duration ?? B[b.k].sec * 1000 * 3 ** b.lvl;
             drawScaffold(r, x, y, Math.max(0, Math.min(1, 1 - (b.doneAt - o.now) / total)));
           }
           if (b.lvl >= 2) {
