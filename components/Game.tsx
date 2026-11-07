@@ -22,6 +22,7 @@ import { ERAS as ERA_ROADMAP, RELEASED_ERA } from "@/lib/eras";
 import { expeditionReadiness } from "@/lib/expedition-readiness";
 import ExpeditionReadiness from "./ExpeditionReadiness";
 import WorldMap from "./WorldMap";
+import WelcomeScreen from "./WelcomeScreen";
 import FriendSearch from "./FriendSearch";
 import HowToPlay from "./HowToPlay";
 import { buildAvailability } from "@/lib/build-availability";
@@ -428,7 +429,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if (actionQueue.current?.isPending) return;
     const generation = actionQueue.current?.version;
     const res = await fetch("/api/city", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
-    if (res.status === 404) { setNeedsName(true); setLoading(false); return; }
+    if (res.status === 401 || res.status === 404) { setNeedsName(true); setLoading(false); return; }
     if (!res.ok) { const data=await res.json().catch(()=>({})); setMsg({ text: data.error ?? "Không tải được thành phố. Thử kết nối lại.", err: true }); setLoading(false); return; }
     const data = await res.json();
     if (actionQueue.current && (actionQueue.current.isPending || generation !== actionQueue.current.version)) return;
@@ -634,12 +635,19 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
   const createCity = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await fetch("/api/city", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: nameInput }) });
-    const data = await res.json();
-    if (!res.ok) { setMsg({ text: data.error ?? "Không tạo được thành phố.", err: true }); return; }
-    accept(data);
-    setNeedsName(false);
-    loadBoard(); loadMe();
+    if (busy) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/city", { method: "POST", signal: AbortSignal.timeout(15000), headers: { "content-type": "application/json" }, body: JSON.stringify({ name: nameInput }) });
+      const data = await res.json();
+      if (!res.ok) { setMsg({ text: data.error ?? "Không tạo được làng. Hãy thử lại.", err: true }); return; }
+      accept(data);
+      setNeedsName(false);
+      loadBoard(); loadMe();
+    } catch {
+      setMsg({ text: "Chưa nhận được xác nhận tạo làng. Hãy tải lại trang để kiểm tra trước khi thử lại.", err: true });
+    } finally { setBusy(false); }
   };
 
   const local = (e: { clientX: number; clientY: number }) => {
@@ -836,21 +844,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   if (loading) return <main className="wrap"><p className="muted">Đang tải thành phố…</p></main>;
 
   if (needsName || !c || !D) {
-    return (
-      <main className="wrap start">
-        <h1>Dòng Sông Thời Đại</h1>
-        <p className="lede">Dựng một khu định cư bên sông và đưa nó từ thời đồ đá lên {ERA_NAMES[rules.maxEra].toLowerCase()}. Giao việc cho dân làng, săn thú, khám phá vùng đất, luyện quân phá trại man rợ. Thành phố vẫn chạy khi bạn rời đi.</p>
-        {!me.user && (
-          <p className="small">Đã có thành phố? <a className="google" href="/api/auth/login">Đăng nhập bằng Google</a> để chơi tiếp trên máy này.</p>
-        )}
-        <form onSubmit={createCity} className="startform">
-          <label htmlFor="cityname">Đặt tên thành phố</label>
-          <input id="cityname" value={nameInput} onChange={(e) => setNameInput(e.target.value)} maxLength={24} placeholder="Ví dụ: Bến Phù Sa" autoFocus />
-          <button type="submit" className="primary">Dựng trại</button>
-        </form>
-        {msg && <p className={msg.err ? "err" : "muted"}>{msg.text}</p>}
-      </main>
-    );
+    return <WelcomeScreen user={me.user} name={nameInput} onName={setNameInput} onCreate={createCity} busy={busy} message={msg} maxEra={rules.maxEra}/>;
   }
 
   const st = stats(c, D, t), upkeep=upkeepRates(c.era);

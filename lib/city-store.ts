@@ -11,22 +11,16 @@ export class UnsupportedCityVersionError extends Error {
   constructor() { super("Làng đang dùng phiên bản dữ liệu khác. Tiến trình được giữ nguyên; hãy thử lại sau khi máy chủ cập nhật xong."); }
 }
 
-/** The signed-in player's city, or the guest city from the `pid` cookie. */
+/** Playing requires a signed session and independently verified city ownership.
+ * The legacy pid cookie is retained only for first-login adoption in the OAuth callback.
+ */
 export async function playerId() {
-  const jar = await cookies();
-  const uid = readSession(jar.get(SESSION_COOKIE)?.value);
-  if (uid) {
-    const u = await (await users()).findOne({ _id: uid }, { projection: { cityId: 1 } });
-    if (u?.cityId) {
-      const owned = await (await cities()).findOne({ _id: u.cityId, owner: uid }, { projection: { _id: 1 } });
-      if (owned) return owned._id;
-    }
-  }
-  const guest = jar.get(PID_COOKIE)?.value;
-  if (!guest) return null;
-  // Legacy guest identifiers remain supported, but never grant access to an owned city.
-  const doc = await (await cities()).findOne({ _id: guest }, { projection: { owner: 1 } });
-  return doc && !doc.owner ? doc._id : null;
+  const uid = readSession((await cookies()).get(SESSION_COOKIE)?.value);
+  if (!uid) return null;
+  const user = await (await users()).findOne({ _id: uid }, { projection: { cityId: 1 } });
+  if (!user?.cityId) return null;
+  const owned = await (await cities()).findOne({ _id: user.cityId, owner: uid }, { projection: { _id: 1 } });
+  return owned?._id ?? null;
 }
 
 /** PvP requires a signed Google session and independently verified city ownership. */
