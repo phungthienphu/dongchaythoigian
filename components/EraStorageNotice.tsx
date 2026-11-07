@@ -1,10 +1,11 @@
+import { RELEASED_ERA } from '@/lib/eras';
 import { ERA_REQ, RES, RN, type Res } from '@/lib/engine';
 
 /** An era goal is a payment target, not the village's storage limit. */
-export default function EraStorageNotice({ era, storage, onOpenShop }: { era:number; storage:Res; onOpenShop:()=>void }) {
-  const goal=ERA_REQ[era+1];
+export default function EraStorageNotice({ era, storage, onOpenShop, maxEra=RELEASED_ERA }: { maxEra?:number; era:number; storage:Res; onOpenShop:()=>void }) {
+  const goal=era+1<=maxEra?ERA_REQ[era+1]:undefined;
   const blocked=goal?RES.filter(r=>(goal.cost[r]??0)>storage[r]):[];
-  if(!blocked.length)return null;
+  if(!goal||!blocked.length)return null;
   const fmt=(n:number)=>n.toLocaleString('vi-VN');
   return <aside role="status" className="era-storage-notice">
     <b>Sức chứa kho chưa đủ để lên đời</b>

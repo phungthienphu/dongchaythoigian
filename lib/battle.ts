@@ -17,7 +17,7 @@ const dist = (a: {x:number;y:number}, b: {x:number;y:number}) => Math.hypot(a.x-
 const xy = (tile:number) => ({ x: tile % W + .5, y: Math.floor(tile / W) + .5 });
 const living = (g:BattleGroup) => g.count > 0 && !g.escaped;
 const range = (u:UKey) => u === 'bow' ? 6 : u === 'sling' ? 4 : 1.4;
-const flatBuilding=(k:string)=>['farm','canal','levee'].includes(k);
+const flatBuilding=(k:string)=>['farm','estate','canal','levee'].includes(k);
 const blockingBuilding=(b:BattleBuilding,side:BattleSide)=>!b.burned&&!flatBuilding(b.k)&&!(b.k==='gate'&&side==='defender');
 const blockedTerrain=(terrain:number,naval=false)=>(terrain===R&&!naval)||isRock(terrain);
 function safeSpawn(terrain:number[],buildings:BattleBuilding[],side:BattleSide,p:{x:number;y:number}){

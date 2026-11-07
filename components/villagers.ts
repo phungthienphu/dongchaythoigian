@@ -46,7 +46,7 @@ export type Fx = { kind: "spear" | "chip"; x0: number; y0: number; x1: number; y
 const HOMES = new Set(["hut", "house", "stonehouse"]);
 const SKINS = ["#f1c9a0", "#d9a77a", "#b98057"];
 const BANDS = ["#c9503e", "#e2b240", "#3f6fb0", "#5c9a8a"];
-const JOB_OF: Record<string, Job> = { wood: "wood", quarry: "quarry", gather: "gather", farm: "farm", smelter: "smith", forge: "smith", market: "trade", wheel: "farm" };
+const JOB_OF: Record<string, Job> = { wood: "wood", quarry: "quarry", gather: "gather", farm: "farm", estate:"farm", artisan:"smith", school:"other", reservoir:"other", smelter: "smith", forge: "smith", market: "trade", wheel: "farm" };
 const SHIRT: Record<Job, string> = { wood: "#3f6fb0", quarry: "#8a8f96", gather: "#c9503e", farm: "#6f9a3a", build: "#e2b240", smith: "#5a4a40", trade: "#b6869f", hunt: "#7a5530", explore: "#2f8f8a", idle: "#a9779a", other: "#5c9a8a" };
 const WALK = 0.9, RUN = 1.9; // tiles per second
 
@@ -61,7 +61,7 @@ function passable(city: City, j: number, to: number, water: boolean) {
   if (j === to) return true;
   if (!water && city.t[j] === R) return false;
   const b = city.b[j];
-  return !b || b.k === "canal" || b.k === "farm" || b.k === "levee" || b.k === "gate";
+  return !b || b.k === "canal" || (b.k === "farm" || b.k === "estate") || b.k === "levee" || b.k === "gate";
 }
 
 /** 8-direction BFS (no corner cutting), then straightened so people walk diagonally instead of in steps. */
@@ -395,13 +395,14 @@ export class Crowd {
     v.fx = position.x; v.fy = position.y;
     // A farming assignment alone does not mean the worker has reached the field.
     const farming = h.phase === "work" && !h.resting && (h.workRate ?? 0) > 0
-      && p.task.t === "work" && city.b[p.task.at]?.k === "farm" && h.tile === p.task.at;
+      && p.task.t === "work" && ["farm","estate"].includes(city.b[p.task.at]?.k) && h.tile === p.task.at;
     // Distinct places in the front crop rows, only while actually farming.
     if (farming && p.task.t === "work") {
       const tile=p.task.at;
       const workers=city.people.filter(q=>q.task.t==="work"&&q.task.at===tile).sort((a,b)=>a.id-b.id);
-      const slot=workers.findIndex(q=>q.id===p.id)%2;
-      v.fx += slot===0 ? -.14 : .32; v.fy += slot===0 ? .32 : -.14;
+      const slot=workers.findIndex(q=>q.id===p.id)%4;
+      const offsets=[[-.14,.32],[.32,-.14],[-.3,.05],[.05,-.3]];
+      v.fx += offsets[slot][0]; v.fy += offsets[slot][1];
     }
     v.shirt = SHIRT[v.job];
     v.haulPhase = h.phase; v.cargo = h.carried;

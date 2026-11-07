@@ -1,3 +1,4 @@
+import type {EngineRules} from '@/lib/eras';
 import { BoundedCache } from "@/lib/bounded-cache";
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
@@ -526,9 +527,66 @@ function drawEvolvingWorkshop(r: RC, k: BKey, x: number, y: number, lvl: number,
   return true;
 }
 
+/** Medieval buildings share materials, but keep distinct silhouettes and equipment. */
+function drawMedieval(r:RC,k:BKey,x:number,y:number,lvl:number,i:number){
+  if(!['grandstore','tilehouse','well','reservoir','school','artisan','academy'].includes(k))return false;
+  const q=tp(r,x,y),c=r.c,hs=1+.15*Math.max(0,lvl-1);
+  shadow(r,x,y,.46);
+  const stone=(u0:number,v0:number,u1:number,v1:number,z:number,h:number)=>box(r,x,y,u0,v0,u1,v1,z,h,'#d9c8a4','#b6a27f','#91876f');
+  const roof=(u0:number,v0:number,u1:number,v1:number,z:number,h=12)=>{
+    gable(r,x,y,u0,v0,u1,v1,z,h,'#b9593c','#8e3c2b','#723129');
+    // Tiled courses catch the light across the front slope.
+    for(let n=1;n<5;n++){const v=v0+(v1-v0)*(.5+n*.1);line(r,q(u0,v,z+h*(1-(v-v0)/(v1-v0)*2+1)),q(u1,v,z+h*(1-(v-v0)/(v1-v0)*2+1)),'#d58056',.5);}
+  };
+  stone(-.46,-.44,.46,.44,0,3);
+  if(k==='reservoir'){
+    stone(-.46,-.44,.46,-.35,3,7);stone(-.46,-.44,-.36,.44,3,7);stone(.36,-.44,.46,.44,3,7);stone(-.46,.35,.46,.44,3,7);
+    const fraction=i<0?.8:Math.min(1,(r.city.medieval?.water[i]??0)/(12*3600000));
+    poly(c,[q(-.35,-.34,3),q(.35,-.34,3),q(.35,.34,3),q(-.35,.34,3)],'#8c8265');
+    if(fraction>0){poly(c,[q(-.34,-.33,3+fraction*3),q(.34,-.33,3+fraction*3),q(.34,.33,3+fraction*3),q(-.34,.33,3+fraction*3)],'#4d9dae');line(r,q(-.2,.02,4),q(.17,.02,4),'#a3d9d3',1);}
+    for(let n=0;n<3;n++)stone(-.16,.22+n*.06,.16,.28+n*.06,0,5-n);
+    line(r,q(-.41,-.35,7),q(-.41,-.35,25),'#7b5334',1.5);flag(r,x,y,-.41,-.35,7,20,'#559ba4',i);
+    return true;
+  }
+  if(k==='well'){
+    stone(-.25,-.25,.25,.25,3,10);
+    poly(c,[q(-.18,-.18,10),q(.18,-.18,10),q(.18,.18,10),q(-.18,.18,10)],'#407583');
+    for(const u of [-.25,.25])line(r,q(u,0,10),q(u,0,26),'#755034',2);
+    roof(-.33,-.28,.33,.28,26,10);line(r,q(0,0,26),q(0,0,12),'#d8bd75',1);
+    box(r,x,y,.14,.28,.28,.4,0,7,'#b68b50','#926938','#68472d');return true;
+  }
+  if(k==='academy'||k==='school'){
+    const grand=k==='academy',h=grand?23:17*hs;
+    // A rear teaching hall and two side pavilions frame an open courtyard.
+    stone(-.4,-.36,.4,-.06,3,h);roof(-.45,-.41,.45,-.01,h,grand?15:11);
+    for(const u of [-.33,-.12,.12,.33])line(r,q(u,-.04,3),q(u,-.04,h-1),'#79482f',1.5);
+    if(grand){stone(-.43,.02,-.27,.36,3,13);roof(-.46,-.02,-.24,.4,13,9);stone(.27,.02,.43,.36,3,13);roof(.24,-.02,.46,.4,13,9);}
+    else {box(r,x,y,-.19,.12,.2,.28,3,7,'#b8864e','#8c6337','#6e4d2d');line(r,q(-.12,.16,8),q(.12,.16,8),'#f1dfb7',2);}
+    stone(-.13,.32,.13,.43,3,8);stone(-.04,.32,.04,.4,8,21);
+    if(grand){flag(r,x,y,-.34,.18,3,32,'#c5953e',i,true);flag(r,x,y,.34,.18,3,32,'#a74737',i,true);}
+    return true;
+  }
+  const height=(k==='grandstore'?23:k==='artisan'?17:20)*hs;
+  stone(-.38,-.34,.38,.27,3,height);roof(-.44,-.4,.44,.33,height,13);
+  // Doors and shuttered windows read at the normal village zoom.
+  poly(c,[q(-.07,.28,3),q(.08,.28,3),q(.08,.28,14),q(-.07,.28,14)],'#61432e');
+  for(const u of [-.26,.23])poly(c,[q(u-.05,.28,8),q(u+.05,.28,8),q(u+.05,.28,14),q(u-.05,.28,14)],'#6c704f');
+  if(k==='grandstore'){
+    for(const u of [-.34,-.19,.2,.35])box(r,x,y,u-.05,.34,u+.05,.44,3,10,'#d9bc77','#b59453','#8a6a37');
+    for(const u of [-.32,.31])line(r,q(u,.28,3),q(u,.28,height),'#716857',2);
+    flag(r,x,y,-.32,-.3,height,18,'#d3ae56',i);
+  }else if(k==='artisan'){
+    box(r,x,y,.14,.32,.39,.43,3,9,'#b78b52','#87623c','#69472d');
+    for(let n=0;n<3;n++)box(r,x,y,-.37+n*.1,.34,-.3+n*.1,.43,3,7,'#e0c879','#bb9851','#977135');
+    line(r,q(.21,.36,10),q(.31,.36,16),'#5d4b38',2);
+  }else {stone(-.43,.34,.43,.43,0,4);box(r,x,y,-.45,-.26,-.38,-.1,3,12,'#7c9253','#5d743d','#476031');}
+  return true;
+}
+
 function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) {
+  if(drawMedieval(r,k,x,y,lvl,i))return;
   if (k === "hut" && r.city.era > 1) { drawBase(r,r.city.era === 2 ? "house" : "stonehouse",x,y,lvl,i); return; }
-  if (k === "house" && r.city.era === 3) { drawBase(r,"stonehouse",x,y,lvl,i); return; }
+  if (k === "house" && r.city.era >= 3) { drawBase(r,"stonehouse",x,y,lvl,i); return; }
   if(k==="dock"){
     const q=tp(r,x,y),stone=r.city.era>=3;
     shadow(r,x,y,.46);
@@ -648,7 +706,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
     }
     case "quarry": {
       if(r.city.era>1){
-        const stone=r.city.era===3;
+        const stone=r.city.era>=3;
         for(const u of [-.3,.3])box(r,x,y,u-.035,-.25,u+.035,-.18,0,24,stone?"#adb8ad":"#ae8350",stone?"#889d90":"#865e36",stone?"#637e73":"#644528");
         line(r,q(-.3,-.22,24),q(.3,-.22,24),stone?"#768d87":"#765130",3);
         line(r,q(.05,-.22,24),q(.05,-.22,8),"#d8c59c",1);
@@ -669,7 +727,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       break;
     }
     case "fire": {
-      if(r.city.era>1){const stone=r.city.era===3;box(r,x,y,-.28,-.22,.28,.22,0,4,stone?"#c6c8bb":"#b59266",stone?"#9baa9c":"#98764f",stone?"#758d80":"#775a3a");}
+      if(r.city.era>1){const stone=r.city.era>=3;box(r,x,y,-.28,-.22,.28,.22,0,4,stone?"#c6c8bb":"#b59266",stone?"#9baa9c":"#98764f",stone?"#758d80":"#775a3a");}
       const [fx, fy] = q(0, 0);
       for (let a = 0; a < 8; a++) {
         const [sx, sy] = q(Math.cos((a / 8) * Math.PI * 2) * 0.22, Math.sin((a / 8) * Math.PI * 2) * 0.22);
@@ -684,8 +742,9 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       smoke(r, x, y, 0, 0, 24, i);
       break;
     }
+    case "estate":
     case "farm": {
-      if(r.city.era===3){
+      if(r.city.era>=3){
         poly(c,[q(-.49,.39,1),q(.49,.39,1),q(.49,.49,1),q(-.49,.49,1)],"#579dc5");
         for(const u of [-.48,.44])box(r,x,y,u,-.48,u+.04,.49,0,2,"#c1c2ab","#9da991","#7b907a");
       }
@@ -711,14 +770,14 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       const wet = r.D.wet[i], z = -3;
       const water = wet ? (r.season === 3 ? "#6a9fc2" : "#4796cc") : "#86704f";
       const rect = (u0: number, v0: number, u1: number, v1: number) => {
-        poly(c, [q(u0, v0, 1), q(u1, v0, 1), q(u1, v1, 1), q(u0, v1, 1)], r.city.era===3 ? "#b3c0b6" : "#a28a62");
+        poly(c, [q(u0, v0, 1), q(u1, v0, 1), q(u1, v1, 1), q(u0, v1, 1)], r.city.era>=3 ? "#b3c0b6" : "#a28a62");
         poly(c, [q(u0 + 0.05, v0 + 0.05, z), q(u1 - 0.05, v0 + 0.05, z), q(u1 - 0.05, v1 - 0.05, z), q(u0 + 0.05, v1 - 0.05, z)], water);
       };
       for(const bounds of canalFootprints(r.city,x,y))rect(...bounds);
       break;
     }
     case "levee": {
-      if(r.city.era===3)for(let n=0;n<6;n++)box(r,x,y,-.48+n*.16,.35,-.33+n*.16,.49,0,8,"#bcc6b8","#98aa98","#758e7e");
+      if(r.city.era>=3)for(let n=0;n<6;n++)box(r,x,y,-.48+n*.16,.35,-.33+n*.16,.49,0,8,"#bcc6b8","#98aa98","#758e7e");
       box(r, x, y, -0.48, -0.48, 0.48, 0.48, 0, 6, r.season === 3 ? "#d8e0dc" : "#7aa64a", "#8a6a42", "#6f5434");
       for (let k2 = 0; k2 < 5; k2++) {
         const [sx, sy] = q(-0.35 + k2 * 0.17, 0.48, 3);
@@ -747,7 +806,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       break;
     }
     case "smelter": {
-      if(r.city.era===3){box(r,x,y,-.39,-.38,.37,.36,0,4,"#bdc4b4","#96aa99","#738d7d");box(r,x,y,-.26,-.22,-.13,-.09,0,30,"#a6b6a8","#889e8c","#637f70");}
+      if(r.city.era>=3){box(r,x,y,-.39,-.38,.37,.36,0,4,"#bdc4b4","#96aa99","#738d7d");box(r,x,y,-.26,-.22,-.13,-.09,0,30,"#a6b6a8","#889e8c","#637f70");}
       shadow(r, x, y, 0.4);
       box(r, x, y, -0.3, -0.3, 0.3, 0.3, 0, 12, "#8d8173", "#7c7064", "#62584e");
       pyramid(r, x, y, -0.3, -0.3, 0.3, 0.3, 12, 8, "#6d6257", "#564d44");
@@ -772,7 +831,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       break;
     }
     case "market": {
-      if(r.city.era===3){box(r,x,y,-.4,-.3,.4,.3,0,4,"#bcc5b5","#99ac98","#768f7b");for(const u of [-.35,.3])box(r,x,y,u,-.23,u+.05,.23,4,17,"#c6d0c3","#a3b6a4","#7c9a86");}
+      if(r.city.era>=3){box(r,x,y,-.4,-.3,.4,.3,0,4,"#bcc5b5","#99ac98","#768f7b");for(const u of [-.35,.3])box(r,x,y,u,-.23,u+.05,.23,4,17,"#c6d0c3","#a3b6a4","#7c9a86");}
       shadow(r, x, y, 0.42);
       box(r, x, y, -0.34, -0.2, 0.34, 0.25, 0, 6, "#8a6038", "#7a5430", "#634426");
       for (const u of [-0.32, 0.32]) for (const v of [-0.18, 0.23]) box(r, x, y, u - 0.02, v - 0.02, u + 0.02, v + 0.02, 6, 18, "#6b4526", "#5c3b20", "#4b301a");
@@ -866,7 +925,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       // village communal house: stone platform, red pillars, sweeping tiled roof
       shadow(r, x, y, 0.5);
       box(r, x, y, -0.48, -0.44, 0.48, 0.44, 0, 4, "#cfc6b4", "#b9b09c", "#9a917e");
-      box(r, x, y, -0.4, -0.34, 0.4, 0.3, 4, 16, r.city.era===3?"#c6c8bc":"#a8743e", r.city.era===3?"#a3aea1":"#955f30", r.city.era===3?"#788e85":"#7a4c26");
+      box(r, x, y, -0.4, -0.34, 0.4, 0.3, 4, 16, r.city.era>=3?"#c6c8bc":"#a8743e", r.city.era>=3?"#a3aea1":"#955f30", r.city.era>=3?"#788e85":"#7a4c26");
       for (const u of [-0.36, -0.18, 0, 0.18, 0.36]) box(r, x, y, u - 0.025, 0.33, u + 0.025, 0.38, 4, 17, "#b8322a", "#a32a23", "#87221c");
       for (const v of [-0.22, 0, 0.2]) box(r, x, y, 0.42, v - 0.025, 0.47, v + 0.025, 4, 17, "#b8322a", "#a32a23", "#87221c");
       if (lvl >= 3) {
@@ -880,7 +939,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
         const [mx, my] = q(0, -0.02, 40);
         c.fillStyle = "#f0c766"; c.beginPath(); c.arc(mx, my - 3 * s, 3 * s, 0, Math.PI * 2); c.fill();
       } else {
-        gable(r, x, y, -0.48, -0.42, 0.48, 0.4, 17, 16 * hs, r.city.era===3?"#577d8d":"#b0543a", r.city.era===3?"#426371":"#994632", r.city.era===3?"#314e60":"#8c3f2c");
+        gable(r, x, y, -0.48, -0.42, 0.48, 0.4, 17, 16 * hs, r.city.era>=3?"#577d8d":"#b0543a", r.city.era>=3?"#426371":"#994632", r.city.era>=3?"#314e60":"#8c3f2c");
         tileRows(r, x, y, -0.48, 0.48, -0.42, 0.4, 17, 16 * hs, "rgba(90,30,20,.5)");
         upturn(r, x, y, -0.48, 0.48, -0.42, 0.4, 17, 16 * hs, "#7a3a27");
       }
@@ -1312,9 +1371,13 @@ function buildingHitShapes(k: BKey, lvl: number, era: number): HitShape[] {
     case "gather": return [shape(-.37, -.37, .07, .13, 9*hs, 7), shape(-.2, -.1, .38, .4, 3)];
     case "wood": return [shape(-.36, -.36, .06, .04, 9 * hs, 7), shape(.05, .15, .38, .35, 5)];
     case "quarry": return [shape(-.34, -.32, .34, .34, 15), ...(era>1?[shape(-.34,-.25,.34,-.18,24)]:[])];
+    case "grandstore": case "tilehouse": case "school": case "artisan": case "academy": return [shape(-.44,-.4,.44,.4,24,13)];
+    case "well": return [shape(-.3,-.3,.3,.3,18,10)];
+    case "reservoir": return [shape(-.46,-.46,.46,.46,5)];
     case "storehouse": return [shape(-.4, -.36, .4, .36, 13 * hs, 10)];
     case "fire": return [shape(-.22, -.22, .22, .22, 1, 20, true)];
     case "logistics": case "infirmary": return [shape(-.4,-.34,.3,.18,25),shape(-.32,.26,.24,.43,10)];
+    case "estate":
     case "farm": return [shape(-.46, -.46, .46, .46, 3 * hs)];
     case "canal": return [{...shape(-.25, -.25, .25, .25, 4),z:-3}];
     case "levee": return [shape(-.48, -.48, .48, .48, 6)];
@@ -1414,6 +1477,7 @@ export function pickVillageTarget(v:View,city:City,list:Villager[],anim:number,s
 }
 
 export type DrawOpts = {
+  rules?: EngineRules;
   v: View;
   now: number;
   anim: number;
@@ -1507,7 +1571,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   if (o.selected) outline(o.selected, "#f0c766", "rgba(240,199,102,.18)");
   if (o.hover) {
     if (o.tool) {
-      ghostOk = !canPlace(city, D, o.tool, o.hover.x, o.hover.y);
+      ghostOk = !canPlace(city, D, o.tool, o.hover.x, o.hover.y,o.rules);
       outline(o.hover, ghostOk ? "#b4f08a" : "#ff8a6a", ghostOk ? "rgba(160,240,120,.25)" : "rgba(255,120,90,.25)");
     } else outline(o.hover, o.picked.size ? "#7fe0ff" : "rgba(255,250,235,.85)", o.picked.size ? "rgba(127,224,255,.15)" : undefined);
   }

@@ -1,7 +1,9 @@
+import type {EngineRules} from './eras';
 import { applyAction, settle, type Action, type City } from './engine';
 
 export type CityActionResponse = { state?: City; error?: string; serverNow?: number };
 export type OptimisticCityOptions = {
+  rules?: EngineRules;
   state: City;
   now?: () => number;
   onState: (state: City) => void;
@@ -64,7 +66,7 @@ export class OptimisticCityQueue {
     const at = this.clock();
     const next = clone(this.visible);
     const savedAction = clone(action);
-    const error = applyAction(next, savedAction, at);
+    const error = applyAction(next, savedAction, at, this.options.rules);
     if (error) {
       this.options.onError?.(error);
       return Promise.resolve(false);
@@ -86,7 +88,7 @@ export class OptimisticCityQueue {
     const kept: Pending[] = [];
     for (const entry of this.pending) {
       const next = clone(state);
-      const error = applyAction(next, entry.action, Math.max(entry.at, state.last));
+      const error = applyAction(next, entry.action, Math.max(entry.at, state.last), this.options.rules);
       if (error) {
         entry.resolve(false);
         this.options.onError?.(error);

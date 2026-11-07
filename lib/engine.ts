@@ -1,3 +1,5 @@
+import { eraNames, RELEASE_RULES, type EngineRules } from "./eras";
+import { MEDIEVAL_BUILDINGS, initializeMedieval, stepMedieval, scheduleDrought, medievalBonus, droughtFactor, hasWaterSource, isField, isStorage, type MedievalState } from "./medieval";
 import { BoundedCache } from "./bounded-cache";
 import { isActionInput } from "./action-input";
 
@@ -24,11 +26,11 @@ export const GATHER_DRY_FOOD_PER_HOUR = 240;
 export const POP_GROWTH_PER_HOUR = 60;
 /** Hourly engine units; food is consumed continuously at 2/4 per minute in era 1. */
 export function upkeepRates(era:number){
-  const scale=2**Math.max(0,Math.floor(era)-1);
+  const scale=2**Math.max(0,Math.min(3,Math.floor(era))-1);
   return { civilian:{food:120*scale,wood:scale},soldier:{food:240*scale,wood:2*scale} };
 }
 /** Better food tools and baskets keep food production in step with era upkeep. */
-export const foodEraScale=(c:City,at:number)=>c.upkeepStartsAt!==undefined&&at<c.upkeepStartsAt?1:2**Math.max(0,c.era-1);
+export const foodEraScale=(c:City,at:number)=>c.upkeepStartsAt!==undefined&&at<c.upkeepStartsAt?1:2**Math.max(0,Math.min(3,c.era)-1);
 const MIN_POP = 3;
 
 // gathering by hand (per person per hour) and how much each tile/animal holds
@@ -40,7 +42,7 @@ export const EXPLORE_TILES_PER_MIN = 36; // matches the on-screen walking pace (
 const START_SIGHT = 9, SCOUT_SIGHT = 3;
 
 export const SEASONS = ["Xuân", "Hạ", "Thu", "Đông"];
-export const ERA_NAMES = ["", "Thời đồ đá", "Thời đồ đồng", "Thời đồ sắt"];
+export const ERA_NAMES = eraNames;
 export const TERRAIN = ["Đồng cỏ", "Rừng", "Đồi đá", "Sông", "Mỏ đồng", "Mỏ vàng", "Mỏ kim cương"];
 export const RES = ["food", "wood", "stone", "copper", "gold", "diamond"] as const;
 export type ResKey = (typeof RES)[number];
@@ -67,6 +69,7 @@ export type Def = {
 };
 
 const DEFS = {
+  ...MEDIEVAL_BUILDINGS,
   hut: { n: "Lều", era: 1, cost: { wood: 20 }, sec: 10, house: 3, up: true, d: "Chỗ ở cho 3 người mỗi cấp." },
   gather: { n: "Trại hái lượm", era: 1, cost: { wood: 15 }, sec: 10, jobs: 2, prod: { food: 60 }, use: { food: GATHER_DRY_FOOD_PER_HOUR }, up: true, d: "Lương thực. Thêm 50% trên đất phù sa. Khi sản xuất, mỗi trại dùng 2 thực/phút nếu được kênh có nước tưới trong 1 ô, nếu không dùng 4 thực/phút. Cộng riêng với sức ăn dân, cố định mọi cấp và số thợ. Hết thực dân vẫn kiếm ăn." },
   wood: { n: "Trại đốn gỗ", era: 1, cost: { food: 10 }, sec: 10, jobs: 2, prod: { wood: 60 }, need: "forest", up: true, drop: ["wood"], d: "Phải kề rừng. Người chặt cây gần đây đỡ phải đi xa." },
@@ -154,16 +157,19 @@ export function marchLogistics(troops: Troops, oneWayMs: number) {
   return {fighters,transport,medical,risk,losses,survivors,long:base>0};
 }
 
-const FLOODPROOF = new Set<BKey>(["canal", "levee", "wheel", "stonehouse", "temple"]);
+const FLOODPROOF = new Set<BKey>(["canal", "levee", "wheel", "stonehouse", "temple", "tilehouse", "reservoir", "well"]);
 export const isFloodproof = (k: BKey) => FLOODPROOF.has(k);
 export const LVL_MULT = [0, 1, 1.6, 2.4];
 export const MAX_LVL = 3;
 
-export const ERA_REQ: Record<number, { pop: number; cost: Partial<Res>; hall?: number }> = {
+export const ERA_REQ: Record<number, { pop: number; cost: Partial<Res>; hall?: number; wonder?: BKey }> = {
   2: { pop: 15, cost: { food: 300, wood: 300, stone: 150 } },
   3: { pop: 50, cost: { food: 3000, wood: 1000, stone: 2000, copper: 600 }, hall: 3 },
+  4: { pop:100, hall:3, wonder:"temple", cost:{food:12000,wood:6000,stone:6000,copper:1800,gold:300} },
+  5: { pop:180, hall:4, wonder:"academy", cost:{food:35000,wood:12000,stone:16000,copper:5000,gold:1200} },
 };
 const ERA_UP: Record<number, string> = {
+  4: "Bước vào Trung đại: mở Đại kho, nhà ngói, giếng, hồ chứa, nông trang, trường làng, xưởng thủ công và Văn Miếu. Nhà và công việc cũ được giữ nguyên.",
   2: "Bước vào Thời đồ đồng: mở ruộng lúa, kênh tưới, đê đất, nhà gỗ, lò đúc đồng và chợ.",
   3: "Bước vào Thời đồ sắt: mở nhà đá, lò rèn, cối nước và Đền Sông Mẹ.",
 };
@@ -197,6 +203,7 @@ export type Herd = { id: number; at: number; kind: "deer" | "boar"; n: number; m
 export type LogEntry = { caravanId?: string; at: number; msg: string; cls?: "warn" | "good" };
 export type RaidEncounter = { start:number; engage:number; resolveAt:number; end:number; route:number[]; power:number; won?:boolean };
 export type City = {
+  medieval?: MedievalState;
   upkeepStartsAt?: number;
   wheelFuelStartsAt?: number;
   gatherFoodStartsAt?: number;
@@ -296,8 +303,8 @@ export const WORLD = 200; // world map is WORLD × WORLD cells
 const ENVOY_CELLS_PER_MIN = 2;
 
 /** Envoy house and envoy names change with the era. */
-export const ENVOY_NAMES = ["", "Người đưa tin", "Sứ giả", "Sứ thần"];
-export const ENVOY_HOUSE = ["", "Lều đưa tin", "Nhà sứ giả", "Sứ quán"];
+export const ENVOY_NAMES = ["", "Người đưa tin", "Sứ giả", "Sứ thần", "Sứ thần", "Đại sứ", "Đại sứ"];
+export const ENVOY_HOUSE = ["", "Lều đưa tin", "Nhà sứ giả", "Sứ quán", "Sứ quán mái ngói", "Tòa đại sứ", "Tòa đại sứ"];
 export const DEFENSE_NAMES: Partial<Record<BKey, string[]>> = {
   wall: ["", "Hàng rào gỗ", "Tường đất", "Tường thành đá"],
   gate: ["", "Cổng gỗ", "Cổng đồng", "Cổng thành"],
@@ -324,7 +331,7 @@ export const BUILDING_ERA_NAMES: Partial<Record<BKey, string[]>> = {
   infirmary: ["", "Quân y viện", "Nhà thuốc quân y", "Y viện mái ngói"],
   hall: ["", "Đình làng", "Đình gỗ", "Đình đá"],
 };
-export const buildingName = (c: City, k: BKey) => (k === "envoy" ? ENVOY_HOUSE[c.era] : DEFENSE_NAMES[k]?.[c.era] ?? BUILDING_ERA_NAMES[k]?.[c.era] ?? def(k).n);
+export const buildingName = (c: City, k: BKey) => (k === "envoy" ? (ENVOY_HOUSE[c.era] ?? "Sứ quán") : DEFENSE_NAMES[k]?.[c.era] ?? BUILDING_ERA_NAMES[k]?.[c.era] ?? def(k).n);
 /** Built structures cease providing services while flooded or burned. */
 export const isBuildingActive = (b: Building | undefined): b is Building => !!b && b.lvl >= 1 && !b.flooded && !b.burned;
 export const envoyCount = (c: City) => Object.values(c.b).reduce((a, b) => (b.k === "envoy" && isBuildingActive(b) ? Math.max(a, b.lvl) : a), 0);
@@ -341,7 +348,7 @@ export const RAID_SHELTER_MS = MIN; // Work through the warning; shelter only ju
 /** Level of the village hall (0 = not built yet). */
 export const hallLevel = (c: City) => Object.values(c.b).reduce((a, b) => (b.k === "hall" && isBuildingActive(b) ? Math.max(a, b.lvl) : a), 0);
 /** Highest level other buildings may reach: the hall's level (at least 1). */
-export const levelCap = (c: City, k: BKey) => (k === "hall" ? MAX_LVL : Math.max(1, hallLevel(c)));
+export const levelCap = (c: City, k: BKey) => (k === "hall" ? Math.max(MAX_LVL,c.era) : Math.min(MAX_LVL, Math.max(1, hallLevel(c))));
 /** The control centre opens when the hall reaches its top level. */
 export const hasControl = (c: City) => hallLevel(c) >= MAX_LVL;
 
@@ -614,7 +621,7 @@ export function derive(c: City): Derived {
 const count = (c: City, k: BKey) => Object.values(c.b).reduce((n, b) => n + (b.k === k ? 1 : 0), 0);
 export const builders = (c: City) => c.era + 1 + Object.values(c.b).reduce((n,b) => n + (b.k === "builderhouse" && isBuildingActive(b) ? b.lvl : 0), 0);
 export const busyBuilders = (c: City) => Object.values(c.b).reduce((n, b) => n + (b.doneAt ? 1 : 0), 0);
-export const buildMs = (k: BKey, lvl: number) => def(k).sec * 1000 * 3 ** (lvl - 1);
+export const buildMs = (k: BKey, lvl: number) => k==="hall"&&lvl>=4 ? (lvl-3)*2*HOUR : def(k).sec * 1000 * 3 ** (lvl - 1);
 /** Prices depend on the buyer's era; base definitions remain stable for combat
  * valuation and demolition refunds (advancing must never mint refund resources). */
 export const eraCost = (cost: Partial<Res>, era: number, ironMultiplier: number): Partial<Res> => {
@@ -622,17 +629,20 @@ export const eraCost = (cost: Partial<Res>, era: number, ironMultiplier: number)
   for (const r of RES) if (cost[r]) out[r] = Math.ceil(cost[r]! * (era >= 3 ? ironMultiplier : 1));
   return out;
 };
-export const buildingCost = (k: BKey, era: number) => eraCost(def(k).cost, era, 3);
+export const buildingCost = (k: BKey, era: number) => def(k).era>=4 ? {...def(k).cost} : eraCost(def(k).cost, era, 3);
+export const storageCapacity = (b:Building,r:ResKey) => b.k==="grandstore" ? 10000*2**(storageLevel(b,r)-1) : (def(b.k).storage??0)*(b.k==="storehouse"?storageLevel(b,r):b.lvl);
 export const trainingCost = (u: UKey, era: number) => eraCost(UNITS[u].cost, era, 2);
 export const levelCost = (k: BKey, lvl: number, era = 1): Partial<Res> => {
-  const m = [0, 1, 2, 4][lvl], out: Partial<Res> = {};
+  if(k==="hall"&&lvl===4)return {wood:3000,stone:5000,copper:1000,gold:200};
+  if(k==="hall"&&lvl===5)return {wood:5000,stone:10000,copper:2500,gold:600};
+  const m = 2**Math.max(0,lvl-1), out: Partial<Res> = {};
   for (const r of RES) if (def(k).cost[r]) out[r] = def(k).cost[r]! * m;
-  return eraCost(out, era, 3);
+  return def(k).era>=4?out:eraCost(out, era, 3);
 };
 export const repairCost = (k: BKey, lvl = 1, burned = false, era = 1): Partial<Res> => {
   const out: Partial<Res> = {};
   for (const r of RES) if (def(k).cost[r]) out[r] = Math.ceil((levelCost(k, Math.max(1, lvl))[r] ?? 0) * (burned ? 0.5 : 0.25));
-  return eraCost(out, era, 2);
+  return def(k).era>=4||k==="hall"&&lvl>=4?out:eraCost(out, era, 2);
 };
 /** Resource value used to weigh building damage in multiplayer battles. */
 export const buildingValue = (b: Building) => RES.reduce((sum, r) => sum + (levelCost(b.k, Math.max(1, b.lvl))[r] ?? 0), 0);
@@ -697,12 +707,12 @@ export function stats(c: City, D: Derived, at: number): Stats {
     const d = def(b.k);
     jobs += d.jobs ?? 0;
     housing += (d.house ?? 0) * b.lvl;
-    for (const r of RES) storage[r] += (d.storage ?? 0) * (b.k === "storehouse" ? storageLevel(b,r) : b.lvl);
+    for (const r of RES) storage[r] += storageCapacity(b,r);
     cnt[b.k] = (cnt[b.k] ?? 0) + 1;
   }
   const workers = new Map<number, number>();
   for (const p of c.people) if (!p.refuge && p.task.t === "work") workers.set(p.task.at, (workers.get(p.task.at) ?? 0) + 1);
-  const mult = 1 + 0.1 * Math.min(3, cnt.market ?? 0);
+  const mult = (1 + 0.1 * Math.min(3, cnt.market ?? 0))*(1+medievalBonus(c));
   const tools = 1 + 0.25 * buildings(c).reduce((n, [, b]) => n + (b.k === "forge" && built(b) && !b.flooded ? b.lvl : 0), 0);
   const winter = seasonAt(c, at) === 3;
   const boost = at < c.boostUntil;
@@ -717,13 +727,14 @@ export function stats(c: City, D: Derived, at: number): Stats {
     else if(b.k==='wheel'){const use=eff>0&&at>=(c.wheelFuelStartsAt??-Infinity)?WATERMILL_WOOD_PER_HOUR:0;wheelWoodUse+=use;woodUse+=use;}
     else if(b.k==='gather'){if(eff>0&&at>=(c.gatherFoodStartsAt??-Infinity))gatherFoodUse+=gatherFoodPerHour(c,D,i);}
     else if(d.use){woodUse+=(legacy?20:d.use.wood??0)*LVL_MULT[b.lvl]*eff;stoneUse+=(legacy?0:d.use.stone??0)*LVL_MULT[b.lvl]*eff;}
-    if (!d.prod || (b.k==="farm" && (b.tendUntil || farmRemaining(b)<=0))) continue;
+    if (!d.prod || (isField(b.k) && (b.tendUntil || farmRemaining(b)<=0))) continue;
     for (const r of RES) {
       let v = d.prod[r];
       if (!v) continue;
-      v *= LVL_MULT[b.lvl] * GATHER_SPEED;
-      const crop = b.k === "farm" || b.k === "gather";
-      if (crop && D.fert[i]) v *= b.k === "farm" ? 2 : 1.5;
+      v *= LVL_MULT[b.lvl] * (b.k==='artisan'?1:GATHER_SPEED);
+      v *= droughtFactor(c,i,b.k,at);
+      const crop = isField(b.k) || b.k === "gather";
+      if (crop && D.fert[i]) v *= isField(b.k) ? 2 : 1.5;
       if (crop && D.fert[i] && boost) v *= 1.5;
       if (crop && winter) v *= 0.4;
       if (c.cropDamage?.tile===i && at<c.cropDamage.until) v *= .5;
@@ -1024,7 +1035,7 @@ const HAUL_UNLOAD_MS = 1000;
 type HaulJob = { tile: number; resource: ResKey; rate: number; source: NonNullable<Haul["source"]> };
 type DropRoute = { route: number[]; drop: number; length: number };
 type RouteTree = { prev: Int32Array; rank: Uint16Array; queue: Int32Array; head: number; size: number };
-type HaulContext = { pass?: Uint8Array; trees: BoundedCache<string, RouteTree>; drops: BoundedCache<string, DropRoute | null>; paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number };
+type HaulContext = { pass?: Uint8Array; trees: BoundedCache<string, RouteTree>; drops: BoundedCache<string, DropRoute | null>; paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number; medievalBonus:number };
 const taskKey = (p: Person) => JSON.stringify(p.task);
 
 /** Tile-centre position along the persisted authoritative route. No client RNG. */
@@ -1060,7 +1071,7 @@ function haulPassable(c: City, tile: number, to: number, water: boolean) {
   if (isRock(c.t[tile])) return false;
   if (tile === to) return true;
   if (!water && c.t[tile] === R) return false;
-  return !b || b.burned || b.k === "canal" || b.k === "farm" || b.k === "levee" || b.k === "gate";
+  return !b || b.burned || b.k === "canal" || isField(b.k) || b.k === "levee" || b.k === "gate";
 }
 function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredLand = false): number[] | null {
   const key = `${from}:${to}:${exploredLand}`;
@@ -1130,7 +1141,7 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredL
 }
 function haulingContext(c: City, D: Derived): HaulContext {
   const active = Object.values(c.b).filter(b => built(b) && !b.flooded);
-  return { trees: new BoundedCache<string,RouteTree>(32,884736,tree=>tree.prev.length+tree.rank.length+tree.queue.length), drops: new BoundedCache<string,DropRoute|null>(512,65536,drop=>drop?.route.length??1), paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: 1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length) };
+  return { medievalBonus:medievalBonus(c), trees: new BoundedCache<string,RouteTree>(32,884736,tree=>tree.prev.length+tree.rank.length+tree.queue.length), drops: new BoundedCache<string,DropRoute|null>(512,65536,drop=>drop?.route.length??1), paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: (1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length))*(1+medievalBonus(c)) };
 }
 export const SHIP_CAPACITY=10;
 export const shipCost=(era:number):Partial<Res>=>eraCost({wood:400,copper:100,gold:40,food:80},era,3);
@@ -1322,12 +1333,14 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   }
   if (tk.t !== "work") return null;
   const b = c.b[tk.at];
-  if (!built(b) || b.flooded || (b.k==="farm" && (b.tendUntil || farmRemaining(b)<=0))) return null;
+  if (!built(b) || b.flooded || (isField(b.k) && (b.tendUntil || farmRemaining(b)<=0))) return null;
   const d = def(b.k), resource = RES.find(r => (d.prod?.[r] ?? 0) > 0);
   if (!resource || !d.jobs) return null;
-  let rate = d.prod![resource]! * LVL_MULT[b.lvl] / d.jobs * ctx.mult * GATHER_SPEED;
-  const crop = b.k === "farm" || b.k === "gather";
-  if (crop && ctx.D.fert[tk.at]) rate *= b.k === "farm" ? 2 : 1.5;
+  if(b.k==='artisan'&&(c.res.wood<20||c.res.stone<10))return null;
+  let rate = d.prod![resource]! * LVL_MULT[b.lvl] / d.jobs * ctx.mult * (b.k==='artisan'?1:GATHER_SPEED);
+  rate *= droughtFactor(c,tk.at,b.k,at);
+  const crop = isField(b.k) || b.k === "gather";
+  if (crop && ctx.D.fert[tk.at]) rate *= isField(b.k) ? 2 : 1.5;
   if (crop && ctx.D.fert[tk.at] && at < c.boostUntil) rate *= 1.5;
   if (crop && seasonAt(c, at) === 3) rate *= 0.4;
   if (c.cropDamage?.tile===tk.at && at<c.cropDamage.until) rate *= .5;
@@ -1417,7 +1430,12 @@ function takeCargo(c: City, h: Haul, at: number): number {
   if (!h.source) return 0;
   if (h.source.kind === "building") {
     const b=c.b[h.source.key];if(!isBuildingActive(b))return 0;
-    if(b.k!=="farm")return h.capacity;
+    if(b.k==='artisan'){
+      const amount=Math.min(h.capacity,c.res.wood/20,c.res.stone/10);
+      c.res.wood=Math.max(0,c.res.wood-20*amount);c.res.stone=Math.max(0,c.res.stone-10*amount);
+      return amount;
+    }
+    if(!isField(b.k))return h.capacity;
     if(b.tendUntil)return 0;
     const amount=Math.min(h.capacity,farmRemaining(b));b.fertility=farmRemaining(b)-amount;
     if(amount>0 && b.fertility===0)log(c,at,"Ruộng đã bạc màu, nông dân tạm nghỉ. Chọn ruộng để cải tạo đất và gieo lại.","warn");
@@ -1792,7 +1810,7 @@ function stepWildlife(c: City, at: number): boolean {
     w.resolved=true;const tile=w.route[w.route.length-1];
     const defended=buildings(c).some(([i,b])=>b.k==="watchtower"&&isBuildingActive(b)&&cheb(i,tile)<=7)||troopPower(c.army)>=20;
     if(defended)log(c,at,"Lính giữ làng / chòi canh đã xua đàn lợn rừng. Ruộng an toàn.","good");
-    else if(c.b[tile]?.k==="farm"&&isBuildingActive(c.b[tile])){
+    else if(isField(c.b[tile]?.k??"")&&isBuildingActive(c.b[tile])){
       c.cropDamage={tile,until:at+2*MIN};
       log(c,at,"Lợn rừng giẫm phá một ruộng: năng suất giảm 50% trong 2 phút. Xây chòi trong 7 ô hoặc giữ quân ở làng (sức mạnh 20) để phòng lần sau.","warn");
     }else log(c,at,"Đàn lợn rừng đã bỏ đi vì ruộng không còn ở đó.");
@@ -1802,7 +1820,7 @@ function stepWildlife(c: City, at: number): boolean {
   const slot=Math.floor((at-c.t0)/(30*MIN));
   if(slot<1 || (at-c.t0)%(30*MIN)!==0 || c.wildlife || c.battleId)return changed;
   const r=rng(c.seed^Math.imul(slot,1597334677));if(r()>.45)return changed;
-  const farms=buildings(c).filter(([,b])=>b.k==="farm"&&isBuildingActive(b));
+  const farms=buildings(c).filter(([,b])=>isField(b.k)&&isBuildingActive(b));
   if(!farms.length)return changed;
   const [tile]=farms[Math.floor(r()*farms.length)];
   const ctx=haulingContext(c,derive(c));
@@ -1986,6 +2004,7 @@ function stepArmy(c: City, nt: number) {
 
 function onSeason(c: City, si: number) {
   const at = c.t0 + si * SEASON_MS;
+  scheduleDrought(c,si);
   const r = rng(c.seed ^ Math.imul(si + 1, 2654435761));
   if (si >= 4 && si % 4 === 0) scheduleRaid(c, at, rng(c.seed ^ Math.imul(si + 3, 3266489917)));
   const s = c.shift;
@@ -2000,12 +2019,12 @@ function onSeason(c: City, si: number) {
 }
 
 function completeBuilding(c:City,b:Building,at:number){
-  if(b.k === "storehouse" && b.storageUpgrade){
+  if(isStorage(b.k) && b.storageUpgrade){
     const r=b.storageUpgrade;
     b.storageLevels![r]=storageLevel(b,r)+1;
     b.lvl=Math.max(...RES.map(key=>storageLevel(b,key)));
     delete b.storageUpgrade;b.doneAt=null;
-    log(c,at,`Kho: ngăn ${RN[r]} lên cấp ${storageLevel(b,r)} (+1.000 sức chứa).`,"good");return;
+    log(c,at,`Kho: ngăn ${RN[r]} lên cấp ${storageLevel(b,r)} (${storageCapacity(b,r).toLocaleString("vi-VN")} chỗ).`,"good");return;
   }
   b.lvl++;b.doneAt=null;
   log(c,at,`${buildingName(c,b.k)} ${b.lvl===1?"xây xong":"đã nâng lên cấp "+b.lvl}.`,"good");
@@ -2015,6 +2034,7 @@ function completeBuilding(c:City,b:Building,at:number){
 /** Advance the city to `now`: finish construction, run seasons, produce, grow. Mutates `c`. */
 export function settle(c: City, now: number) {
   normalizeResources(c);
+  initializeMedieval(c,now);
   // Catch up legacy saves at their old upkeep before activating the new balance.
   c.upkeepStartsAt??=now;
   // Existing villages finish their offline catch-up before the new mill cost starts.
@@ -2029,6 +2049,7 @@ export function settle(c: City, now: number) {
   if (end - t > MAX_SETTLE_MS) {
     t = end - MAX_SETTLE_MS;
     c.seasonIdx = Math.max(c.seasonIdx, seasonIndexAt(c, t));
+    if(c.medieval)c.medieval.minuteAt=Math.max(c.medieval.minuteAt,Math.floor(t/MIN)*MIN);
   }
   let D = derive(c), st = stats(c, D, t), dirty = false;
   let hauling = haulingContext(c, D);
@@ -2038,7 +2059,7 @@ export function settle(c: City, now: number) {
   while (t < end) {
     const nt = t + HAUL_TILE_MS; // fixed persisted ticks: polling never changes delivery or starvation timing
     for (const b of Object.values(c.b)) {
-      if(b.k==="farm" && b.tendUntil && b.tendUntil<=nt){
+      if(isField(b.k) && b.tendUntil && b.tendUntil<=nt){
         b.fertility=farmCapacity(b);delete b.tendUntil;dirty=true;
         log(c,nt,"Ruộng đã cải tạo và gieo lại, nông dân tiếp tục làm việc.","good");
       }
@@ -2053,6 +2074,9 @@ export function settle(c: City, now: number) {
     if(t<c.gatherFoodStartsAt&&c.gatherFoodStartsAt<=nt)dirty=true;
     const si = seasonIndexAt(c, nt);
     while (c.seasonIdx < si) { c.seasonIdx++; onSeason(c, c.seasonIdx); dirty = true; }
+    if(c.medieval && stepMedieval(c,dirty?derive(c):D,t,nt))dirty=true;
+    // Service bonuses change when their workers arrive or seek refuge.
+    if(c.medieval && medievalBonus(c)!==hauling.medievalBonus)dirty=true;
     if(stepFrontier(c,nt))dirty=true;
     if (updateRefuges(c,nt)) dirty=true;
     if (stepExplorers(c, nt)) dirty = true;
@@ -2128,13 +2152,14 @@ export function settle(c: City, now: number) {
   c.last = now;
 }
 
-export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number): string | null {
+export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rules:EngineRules=RELEASE_RULES): string | null {
   const d = def(k), i = idx(x, y), t = c.t[i];
+  if(d.era>rules.maxEra)return "Thời đại này sắp ra mắt.";
   if (!c.seen[i]) return "Vùng này chưa khám phá.";
   if (d.era > c.era) return "Chưa tới thời đại này.";
   if (c.b[i]) return "Ô này đã có công trình.";
   if (t === R) return "Không xây được trên sông.";
-  if(!["farm","canal","levee","gate"].includes(k) && [...c.exps,...(c.raidEncounter && c.raidEncounter.end>c.last?[c.raidEncounter]:[]),...(c.merchantJourneys??[]).filter(j=>j.back>c.last).map(j=>({route:j.villageRoute})),...(Object.keys(c.homeOrders??{}).length?homeSoldiers(c,c.last):[]).flatMap(s=>{const o=c.homeOrders?.[s.id];return o?[{route:s.moving?o.route:[idx(Math.floor(s.x),Math.floor(s.y))]}]:[];}),...c.people.flatMap(p=>p.refuge?[p.refuge]:[])].some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân hoặc dân tránh địch đang dùng lối này. Chờ họ trở về hoặc chọn ô khác để không chặn đường.";
+  if(!["farm","estate","canal","levee","gate"].includes(k) && [...c.exps,...(c.raidEncounter && c.raidEncounter.end>c.last?[c.raidEncounter]:[]),...(c.merchantJourneys??[]).filter(j=>j.back>c.last).map(j=>({route:j.villageRoute})),...(Object.keys(c.homeOrders??{}).length?homeSoldiers(c,c.last):[]).flatMap(s=>{const o=c.homeOrders?.[s.id];return o?[{route:s.moving?o.route:[idx(Math.floor(s.x),Math.floor(s.y))]}]:[];}),...c.people.flatMap(p=>p.refuge?[p.refuge]:[])].some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân hoặc dân tránh địch đang dùng lối này. Chờ họ trở về hoặc chọn ô khác để không chặn đường.";
   if (k === "quarry") { if (t !== HL) return "Bãi đá phải đặt trên đồi."; }
   else if (isRock(t)) return "Đồi đá chỉ đặt được bãi đá.";
   else if (t === F) return "Rừng rậm: cho người chặt hết cây trước, hoặc chọn ô cỏ.";
@@ -2142,6 +2167,7 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number): st
     dirs.some(([dx, dy]) => inb(x + dx, y + dy) && fn(idx(x + dx, y + dy)));
   if (d.need === "forest" && !near(N8, (j) => c.t[j] === F)) return "Trại đốn gỗ phải kề rừng.";
   if (d.need === "ore" && !near(N8, (j) => c.t[j] === O)) return "Lò đúc phải kề mỏ đồng (đốm cam trên đồi).";
+  if(k==="reservoir"&&!hasWaterSource(c,D,i))return "Hồ chứa phải kề sông hoặc kênh đang có nước (không chéo).";
   if (d.need === "water" && !near(N4, (j) => c.t[j] === R || c.b[j]?.k === "canal")) return "Kênh phải nối thẳng (không chéo) vào sông hoặc kênh khác.";
   if (d.need === "river" && !near(N4, (j) => c.t[j] === R)) return "Cối nước phải sát sông (không chéo).";
   if (d.need === "bank" && D.rd[i] !== 1 && !near(N4,j=>c.b[j]?.k==="levee")) return "Đê phải sát bờ sông hoặc nối thẳng vào đoạn đê khác (không chéo).";
@@ -2150,9 +2176,9 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number): st
   return missing(c, buildingCost(k, c.era));
 }
 
-export function reqMet(c: City) {
+export function reqMet(c: City, rules:EngineRules=RELEASE_RULES) {
   const r = ERA_REQ[c.era + 1];
-  return !!r && c.people.length >= r.pop && canAfford(c, r.cost) && hallLevel(c) >= (r.hall ?? 0);
+  return c.era+1<=rules.maxEra && !!r && c.people.length >= r.pop && canAfford(c, r.cost) && hallLevel(c) >= (r.hall ?? 0) && (!r.wonder||Object.values(c.b).some(b=>b.k===r.wonder&&isBuildingActive(b)));
 }
 
 export function score(c: City) {
@@ -2163,9 +2189,9 @@ export function score(c: City) {
 }
 
 export const FARM_TEND_MS = 30_000;
-export const farmCapacity = (b: Building) => 600 * Math.max(1,b.lvl);
+export const farmCapacity = (b: Building) => 600 * Math.max(1,b.lvl)*(b.k==="estate"?4:1);
 export const farmRemaining = (b: Building) => Math.max(0,b.fertility ?? farmCapacity(b));
-export const farmTendCost = (b: Building, era = 1): Partial<Res> => eraCost({ food: 20*Math.max(1,b.lvl), wood: 5*Math.max(1,b.lvl) }, era, 2);
+export const farmTendCost = (b: Building, era = 1): Partial<Res> => eraCost({ food: 20*Math.max(1,b.lvl)*(b.k==="estate"?4:1), wood: 5*Math.max(1,b.lvl)*(b.k==="estate"?4:1) }, era, 2);
 
 export type Action =
   | { type: "build"; k: BKey; x: number; y: number }
@@ -2189,7 +2215,7 @@ export type Action =
   | { type: "auto"; on: boolean; mix: Mix };
 
 /** Validate and apply a player action at time `now`. Returns an error message or null. Mutates `c`. */
-export function applyAction(c: City, a: Action, now: number): string | null {
+export function applyAction(c: City, a: Action, now: number, rules:EngineRules=RELEASE_RULES): string | null {
   if (!isActionInput(a)) return "Yêu cầu không hợp lệ.";
   settle(c, now);
   if(a.type==="buildShip"){
@@ -2211,7 +2237,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
   }
   if (a.type === "tendFarm") {
     const b=c.b[idx(a.x,a.y)];
-    if (!b || b.k!=="farm" || !isBuildingActive(b) || b.doneAt) return "Cần chọn ruộng đã xây xong, không bị cháy/ngập.";
+    if (!b || !isField(b.k) || !isBuildingActive(b) || b.doneAt) return "Cần chọn ruộng đã xây xong, không bị cháy/ngập.";
     if(b.tendUntil) return "Ruộng đang được cải tạo và gieo lại.";
     if(farmRemaining(b)>=farmCapacity(b)) return "Ruộng còn đầy dinh dưỡng, chưa cần cải tạo.";
     const cost=farmTendCost(b,c.era),err=missing(c,cost);if(err)return err;
@@ -2239,9 +2265,11 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     return null;
   }
   if (a.type === "advance") {
-    if (!reqMet(c)) return "Chưa đủ điều kiện lên thời đại mới.";
+    if(c.era+1>rules.maxEra)return "Thời đại tiếp theo sắp ra mắt.";
+    if (!reqMet(c,rules)) return "Chưa đủ điều kiện lên thời đại mới.";
     pay(c, ERA_REQ[c.era + 1].cost);
     c.era++;
+    initializeMedieval(c,now);
     log(c, now, ERA_UP[c.era], "good");
     if (c.era === 2) {
       let at = seasonIndexAt(c, now) + 4;
@@ -2253,6 +2281,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
   if (a.type === "train") {
     const u = UNITS[a.u];
     if (!u) return "Loại quân không hợp lệ.";
+    if(u.era>rules.maxEra)return "Loại quân này sắp ra mắt.";
     if (u.era > c.era) return "Chưa tới thời đại của loại quân này.";
     if (!armyCap(c)) return "Cần xây Trại lính trước.";
     if(u.building && !Object.values(c.b).some(b=>b.k===u.building && isBuildingActive(b)))return `Cần xây ${B[u.building].n} để đào tạo ${u.n}.`;
@@ -2356,7 +2385,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
   const i = idx(a.x, a.y), b = c.b[i];
   if (a.type === "build") {
     if (!(a.k in B)) return "Công trình không hợp lệ.";
-    const err = canPlace(c, derive(c), a.k, a.x, a.y);
+    const err = canPlace(c, derive(c), a.k, a.x, a.y,rules);
     if (err) return err;
     pay(c, buildingCost(a.k, c.era));
     c.b[i] = { k: a.k, lvl: 0, doneAt: now + buildMs(a.k, 1) };
@@ -2385,7 +2414,7 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     return null;
   }
   if (a.type === "upgradeStorage") {
-    if(b.k!=="storehouse" || b.lvl<1)return "Chọn Kho đã xây xong.";
+    if(!isStorage(b.k) || b.lvl<1)return "Chọn Kho đã xây xong.";
     if(b.doneAt)return "Kho đang được nâng cấp.";
     if(b.flooded||b.burned)return "Phải sửa Kho trước khi nâng cấp.";
     const lv=storageLevel(b,a.resource);
@@ -2398,12 +2427,12 @@ export function applyAction(c: City, a: Action, now: number): string | null {
     b.storageUpgrade=a.resource;b.doneAt=now+buildMs(b.k,lv+1);return null;
   }
   if (a.type === "upgrade") {
-    if(b.k==="storehouse")return "Chọn ngăn tài nguyên cần nâng trong Kho.";
+    if(isStorage(b.k))return "Chọn ngăn tài nguyên cần nâng trong Kho.";
     const d = def(b.k);
     if (!d.up) return "Công trình này không nâng cấp được.";
     if (b.doneAt) return "Đang xây dở.";
     if (b.flooded || b.burned) return "Phải sửa trước khi nâng cấp.";
-    if (b.lvl >= MAX_LVL) return "Đã cấp tối đa.";
+    if (b.lvl >= (b.k==="hall"?Math.min(levelCap(c,b.k),Math.max(3,rules.maxEra)):MAX_LVL)) return "Đã cấp tối đa.";
     if (b.lvl >= levelCap(c, b.k)) return hallLevel(c) ? `Cần nâng Đình làng lên cấp ${b.lvl + 1} trước.` : "Cần xây Đình làng (mở ở Thời đồ đồng) để nâng cấp công trình.";
     if (busyBuilders(c) >= builders(c)) return "Tất cả thợ đang bận.";
     const cost = levelCost(b.k, b.lvl + 1, c.era);
