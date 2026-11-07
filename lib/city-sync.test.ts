@@ -52,3 +52,9 @@ test('army release has identical home counts, civilian IDs and upkeep with ten s
  for(const c of commands)assert.equal(applyAction(direct,c.action,c.at),null);settle(direct,10000);
  assert.ok(applyCommandBatch(batched,commands,10000).every(r=>!r.error));assert.deepEqual(batched,direct);assert.equal(batched.army.club,2);assert.equal(batched.people.length,5);
 });
+test('a queued pre-update command never activates new gameplay retroactively',()=>{
+ const c=syncFixture(10);c.era=4;delete c.farmAutoStartsAt;delete c.hungerStartsAt;delete c.hunger;
+ for(const p of c.people)p.task={t:'idle'};c.res.food=0;c.b[idx(22,20)]={k:'farm',lvl:1,doneAt:null,fertility:0};
+ applyCommandBatch(c,[command(1,500,{type:'assign',ids:[1],task:{t:'idle'}})],20*60000);
+ assert.equal(c.farmAutoStartsAt,20*60000);assert.equal(c.hungerStartsAt,20*60000);assert.equal(c.hunger,undefined);assert.equal(c.b[idx(22,20)].tendUntil,undefined);
+});

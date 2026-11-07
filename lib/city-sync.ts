@@ -28,6 +28,9 @@ export function validBatch(value:unknown): value is BatchRequest {
 
 /** Shared timeline runner. Never rewinds a checkpoint written by another system. */
 export function applyCommandBatch(c:City, commands:SyncCommand[], now:number):SyncResult[] {
+  // A pre-update offline queue must not activate new rules at an old command's
+  // timestamp. First activation uses the actual server checkpoint time.
+  if(!c.battleId){c.farmAutoStartsAt??=now;c.hungerStartsAt??=now;}
   const results:SyncResult[]=[];
   for(const command of commands) {
     const at=Math.max(c.last,Math.min(now,command.at));

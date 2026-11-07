@@ -54,7 +54,7 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
     // Most reads need only a deterministic projection. Persist only the rare
     // bootstrap/discovery work which has side effects outside the village.
     const s=doc.state;
-    const needsCheckpoint=s.upkeepStartsAt===undefined || s.wheelFuelStartsAt===undefined || s.gatherFoodStartsAt===undefined
+    const needsCheckpoint=s.farmAutoStartsAt===undefined || s.hungerStartsAt===undefined || s.upkeepStartsAt===undefined || s.wheelFuelStartsAt===undefined || s.gatherFoodStartsAt===undefined
       || !s.copperDepositsVersion || !s.preciousDepositsVersion
       || (s.era>=4&&!s.medieval) || (s.era>=5&&!s.industry) || (s.era>=6&&!s.modern)
       || (s.trips??[]).some(t=>t.scouting&&!t.target&&t.arrive<=now);

@@ -42,3 +42,13 @@ test('bootstrap still persists one checkpoint and subsequent reads do not repeat
  await withCity('mine',()=>null,{readOnlyFallback:true});expect(writes).toBe(before+1);
  }finally{Date.now=clock;}
 });
+test('new gameplay activation is saved once on legacy reads, rather than drifting with each projection',async()=>{
+ const clock=Date.now;let time=420000;Date.now=()=>time;const before=writes;
+ try{
+  delete doc.state.farmAutoStartsAt;delete doc.state.hungerStartsAt;delete doc.state.hunger;
+  const first=await withCity('mine',()=>null,{readOnlyFallback:true});
+  expect(writes).toBe(before+1);expect(first!.doc.state.farmAutoStartsAt).toBe(420000);expect(doc.state.hungerStartsAt).toBe(420000);
+  time=480000;const second=await withCity('mine',()=>null,{readOnlyFallback:true});
+  expect(writes).toBe(before+1);expect(second!.doc.state.farmAutoStartsAt).toBe(420000);expect(second!.doc.state.hungerStartsAt).toBe(420000);
+ }finally{Date.now=clock;}
+});
