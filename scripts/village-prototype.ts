@@ -1,28 +1,36 @@
-/** Loopback-only real workerd/SQLite integration and timing; no production auth. */
+/** Bounded synthetic-only workerd/SQLite QA; explicit opt-in for one cloud Worker. */
 import assert from 'node:assert/strict';
 import { randomUUID,createHash } from 'node:crypto';
-import { readFileSync,writeFileSync } from 'node:fs';
+import { appendFileSync,mkdirSync,readFileSync,writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { applyCommandBatch, type BatchRequest, type BatchResponse } from '../lib/city-sync';
 import { HOUR,settle, type Action } from '../lib/engine';
 import { prototypeFixture,workloadUntil,type Workload } from '../worker/prototype/index';
 import { syncCommands } from '../tests/sync-workload';
+import { prototypeTarget,prototypeSecret } from './village-prototype-target';
 
-const base=new URL(process.env.PROTOTYPE_URL??'http://127.0.0.1:8789');
-const secret=process.env.PROTOTYPE_SECRET??'';
-assert.ok(base.protocol==='http:'&&['127.0.0.1','localhost'].includes(base.hostname),'Local prototype only');
-assert.ok(secret.startsWith('local-prototype-')&&secret.length>=32,'Use a test-only local prototype secret');
-const marker='/tmp/dong-song-village-prototype-resume.json';
-const catchupMarker='/tmp/dong-song-village-prototype-catchup-resume.json';
-const worstMarker='/tmp/dong-song-village-prototype-worst-resume.json';
+const {base,remote,requestLimit}=prototypeTarget(process.env);
+const secret=prototypeSecret(process.env.PROTOTYPE_SECRET_FILE?readFileSync(process.env.PROTOTYPE_SECRET_FILE,'utf8').trim():process.env.PROTOTYPE_SECRET??'',remote);
 const mode=process.argv[2]??'run';
+assert.ok(['run','worst','pause','resume','resume-catchup','resume-worst','stress'].includes(mode),'Unknown QA mode');
+const artifactDir=remote?fileURLToPath(new URL('../.wrangler/village-prototype-cloud/',import.meta.url)):'/tmp';
+mkdirSync(artifactDir,{recursive:true,mode:0o700});
+const marker=`${artifactDir}/dong-song-village-prototype-resume.json`;
+const catchupMarker=`${artifactDir}/dong-song-village-prototype-catchup-resume.json`;
+const worstMarker=`${artifactDir}/dong-song-village-prototype-worst-resume.json`;
+const evidence=`${artifactDir}/prototype-${remote?'cloud':'local'}-${mode}-${Date.now()}.jsonl`;
+let requests=0;
 const hash=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
 async function call(id:string,op='',body?:unknown,auth=true) {
   const started=performance.now();
   for(let attempt=0;;attempt++)try{
-    const r=await fetch(new URL(`/villages/${id}${op?'/'+op:''}`,base),{method:body===undefined?'GET':'POST',headers:{...(auth?{authorization:`Bearer ${secret}`}:{}) ,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(60_000)});
+    assert.ok(++requests<=requestLimit,'QA request budget exhausted');
+    const r=await fetch(new URL(`/villages/${id}${op?'/'+op:''}`,base),{method:body===undefined?'GET':'POST',headers:{...(auth?{authorization:`Bearer ${secret}`}:{}) ,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),redirect:'error',signal:AbortSignal.timeout(60_000)});
     // Wrangler hot reload may return a non-JSON 503 after a checkpoint committed.
     // Retry the exact payload; never regenerate command IDs after an uncertain ACK.
-    const data=await r.json() as BatchResponse&{catchup?:{target:number;at:number}|null;metrics:{rowsRead:number;rowsWritten:number;storageBytes:number;handlerWallMs:number};error?:string};
+    const data=await r.json() as BatchResponse&{catchup?:{target:number;at:number}|null;metrics:{rowsRead:number;rowsWritten:number;storageBytes:number;handlerClockDeltaMs:number;instanceId:string};error?:string};
+    // Keep evidence outside /tmp for cloud QA. Never persist bodies, anchors, headers or secrets.
+    appendFileSync(evidence,JSON.stringify({at:new Date().toISOString(),op:op||'read',status:r.status,httpWallMs:Math.round(performance.now()-started),...data.metrics})+'\n',{mode:0o600});
     return {status:r.status,data,httpWallMs:performance.now()-started};
   }catch(e){if(attempt>=2)throw e;await new Promise(r=>setTimeout(r,500));}
 }
@@ -34,11 +42,34 @@ function command(sync:BatchResponse['sync'],action:Action,seq=sync.ack+1) {
 }
 const idle:Action={type:'assign',ids:[1],task:{t:'idle'}};
 async function snapshot(name=id){const r=await call(name);assert.ok(r.status===200||r.status===202);return r.data;}
-if(mode==='resume-worst') {
+if(mode==='stress') {
+  // Two villages, each receiving two simultaneous copies of the same 20-command batch.
+  // This is a bounded concurrency check, not proof of an unknown production peak.
+  const villages=Array.from({length:2},()=>`qa-${randomUUID()}`);
+  await Promise.all(villages.map(async name=>assert.equal((await call(name,'seed',{workload:'workers200'})).status,200)));
+  const expected=villages.map(()=>prototypeFixture('workers200'));
+  const states=await Promise.all(villages.map(snapshot));
+  for(let round=0;round<10;round++){
+    await Promise.all(villages.map(async(name,n)=>{
+      const sync=states[n].sync,now=(round+1)*10000;
+      const batch:BatchRequest={engine:sync.engine,session:sync.session,commands:syncCommands().map((c,i)=>({...c,at:sync.at+c.at,seq:sync.ack+i+1,id:randomUUID(),anchor:sync.anchor}))};
+      applyCommandBatch(expected[n],batch.commands,now);
+      const copies=await Promise.all([call(name,'batch',{batch,now}),call(name,'batch',{batch,now})]);
+      assert.ok(copies.every(r=>r.status===200));
+      assert.equal(copies.reduce((sum,r)=>sum+r.data.metrics.rowsWritten,0),1);
+      assert.ok(copies.every(r=>hash(r.data.state)===hash(expected[n])));
+      assert.ok(copies.every(r=>r.data.sync.ack===(round+1)*20));
+      states[n]=copies[0].data;
+    }));
+    console.log(JSON.stringify({event:'bounded-concurrency-progress',round:round+1,rounds:10,requests}));
+  }
+  console.log(JSON.stringify({event:'bounded-concurrency-pass',villages:2,simultaneousRequests:4,commandsPerVillage:200,requests,evidence}));
+} else if(mode==='resume-worst') {
   const saved=JSON.parse(readFileSync(worstMarker,'utf8'));
   let result=await call(saved.id,'checkpoint',{now:saved.target}),parts=1;
   while(result.status===202){assert.ok(parts++<60);result=await call(saved.id,'checkpoint',{now:saved.target});}
   assert.equal(result.status,200);assert.equal(hash(result.data.state),saved.hash);assert.equal(result.data.sync.ack,20);
+  if(remote)assert.notEqual(result.data.metrics.instanceId,saved.instanceId,'Expected a new cloud DO instance after redeployment');
   console.log('PASS worst-case resumes to reference state after an interrupted Worker request');
 } else if(mode==='pause') {
   await call(id,'seed',{workload:'workers50'});
@@ -47,12 +78,13 @@ if(mode==='resume-worst') {
   await call(id,'batch',{batch,now:0});
   const partial=await call(id,'checkpoint',{now:24*HOUR});assert.equal(partial.status,202);
   const expected=prototypeFixture('workers50');applyCommandBatch(expected,batch.commands,0);settle(expected,24*HOUR);
-  writeFileSync(catchupMarker,JSON.stringify({id,hash:hash(partial.data.state),finalHash:hash(expected),ack:partial.data.sync.ack,revision:partial.data.sync.revision,target:24*HOUR}));
-  console.log('PASS partial catch-up checkpoint saved; stop and restart local Wrangler before resume-catchup');
+  writeFileSync(catchupMarker,JSON.stringify({id,hash:hash(partial.data.state),finalHash:hash(expected),ack:partial.data.sync.ack,revision:partial.data.sync.revision,target:24*HOUR,instanceId:partial.data.metrics.instanceId}),{mode:0o600});
+  console.log('PASS partial catch-up checkpoint saved; restart local Wrangler or redeploy cloud prototype before resume-catchup');
 } else if(mode==='resume-catchup') {
   const saved=JSON.parse(readFileSync(catchupMarker,'utf8')),current=await snapshot(saved.id);
   assert.equal(hash(current.state),saved.hash);assert.equal(current.sync.ack,saved.ack);assert.equal(current.sync.revision,saved.revision);
   assert.equal(current.catchup?.target,saved.target);
+  if(remote)assert.notEqual(current.metrics.instanceId,saved.instanceId,'Expected a new cloud DO instance after redeployment');
   let result=await call(saved.id,'checkpoint',{now:saved.target}),parts=1;
   while(result.status===202){assert.ok(parts++<60);result=await call(saved.id,'checkpoint',{now:saved.target});}
   assert.equal(result.status,200);assert.equal(hash(result.data.state),saved.finalHash);assert.equal(result.data.sync.ack,saved.ack);
@@ -61,6 +93,7 @@ if(mode==='resume-worst') {
   const saved=JSON.parse(readFileSync(marker,'utf8'));
   const current=await snapshot(saved.id);
   assert.equal(hash(current.state),saved.hash);assert.equal(current.sync.ack,saved.ack);assert.equal(current.sync.revision,saved.revision);
+  if(remote)assert.notEqual(current.metrics.instanceId,saved.instanceId,'Expected a new cloud DO instance after redeployment');
   const replay=await call(saved.id,'batch',saved.retry);assert.equal(replay.status,200);
   assert.equal(hash(replay.data.state),saved.hash);assert.equal(replay.data.sync.revision,saved.revision);
   assert.equal(replay.data.metrics.rowsWritten,0);
@@ -145,8 +178,8 @@ if(mode==='resume-worst') {
     const until=workloadUntil(workload);
     console.log(JSON.stringify({event:'reference-start',workload}));settle(expected,until);
     console.log(JSON.stringify({event:'reference-complete',workload,hash:hash(expected)}));
-    if(mode==='worst')writeFileSync(worstMarker,JSON.stringify({id:name,target:until,hash:hash(expected)}));
-    let result=await call(name,'checkpoint',{now:until}),parts=1,totalMs=result.httpWallMs,maxPartMs=result.data.metrics.handlerWallMs;
+    if(mode==='worst')writeFileSync(worstMarker,JSON.stringify({id:name,target:until,hash:hash(expected),instanceId:start.data.metrics.instanceId}),{mode:0o600});
+    let result=await call(name,'checkpoint',{now:until}),parts=1,totalMs=result.httpWallMs,maxPartMs=result.data.metrics.handlerClockDeltaMs;
     const rows={read:result.data.metrics.rowsRead,written:result.data.metrics.rowsWritten};
     if(result.status===202){
       const before=result.data;
@@ -157,17 +190,17 @@ if(mode==='resume-worst') {
     while(result.status===202){
       assert.ok(parts<60,'Catch-up did not converge');
       result=await call(name,'checkpoint',{now:until});parts++;totalMs+=result.httpWallMs;
-      maxPartMs=Math.max(maxPartMs,result.data.metrics.handlerWallMs);rows.read+=result.data.metrics.rowsRead;rows.written+=result.data.metrics.rowsWritten;
+      maxPartMs=Math.max(maxPartMs,result.data.metrics.handlerClockDeltaMs);rows.read+=result.data.metrics.rowsRead;rows.written+=result.data.metrics.rowsWritten;
     }
     assert.equal(result.status,200);assert.equal(result.data.catchup,null);assert.equal(hash(result.data.state),hash(expected));
     const retry=await call(name,'checkpoint',{now:until});assert.equal(retry.status,200);assert.equal(retry.data.metrics.rowsWritten,0);
-    measured.push({workload,checkpointParts:parts,checkpointHttpWallMs:Math.round(totalMs),batchHandlerWallMs:Math.round(start.data.metrics.handlerWallMs),maxPartHandlerWallMs:Math.round(maxPartMs),rowsRead:rows.read,rowsWritten:rows.written,storageBytes:result.data.metrics.storageBytes,stateBytes:Buffer.byteLength(JSON.stringify(result.data.state)),hash:hash(expected).slice(0,16)});
+    measured.push({workload,checkpointParts:parts,checkpointHttpWallMs:Math.round(totalMs),batchClockDeltaMs:Math.round(start.data.metrics.handlerClockDeltaMs),maxPartClockDeltaMs:Math.round(maxPartMs),rowsRead:rows.read,rowsWritten:rows.written,storageBytes:result.data.metrics.storageBytes,stateBytes:Buffer.byteLength(JSON.stringify(result.data.state)),hash:hash(expected).slice(0,16)});
   }
   // Leave one checkpoint/receipt for a genuine stop + restart of workerd.
   if(mode==='run'){
   const stable=await snapshot();const retry={batch:{engine:stable.sync.engine,session:stable.sync.session,commands:[command(stable.sync,idle)]},now:10000};
   const saved=await call(id,'batch',retry);assert.equal(saved.status,200);
-  writeFileSync(marker,JSON.stringify({id,hash:hash(saved.data.state),ack:saved.data.sync.ack,revision:saved.data.sync.revision,retry}));
+  writeFileSync(marker,JSON.stringify({id,hash:hash(saved.data.state),ack:saved.data.sync.ack,revision:saved.data.sync.revision,retry,instanceId:saved.data.metrics.instanceId}),{mode:0o600});
   }
-  console.log(JSON.stringify({source:'real local workerd + DO SQLite; wall time only, no cloud quota/CPU claim',rows,measured,restartMarker:marker},null,2));
-} else throw new Error('Use run, worst, pause, resume or resume-catchup');
+  console.log(JSON.stringify({source:remote?'real cloud Worker + DO SQLite; use GraphQL for CPU/duration, handlerClockDeltaMs can be zero because the platform clock is frozen during computation':'real local workerd + DO SQLite; wall time only, no cloud quota/CPU claim',rows,measured,requests,evidence,restartMarker:marker},null,2));
+}

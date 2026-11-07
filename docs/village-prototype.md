@@ -1,7 +1,7 @@
 # T05 — Village Durable Object SQLite prototype
 
-Ngày 07/11/2026. **Đang thử local; chưa chuyển làng thật, chưa nghiệm thu quota
-Cloudflare.** Code ở `worker/prototype`, config tách riêng
+Ngày 07/11/2026. **Đã deploy môi trường thử Cloudflare riêng sau khi chủ dự án
+tạo Worker và cho phép. Chưa chuyển làng thật, chưa nghiệm thu quota Free.** Code ở `worker/prototype`, config tách riêng
 `worker/wrangler.village-prototype.jsonc`. Config combat production không đổi.
 
 ## Phạm vi đã làm
@@ -67,12 +67,51 @@ PROTOTYPE_SECRET=local-prototype-secret-at-least-32-characters bun scripts/villa
 PROTOTYPE_SECRET=local-prototype-secret-at-least-32-characters bun scripts/village-prototype.ts resume-catchup
 ```
 
-Runner chỉ cho HTTP loopback và secret prefix local. `run`/`worst` tạo UUID fixture
+Mặc định runner chỉ cho HTTP loopback và secret prefix local. `run`/`worst` tạo UUID fixture
 mới, không reset/drop SQLite. `pause` lưu marker hash/ACK trong `/tmp` để kiểm tra
-catch-up đang dở; marker không có token hoặc snapshot. `resume` kiểm tra checkpoint
+catch-up đang dở; marker này không có token hoặc snapshot. Marker replay của
+`run` có anchor thử và được lưu private 0600. `resume` kiểm tra checkpoint
 đã ACK và replay read-only qua restart thật. Không dùng `--remote` trong các lệnh QA.
 
+## Chạy trên Worker cloud được cho phép
+
+URL duy nhất runner cho phép là
+`https://dong-song-village-prototype.phungthienphu.workers.dev`. Cần opt-in
+`PROTOTYPE_REMOTE_CONFIRM=synthetic-only` và secret ngẫu nhiên riêng trong file
+private `.wrangler/village-prototype-cloud.secret` (mode 0600, gitignore).
+Public secret dùng local bị từ chối trên cloud. Không in/copy secret vào tài liệu.
+
+```sh
+PROTOTYPE_URL=https://dong-song-village-prototype.phungthienphu.workers.dev PROTOTYPE_REMOTE_CONFIRM=synthetic-only PROTOTYPE_SECRET_FILE=.wrangler/village-prototype-cloud.secret bun scripts/village-prototype.ts run
+```
+
+Đổi mode cuối thành `worst` để thử 200 dân/14 ngày; `stress` thử hai làng 200 dân,
+mỗi làng nhận hai bản sao đồng thời của batch 20 lệnh, 10 vòng. Bài này kiểm tra
+4 request đồng thời và tính đúng; chưa phải gấp đôi peak production chưa đo được.
+Mỗi process remote tối đa 500 HTTP attempts, không theo redirect. Evidence chỉ
+ghi status, SQL counts, clock delta, instance ID; không ghi body/header/anchor.
+Cloud artifacts nằm trong `.wrangler/village-prototype-cloud`, tránh mất log `/tmp`.
+Marker dùng cho replay có anchor thử và được lưu private 0600, không commit.
+
+Mode `pause` lưu catch-up dở. Redeploy **chỉ prototype** bằng đúng config và
+`--var PROTOTYPE_ENABLED:true`, sau đó chạy `resume`, `resume-catchup`,
+`resume-worst`. Instance ID phải đổi trong khi hash, ACK và revision vẫn giữ;
+không dùng chỉ HTTP 200 để kết luận đã thử được một instance mới.
+
+`performance.now()` trên Cloudflare có thể đứng yên khi chỉ tính toán. Vì thế
+`handlerClockDeltaMs=0` không chứng minh CPU bằng 0. Tên cũ `handlerWallMs` trong
+log lượt đầu cũng có giới hạn này. HTTP wall time cũng không phải CPU.
+Đọc metrics gốc bằng `scripts/village-prototype-analytics.ts`, dùng phiên Wrangler
+trong bộ nhớ và cửa sổ <=24h. CPU từ schema là **microseconds**, duration là GB*s.
+Script tách router, DO và tổng account, lưu aggregate không có credential. Nếu API
+trả budget limit thì dừng và chờ ít nhất 5 phút; dataset trống là chưa có số, không
+phải usage bằng 0. Không tự xin scope hoặc nâng plan khi bị từ chối.
+
 ## Bằng chứng hiện có
+
+Cloud thực: xem [village-cloud-validation.md](./village-cloud-validation.md) cho
+267 attempts, 8 checksum, concurrency, restart và metrics CPU/duration gốc.
+Các số/bước local dưới đây vẫn là lớp kiểm tra riêng, không cộng vào cloud.
 
 - 9 scenario HTTP/SQLite thực qua: router/auth/body; seed; batch 20 + duplicate;
   gap/conflict/anchor/session; lỗi domain; concurrent; SQL rollback sau write;
@@ -121,10 +160,10 @@ Nguồn chính thức đọc ngày 07/11/2026:
 
 Đọc subscriptions của account bằng phiên Wrangler hiện có bị API trả 403; chưa
 xác minh được plan/override qua API đó. Không xin thêm scope hoặc tự nâng gói.
-Cố gắng deploy namespace prototype tách riêng đã bị auto-review từ chối vì quyền
-deploy Worker combat trước đó chưa bao gồm tạo Worker/namespace mới. Đã hỏi chủ
-dự án quyền cho phép cụ thể; chưa tạo resource cloud bằng lệnh bị từ chối.
-Còn cần namespace cloud thử được phép dùng, đo CPU router/DO riêng, duration,
+Lần deploy đầu bị auto-review từ chối vì quyền cũ chưa gồm tài nguyên mới. Sau đó
+chủ dự án tự tạo `dong-song-village-prototype` và cho phép deploy code/SQLite,
+secret và test cloud bằng dữ liệu giả. Blocker quyền tạo môi trường thử đã được gỡ.
+Còn cần đo CPU router/DO riêng, duration,
 rows, eviction, workload chuẩn và stress gấp đôi, cộng usage combat hiện có.
 
 **T05 chưa hoàn thành** cho tới khi có số cloud đủ chứng minh <=50% quota ở tải

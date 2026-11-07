@@ -15,7 +15,8 @@ Không mặc định phải chuyển toàn bộ hệ thống. Triển khai theo 
    10 giây, lưu hàng đợi trên máy, giảm tải/ghi toàn bộ làng và refresh lặp.
 2. **Chặng B — thử Cloudflare:** chỉ thực hiện migration production sau benchmark
    và sau khi Chặng A chưa đạt ngân sách với cùng tải. Có thể thử prototype local
-   song song việc đo Chặng A, nhưng prototype không nhận quyền ghi production.
+   hoặc cloud riêng được chủ dự án cho phép song song việc đo Chặng A, nhưng
+   prototype chỉ dùng dữ liệu giả, không nhận quyền ghi production.
 
 Nếu Chặng A đạt cả ngân sách và độ ổn định thì dừng, chưa cần Chặng B.
 Thay đổi phương án hoặc vượt gate phải ghi lại bằng số liệu; không mở rộng ba

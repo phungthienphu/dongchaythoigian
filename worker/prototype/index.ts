@@ -8,7 +8,8 @@ import type { PrototypeContext, PrototypeNamespace } from './runtime';
 interface Env { VILLAGES:PrototypeNamespace; PROTOTYPE_ENABLED:string; PROTOTYPE_SECRET:string }
 type Checkpoint={cityId:string;revision:number;state:City;ledger:SyncLedger;catchupTo?:number};
 const CATCHUP_SLICE_MS=6*HOUR;
-type Metrics={rowsRead:number;rowsWritten:number;storageBytes:number;handlerWallMs:number};
+// The platform clock can be frozen during computation; this is never CPU time.
+type Metrics={rowsRead:number;rowsWritten:number;storageBytes:number;handlerClockDeltaMs:number;instanceId:string};
 const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{'cache-control':'no-store'}});
 const authorized=(r:Request,e:Env)=>e.PROTOTYPE_ENABLED==='true'&&e.PROTOTYPE_SECRET?.length>=32&&r.headers.get('authorization')===`Bearer ${e.PROTOTYPE_SECRET}`;
 const route=(r:Request)=>new URL(r.url).pathname.match(/^\/villages\/(qa-[a-zA-Z0-9_-]{1,90})(?:\/(seed|batch|checkpoint|session|stats))?$/);
@@ -37,6 +38,7 @@ export default {
   }
 };
 export class VillagePrototype {
+  private readonly instanceId=crypto.randomUUID();
   constructor(private ctx:PrototypeContext,private env:Env) {
     ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS checkpoint (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL)');
   }
@@ -44,7 +46,7 @@ export class VillagePrototype {
     // Includes asynchronous anchor/digest checks: another request cannot overwrite
     // a checkpoint loaded before those awaits. No timer or continuously running loop.
     return this.ctx.blockConcurrencyWhile(async()=>{
-      const started=performance.now(),metrics:Metrics={rowsRead:0,rowsWritten:0,storageBytes:0,handlerWallMs:0};
+      const started=performance.now(),metrics:Metrics={rowsRead:0,rowsWritten:0,storageBytes:0,handlerClockDeltaMs:0,instanceId:this.instanceId};
       const exec=<T=Record<string,unknown>>(query:string,...args:(string|number|null)[])=>{
         const cursor=this.ctx.storage.sql.exec<T>(query,...args),rows=cursor.toArray();
         metrics.rowsRead+=cursor.rowsRead;metrics.rowsWritten+=cursor.rowsWritten;return rows;
@@ -116,7 +118,7 @@ export class VillagePrototype {
             }
           } else if(request.method!=='GET'||op&&op!=='stats')throw new InputError('Method not allowed',405);
         }
-        metrics.storageBytes=this.ctx.storage.sql.databaseSize;metrics.handlerWallMs=performance.now()-started;
+        metrics.storageBytes=this.ctx.storage.sql.databaseSize;metrics.handlerClockDeltaMs=performance.now()-started;
         if(op==='stats')return json({cityId,revision:c!.revision,ack:c!.ledger.ack,receipts:c!.ledger.results.length,...metrics});
         const anchor={cityId,session:c!.ledger.session,engine:ENGINE_VER,revision:c!.revision,at:now,until:now+ANCHOR_WINDOW_MS};
         const result:BatchResponse={state:c!.state,serverNow:now,sync:{...anchor,checkpointAt:c!.state.last,ack:c!.ledger.ack,anchor:await signAnchor(anchor,this.env.PROTOTYPE_SECRET),results:c!.ledger.results.filter(r=>!resultRange||r.seq>=resultRange[0]&&r.seq<=resultRange[1]).map(({digest:_digest,...r})=>r)}};

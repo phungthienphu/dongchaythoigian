@@ -105,5 +105,8 @@ Profiler thật xác nhận batch 20 lệnh = 1 find/1 update; duplicate và GET
 Soak hai giờ thực đã khởi chạy, chưa ghi nhận hoàn tất; mobile và Google OAuth
 hai browser vẫn cần QA. Không thay các gate còn thiếu bằng kết quả mock/benchmark.
 
-T05–T12 chưa triển khai. Chỉ quyết định Village Durable Object nếu G-A vẫn không
-đạt ngân sách; không chuyển user production chỉ từ kết quả microbenchmark.
+T05 đã có prototype local/cloud riêng và metrics đầu tiên, chưa đạt gate quota;
+T06 có preflight chỉ đọc, chưa có bàn giao owner. Xem
+[village-cloud-validation.md](./village-cloud-validation.md). T07–T12 chưa triển khai.
+Chỉ quyết định Village Durable Object nếu G-A vẫn không đạt ngân sách; không
+chuyển user production chỉ từ kết quả synthetic.
