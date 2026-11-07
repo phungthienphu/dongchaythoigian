@@ -1707,6 +1707,7 @@ function stepFrontier(c:City,at:number){
 /* ---------- seasons, floods, river shift ---------- */
 
 function newCourse(c: City, r: () => number) {
+  const protectedLand=derive(c).prot,oldRiver=riverSet(c.xs);
   const cy = (c.camp / W) | 0;
   for (let a = 0; a < 30; a++) {
     const top = Math.max(1, cy - 14 + ((r() * 4) | 0)), bot = Math.min(H - 2, cy + 10 + ((r() * 4) | 0));
@@ -1717,11 +1718,20 @@ function newCourse(c: City, r: () => number) {
       return Math.max(1, Math.min(W - 3, Math.round(x + off * k)));
     });
     const set = riverSet(xs);
-    if ([...set].some((i) => isRock(c.t[i]) && c.t[i]!==HL || i === c.camp)) continue;
+    if ([...set].some((i) => isRock(c.t[i]) && c.t[i]!==HL || i === c.camp || !oldRiver.has(i)&&protectedLand[i])) continue;
     if (xs.every((x, y) => x === c.xs[y])) continue;
     return xs;
   }
   return c.xs.slice();
+}
+
+/** Recheck after dike completion/repair and at the event, including saved forecasts. */
+function replanProtectedCourse(c:City,at:number){
+  const shift=c.shift;if(!shift||shift.done||!shift.xs)return false;
+  const oldRiver=riverSet(c.xs),protection=derive(c).prot;
+  if(![...riverSet(shift.xs)].some(i=>!oldRiver.has(i)&&protection[i]))return false;
+  shift.xs=newCourse(c,rng(c.seed^Math.imul(Math.floor(at/1000)+29,2654435761)));
+  return true;
 }
 
 function flood(c: City, D: Derived, at: number, r: () => number, extra=false) {
@@ -1743,7 +1753,12 @@ function flood(c: City, D: Derived, at: number, r: () => number, extra=false) {
 }
 
 function applyShift(c: City, at: number) {
+  replanProtectedCourse(c,at);
   const s = c.shift!;
+  if(s.xs!.every((x,y)=>x===c.xs[y])){
+    s.done=true;
+    log(c,at,"Đê và địa hình giữ được dòng sông cũ: không có tuyến đổi dòng an toàn qua vùng chưa được bảo vệ. Không mất công trình do đổi dòng; vẫn cần đề phòng lũ tràn bờ.","good");return;
+  }
   const oldS = riverSet(c.xs), newS = riverSet(s.xs!);
   let lost = 0;
   const bed = new Set(c.oldbed);
@@ -2088,7 +2103,7 @@ function onSeason(c: City, si: number) {
   const s = c.shift;
   if (s && !s.done && si === s.warn) {
     s.xs = newCourse(c, r);
-    log(c, at, "Già làng xem nước: mùa thu tới sông sẽ đổi dòng. Ô viền nét đứt là dòng mới.", "warn");
+    log(c, at, "Già làng xem nước: mùa thu tới sông có thể đổi dòng. Ô viền nét đứt là tuyến dự báo. Xây hoặc sửa đê để bảo vệ đất; dòng mới tránh vùng được đê che.", "warn");
   }
   if (si % 4 === 2) {
     if (s && !s.done && si === s.at && s.xs) applyShift(c, at);
@@ -2111,6 +2126,7 @@ function completeBuilding(c:City,b:Building,at:number){
     log(c,at,`Kho: ngăn ${RN[r]} lên cấp ${storageLevel(b,r)} (${storageCapacity(b,r).toLocaleString("vi-VN")} chỗ).`,"good");return;
   }
   b.lvl++;b.doneAt=null;
+  if(b.k==="levee"&&replanProtectedCourse(c,at))log(c,at,"Đê vừa hoàn tất đã bảo vệ đất trên tuyến dự báo. Dòng sông dự kiến đã được tính lại; xem đường nét đứt mới.","good");
   log(c,at,`${buildingName(c,b.k)} ${b.lvl===1?"xây xong":"đã nâng lên cấp "+b.lvl}.`,"good");
   if((b.k==='dam'||b.k==='green')&&c.modern){c.modern.choice=b.k;c.modern.completedAt=at;log(c,at,`Khánh thành ${def(b.k).n}! Thành phố tiếp tục hoạt động và giao thương.`,"good");}
   if(b.k==='temple'&&!c.templeAt){c.templeAt=at;log(c,at,"Đền Sông Mẹ khánh thành. Thành phố đã đi từ lều cỏ tới kỳ quan.","good");}
@@ -2530,6 +2546,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     b.flooded = false;delete b.floodUntil;
     b.burned = false;
     delete b.damageCause;
+    if(b.k==="levee"&&replanProtectedCourse(c,now))log(c,now,"Đê được sửa đã bảo vệ đất trên tuyến dự báo. Đã tính lại hướng dòng sông mới.","good");
     autoStaff(c, now);
     return null;
   }

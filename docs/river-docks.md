@@ -9,3 +9,7 @@ Chọn cảng → **Chuyển bến** → bấm ô trống sát sông → xem và
 - Thời gian: `30 + 10d` giây.
 
 Chuyển bến giữ cấp, thuyền và phần đóng dở; ngừng hoạt động trong thời gian di chuyển. Tại bờ mới, cháy/ngập cũ vẫn cần sửa riêng. Nếu sông lại đổi trong lúc đang chuyển, công trình hoàn tất nhưng còn mắc cạn nếu không còn bờ sông. Cảng bị dòng mới tràn lên được giữ lại ở trạng thái ngập/mắc cạn để cứu, các công trình khác vẫn theo quy tắc thiên tai hiện có.
+
+## Phòng ngừa
+
+Đê hoàn tất và đang hoạt động bảo vệ vùng 2 ô và vùng bao kín giống lớp bảo vệ lũ hiện có. Dòng sông mới tránh phần đất được bảo vệ (không biến đất đó thành lòng sông). Dự báo được tính lại khi đê xây/sửa xong và lúc sự kiện xảy ra; dữ liệu làng cũ có tuyến dự báo sẵn cũng được kiểm tra. Nếu không tìm được tuyến hợp lệ, sông giữ dòng cũ. Đê cháy/ngập/chưa xây xong không bảo vệ; động đất vẫn là nguy cơ riêng. Cảng ngoài vùng này vẫn có thể mất bờ sông.
