@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {newCity,G,F,HL,idx,applyAction,settle,MIN,workforceCounts,isScout,availableForWork,type City,type Res} from './engine';
+import {newCity,G,F,HL,idx,applyAction,settle,MIN,workforceCounts,isScout,availableForWork,availableForQuickAssign,quickAssignBlockedReason,type City,type Res} from './engine';
 const zero:Res={food:0,wood:0,stone:0,copper:0,gold:0,diamond:0,coal:0};
 const mix={...zero,wood:100};
 function fixture():City {
@@ -81,4 +81,34 @@ test('invalid headcounts are rejected before settlement',()=>{
  for(const patch of [{counts:{...zero,food:-1},scouts:0},{counts:{...zero,food:1.5},scouts:0},{counts:{food:1},scouts:0},{counts:zero,scouts:NaN},{counts:{...zero,foo:0},scouts:0}]){
   const c=fixture(),before=structuredClone(c);assert.ok(applyAction(c,{type:'setWorkforce',...patch} as never,MIN));assert.deepEqual(c,before);
  }
+});
+
+test('quick resource assignment can reuse parked idle civilians without automation taking their order',()=>{
+ const c=fixture();c.auto={on:true,mix};
+ const [parked,...others]=c.people;
+ for(const p of others){p.assignment='scout';p.task={t:'idle'};}
+ assert.equal(applyAction(c,{type:'assign',ids:[parked.id],task:{t:'move',to:idx(23,20)}},0),null);
+ settle(c,10_000);assert.equal(availableForWork(parked),false);assert.equal(parked.pos,idx(23,20));
+ assert.equal(applyAction(c,{type:'assignN',n:1,task:{t:'chop',at:idx(20,22)}},10_000),null);
+ assert.equal(parked.task.t,'chop');assert.ok(parked.haul);assert.equal(parked.haul!.resource,'wood');
+ assert.ok(others.every(p=>isScout(p)&&p.task.t==='idle'));
+ const wood=c.res.wood;settle(c,50_000);assert.ok(c.res.wood>wood);
+});
+test('quick assignment may replace an unfinished move but never silently grabs scouts or sheltered people',()=>{
+ const c=fixture(),[walker,...others]=c.people;
+ for(const p of others){p.assignment='scout';p.task={t:'idle'};}
+ applyAction(c,{type:'assign',ids:[walker.id],task:{t:'move',to:idx(30,20)}},0);
+ assert.equal(applyAction(c,{type:'assignN',n:1,task:{t:'chop',at:idx(20,22)}},1000),null);
+ assert.equal(walker.task.t,'chop');
+ assert.match(applyAction(c,{type:'assignN',n:1,task:{t:'chop',at:idx(20,22)}},1000)!,/nhóm khám phá/);
+ assert.ok(others.every(p=>isScout(p)));
+});
+
+test('quick availability rejects refugees and scouts and explains empty or reserved groups',()=>{
+ const c=fixture(),p=c.people[0];p.task={t:'idle',at:c.camp};
+ assert.equal(availableForQuickAssign(p),true);
+ p.assignment='scout';assert.equal(availableForQuickAssign(p),false);assert.match(quickAssignBlockedReason(c),/nhóm khám phá/);
+ p.assignment='manual';p.refuge={route:[c.camp],at:0,arrive:0,pausedAt:0,x:20.5,y:20.5};
+ assert.equal(availableForQuickAssign(p),false);assert.match(quickAssignBlockedReason(c),/tránh địch/);
+ c.people=[];assert.match(quickAssignBlockedReason(c),/chưa có dân/);
 });

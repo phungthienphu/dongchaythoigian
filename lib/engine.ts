@@ -853,6 +853,16 @@ export function stats(c: City, D: Derived, at: number): Stats {
 export const isScout = (p:Person) => p.assignment === "scout" || p.task.t === "explore";
 /** Explicit moves and waiting scouts are not unassigned workers, including old saves. */
 export const availableForWork = (p:Person) => !p.refuge && p.task.t === "idle" && p.task.at === undefined && !isScout(p);
+/** A player clicking a resource explicitly replaces a non-scout standing/move
+ * order. Automation and exact workforce plans must still preserve that order. */
+export const availableForQuickAssign = (p:Person) => !p.refuge && p.task.t === "idle" && !isScout(p);
+export function quickAssignBlockedReason(c:City) {
+  if (!c.people.length) return "Làng chưa có dân để giao việc.";
+  const scouts=c.people.filter(isScout).length, sheltered=c.people.filter(p=>!!p.refuge).length;
+  if (sheltered) return `${sheltered} người đang tránh địch hoặc quay lại chỗ làm; chờ an toàn để giao việc.`;
+  if (scouts) return `${scouts} người thuộc nhóm khám phá, đang giữ nhiệm vụ riêng. Chọn trực tiếp người đó rồi bấm nơi làm, hoặc Cho nghỉ để đưa về nhóm rảnh.`;
+  return "Dân hiện đều đã có việc. Chọn người trong bảng Dân làng để đổi việc.";
+}
 export function taskResource(c:City,p:Person):ResKey|null {
   const tk=p.task;
   if(tk.t==="chop")return "wood";
@@ -2549,8 +2559,8 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
       people = c.people.filter((p) => a.ids.includes(p.id));
     } else {
       const n = a.n;
-      people = c.people.filter(availableForWork).slice(0, n);
-      if (!people.length) return "Không còn ai rảnh. Chọn người đang làm việc khác để đổi việc.";
+      people = c.people.filter(availableForQuickAssign).slice(0, n);
+      if (!people.length) return quickAssignBlockedReason(c);
     }
     if (!people.length) return "Chưa chọn người.";
     if(people.some(p=>p.refuge))return "Dân đang tránh địch hoặc quay lại chỗ làm. Chờ an toàn để giao việc mới.";

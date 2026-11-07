@@ -11,7 +11,7 @@ import { ReadFlights } from "@/lib/read-flights";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  dockRelocationPlan, buildingJobs,storageCapacity, availableForWork, isScout, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
+  dockRelocationPlan, buildingJobs,storageCapacity, availableForQuickAssign, quickAssignBlockedReason, isScout, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
   armyCap, armyUsed, buildingCost, trainingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -856,7 +856,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const si = seasonIndexAt(c, t), season = si % 4;
   const nextSeasonIn = c.t0 + (si + 1) * SEASON_MS - t;
   const busyN = busyBuilders(c), maxB = builders(c);
-  const idle = c.people.filter(availableForWork);
+  const idle = c.people.filter(availableForQuickAssign);
   const birthRate=POP_GROWTH_PER_HOUR*(1+(c.res.wood>0?st.fires:0))*pollutionBirth(c)*serviceBonus(c).birth;
   const populationStatus = c.battleId ? "Tạm dừng do trận đánh" : c.res.food <= 0 ? "Dân đang đói" : c.people.length >= st.housing ? "Cần thêm nhà" : birthRate<=0?"Ô nhiễm ngăn sinh dân": `+1 dân sau ${fmtDur((1-c.popAcc) / birthRate * HOUR)}`;
   const hasFoodWorker = c.people.some(p => p.task.t === "hunt" || p.task.t === "work" && ["gather","farm","estate","wheel"].includes(c.b[p.task.at]?.k ?? ""));
@@ -1003,6 +1003,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
             <button className="primary" disabled={busy || !idle.length || herd.n < 1} onClick={() => act({ type: "assignN", n: assignN, task: herdTask })}>
               {herd.n < 1 ? "Đàn đã bị săn hết" : idle.length ? `Giao ${Math.min(assignN, idle.length)} người đi săn` : "Không ai rảnh"}
             </button>
+            {!idle.length&&<><p className="small muted" role="status">{quickAssignBlockedReason(c)}</p><button disabled={busy} onClick={()=>setPanel("people")}>Chọn dân để đổi việc</button></>}
           </div>
           {hunters.length > 0 && (
             <ul className="people compact">
@@ -1078,6 +1079,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               <button className="primary" disabled={busy || !idle.length} onClick={() => act({ type: "assignN", n: assignN, task: selTask.task })}>
                 {idle.length ? `Giao ${Math.min(assignN, idle.length)} người rảnh` : "Không ai rảnh"}
               </button>
+              {!idle.length&&<><p className="small muted" role="status">{quickAssignBlockedReason(c)}</p><button disabled={busy} onClick={()=>setPanel("people")}>Chọn dân để đổi việc</button></>}
             </div>
           )}
           {onTarget.length > 0 && (
