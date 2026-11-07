@@ -1,10 +1,27 @@
 # Phát hành Chặng A và rollback
 
 Ngày 07/11/2026. Code giữ MongoDB làm nguồn chính, combat tiếp tục ở Worker.
-Đã phát hành Chặng A với delay off; chưa bật gom 10 giây trên production. Không
-đánh dấu T00/G-A hoàn thành trước canary và so tải production đại diện.
+Đã phát hành Chặng A với delay off. Sau soak đạt, chủ dự án yêu cầu phát hành
+gom 10 giây cho **tất cả người chơi**, thay cho canary riêng một làng. Không
+đánh dấu T00/G-A hoàn thành khi chưa có so tải production đại diện.
 
-## Mốc phát hành đã xác minh
+## Đợt phát hành toàn bộ sau soak
+
+- Code đang ở `main`, gồm bản vẽ dân/hoạt cảnh `2a1a73f`; không đổi luật engine.
+- Soak local đã đạt **2 giờ thực, 100/100 batch/retry/WebSocket reconnect**, ACK
+  liên tục; P95 HTTP batch 39 ms. Chi tiết và giới hạn memory nằm trong
+  [sync-integration.md](./sync-integration.md).
+- Theo chỉ đạo phát hành mới của chủ dự án, cấu hình Vercel **Production**:
+  `CITY_BATCH_ENABLED=true`, xóa `CITY_BATCH_CANARY_IDS`. Không có danh sách
+  canary nghĩa là bật cho mọi làng. Env chỉ có hiệu lực trong deployment mới.
+- Phạm vi phát hành toàn bộ thay thế bước canary trước đó; không coi đây là
+  bằng chứng đã qua mọi gate. Google OAuth trên hai browser, mobile background,
+  memory dài hạn và theo dõi cùng tải >=48 giờ vẫn chưa nghiệm thu.
+- MongoDB vẫn là nguồn chính. Combat Worker không có thay đổi cần deploy lại;
+  Village Worker vẫn là prototype synthetic riêng, chưa nhận làng thật.
+- Ruộng tự cải tạo và quản lý sa thải/đuổi lính thuộc các đợt sau.
+
+## Mốc phát hành ban đầu đã xác minh (lịch sử)
 
 - `main` code: `7ced7e9da277fe3a229bdd51677c00ad39e2c673`, đã push GitHub.
 - Vercel production: `dpl_4LWYKezTQPcnnm8do5qvPU3cQxaR`, **Ready**, tạo
@@ -16,8 +33,8 @@ Ngày 07/11/2026. Code giữ MongoDB làm nguồn chính, combat tiếp tục �
 - Sau deploy: trang chủ 200, GET `/api/city` và POST `/api/city/batch` không có
   phiên đều 401. Đây là kiểm tra routing/auth, không chứng minh luồng chơi đã QA
   production. Cần Google login chủ dự án để chọn làng canary.
-- Soak local hai giờ/100 reconnect đang chạy riêng, chưa coi là pass. Không mở
-  delay cho tất cả người chơi để thay thế canary còn thiếu.
+- Ở mốc ban đầu, soak local hai giờ/100 reconnect chưa hoàn tất và kế hoạch là
+  mở canary trước. Kết quả mới và chỉ đạo phát hành thay thế nằm ở mục phía trên.
 
 ## Những gì thay đổi
 
@@ -59,9 +76,10 @@ canary hoặc secret, chỉ nhận boolean của làng mình.
    kiểm tra tài nguyên/quân không trùng, lệnh được reschedule/từ chối có thông báo.
 4. Kiểm tra lifecycle điện thoại và soak thật 2 giờ/100 reconnect, giới hạn memory.
    Unit test thời gian giả và browser harness không thay cho bước này.
-5. Pin deployment hash/cửa sổ/tải. Deploy trước với delay off; sau đó bật canary
-   theo ID làng được phép thử. Chặng A không đổi engine Worker, nhưng cần deploy
-   sửa lỗi cleanup WebSocket `d169657` được phát hiện trong kiểm thử tích hợp.
+5. Pin deployment hash/cửa sổ/tải. Phương án ban đầu là deploy với delay off rồi
+   bật canary; chủ dự án đã yêu cầu bật toàn bộ sau soak như mục phát hành ở
+   trên. Chặng A không đổi engine Worker; bản sửa cleanup WebSocket `d169657`
+   đã được phát hành trong Worker ở mốc ban đầu.
 
 Theo dõi >=48 giờ với >=24 giờ workload đủ luồng; so cùng tải, tính tổng Vercel
 (batch/checkpoint/GET/reconcile/telemetry), Mongo và Worker. Chưa có số sau
@@ -102,8 +120,9 @@ Worker WebSocket/combat/callback và 1 regression close handshake**. Game browse
 qua giao dân, tuyển quân/reload, đăng chợ và chuyển controller giữa hai tab.
 Profiler thật xác nhận batch 20 lệnh = 1 find/1 update; duplicate và GET =
 1 find/0 update. Setup, bảng đo và giới hạn ở [sync-integration.md](./sync-integration.md).
-Soak hai giờ thực đã khởi chạy, chưa ghi nhận hoàn tất; mobile và Google OAuth
-hai browser vẫn cần QA. Không thay các gate còn thiếu bằng kết quả mock/benchmark.
+Soak hai giờ thực đã hoàn tất và đạt ngày 07/11; mobile, Google OAuth hai browser
+và memory dài hạn vẫn cần QA. Không thay các gate còn thiếu bằng kết quả
+mock/benchmark hoặc kết quả soak local.
 
 T05 đã có prototype local/cloud riêng và metrics đầu tiên, chưa đạt gate quota;
 T06 có preflight chỉ đọc, chưa có bàn giao owner. Xem

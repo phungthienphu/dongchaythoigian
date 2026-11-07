@@ -109,5 +109,23 @@ lên Vercel hoặc thêm vào auth production.
 | GET làng | 1 | 0 | 16 ms | 41.598 |
 
 Số đo đơn lẻ sau warm-up, không phải percentile hay so sánh production cùng tải.
-Chưa nghiệm thu: Google OAuth trên hai browser, mobile background, soak hoàn tất
-và memory, production canary >=48h. Không dùng fixture/cookie tổng hợp ở production.
+
+### Soak hai giờ đã hoàn tất ngày 07/11/2026
+
+- Thời gian thực: 19:44:37–21:44:37 UTC+7, `elapsedMs=7200000`.
+- `soak-pass`, đủ 100/100 vòng; sequence và ACK liên tục từ 1 đến 100.
+- Mỗi vòng gửi batch HTTP, gửi lại đúng batch và đối chiếu Mongo document không
+  đổi, sau đó mở/đóng WebSocket Worker. Không có assertion thất bại.
+- P95 HTTP batch: **39 ms**, đo local Next dev + Mongo replica set + Worker local;
+  không phải Vercel CPU, độ trễ Internet hay kết quả mobile.
+- Monitor ghi 233 mẫu RSS từ 19:49:03 đến 21:45:04 UTC+7, không phủ vài phút đầu.
+  RSS tối đa của cả cây process: Next 487.224 KiB, Worker dev 575.940 KiB,
+  runner 77.696 KiB, Mongo 240.832 KiB. RSS có tăng; chưa chứng minh không rò rỉ
+  bộ nhớ và không quy đổi thành memory một isolate Cloudflare production.
+- Bằng chứng local được giữ trong `.wrangler/sync-qa-infra/soak.log` và
+  `memory.jsonl`, không đưa dữ liệu phiên hay secret vào Git.
+
+Chưa nghiệm thu: Google OAuth trên hai browser, mobile background, đánh giá
+memory dài hạn và quan sát production >=48h. Chủ dự án yêu cầu phát hành toàn
+bộ thay cho canary; không coi đó là bằng chứng các gate đã đạt. Không dùng
+fixture/cookie tổng hợp ở production. Soak đạt không thay thế các gate còn thiếu.
