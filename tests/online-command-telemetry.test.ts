@@ -102,3 +102,9 @@ test('UTC buckets separate villages and expire seven days after the bucket end',
   expect(a.update.$setOnInsert.bucket.getTime()).toBe(Date.UTC(2026, 10, 7, 4, 15));
   expect(a.update.$setOnInsert.expiresAt.getTime() - a.update.$setOnInsert.bucket.getTime()).toBe(COMMAND_BUCKET_MS + COMMAND_RETENTION_MS);
 });
+test('one batch metric update includes child counters without per-command writes',()=>{
+  const update=commandBucketUpdate({...newCommandMetrics('city'),command:'city.batch',commands:{assign:20,build:2},cityId:'a',route:'city',at:0,handlerMs:1,outcome:'ok'});
+  expect(update.update.$inc.requests).toBe(1);
+  const counters:Record<string,number>=update.update.$inc;
+  expect(counters['actions.assign']).toBe(20);expect(counters['actions.build']).toBe(2);
+});
