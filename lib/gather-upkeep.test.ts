@@ -27,7 +27,7 @@ test('breaking a canal intake changes actual operating cost from two to four wit
 test('an unirrigated gathering camp uses four food per minute, separately from population upkeep, in every era and level',()=>{
  for(const workers of [1,2])for(const level of [1,2,3])for(const era of [1,2,3]){
   const c=fixture(workers,level,era),st=stats(c,derive(c),0),scale=2**(era-1);
-  assert.equal(st.gatherFoodUse,240);assert.equal(st.rate.food,7200*scale*[0,1,1.6,2.4][level]*workers/2-st.upkeep.food-240);
+  assert.equal(st.gatherFoodUse,240);assert.equal(st.rate.food,4560*scale*[0,1,1.6,2.4][level]*workers/2-st.upkeep.food-240);
   settle(c,1000);close(c.res.food,1000-(workers*120*scale+240)/3600);close(c.res.wood,100-workers*scale/3600);
  }
  const two=fixture();two.b[idx(23,20)]={k:'gather',lvl:1,doneAt:null};two.people[1].task={t:'work',at:idx(23,20)};two.people[1].pos=idx(23,20);
@@ -41,8 +41,8 @@ test('empty, damaged, travelling, returning and full-store camps do not charge o
   else c.res.food=5500;
   const stock=c.res.food;settle(c,1000);close(c.res.food,stock-240/3600);
  }
- const c=fixture();settle(c,10_000);assert.ok(c.people.every(p=>p.haul?.phase==='return'));const stock=c.res.food;
- settle(c,11_000);close(c.res.food,stock-240/3600);
+ const c=fixture();settle(c,16_000);assert.ok(c.people.every(p=>p.haul?.phase==='return'));const stock=c.res.food;
+ settle(c,17_000);close(c.res.food,stock-240/3600);
 });
 test('zero food never blocks gathering or loses assignments and the village recovers through deliveries',()=>{
  const c=fixture();c.res.food=0;settle(c,MIN);assert.ok(c.res.food>0);assert.ok(c.people.every(p=>p.task.t==='work'));assert.equal(c.people.length,2);

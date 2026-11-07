@@ -7,6 +7,7 @@ import { eraNames, RELEASE_RULES, type EngineRules } from "./eras";
 import { MEDIEVAL_BUILDINGS, initializeMedieval, stepMedieval, scheduleDrought, medievalBonus, droughtFactor, hasWaterSource, isField, isStorage, type MedievalState } from "./medieval";
 import { BoundedCache } from "./bounded-cache";
 import { isActionInput } from "./action-input";
+import {buildingOutput} from './economy-balance';
 
 // Shared game engine. Runs on the server (source of truth) and on the client
 // (to show live numbers between requests). Must stay deterministic: same city +
@@ -82,7 +83,7 @@ const DEFS = {
   ...INDUSTRIAL_BUILDINGS,
   ...MODERN_BUILDINGS,
   hut: { n: "Lều", era: 1, cost: { wood: 20 }, sec: 10, house: 3, up: true, d: "Chỗ ở cho 3 người mỗi cấp." },
-  gather: { n: "Trại hái lượm", era: 1, cost: { wood: 15 }, sec: 10, jobs: 2, prod: { food: 60 }, use: { food: GATHER_DRY_FOOD_PER_HOUR }, up: true, d: "Lương thực. Thêm 50% trên đất phù sa. Khi sản xuất, mỗi trại dùng 2 thực/phút nếu được kênh có nước tưới trong 1 ô, nếu không dùng 4 thực/phút. Cộng riêng với sức ăn dân, cố định mọi cấp và số thợ. Hết thực dân vẫn kiếm ăn." },
+  gather: { n: "Trại hái lượm", era: 1, cost: { wood: 15 }, sec: 10, jobs: 2, prod: { food: 38 }, use: { food: GATHER_DRY_FOOD_PER_HOUR }, up: true, d: "Nguồn thực đầu game, sản lượng thấp hơn ruộng được chăm. Thêm 50% trên đất phù sa. Khi sản xuất, mỗi trại dùng 2 thực/phút nếu được kênh có nước tưới trong 1 ô, nếu không dùng 4 thực/phút. Cộng riêng với sức ăn dân, cố định mọi cấp và số thợ. Hết thực dân vẫn kiếm ăn." },
   wood: { n: "Trại đốn gỗ", era: 1, cost: { food: 10 }, sec: 10, jobs: 2, prod: { wood: 60 }, need: "forest", up: true, drop: ["wood"], d: "Phải kề rừng. Người chặt cây gần đây đỡ phải đi xa." },
   quarry: { n: "Bãi đá", era: 1, cost: { wood: 20 }, sec: 15, jobs: 2, prod: { stone: 40 }, need: "hill", up: true, drop: ["stone", "copper"], d: "Đặt trên đồi. Người đào đá gần đây đỡ phải đi xa." },
   storehouse: { n: "Kho", era: 1, cost: { wood: 40, stone: 10 }, sec: 30, storage: 1000, up: true, drop: ["food", "wood", "stone", "copper", "gold", "diamond", "coal"], d: "Cấp đầu +1.000 mỗi loại. Sau đó nâng riêng từng ngăn tài nguyên." },
@@ -97,7 +98,7 @@ const DEFS = {
   stonehouse: { n: "Nhà đá", era: 3, cost: { stone: 250, copper: 30 }, sec: 1200, house: 12, up: true, d: "12 người mỗi cấp. Lũ không làm ngập." },
   builderhouse: { n: "Nhà thợ xây", era: 1, cost: { wood: 70, stone: 30 }, sec: 40, up: true, max: 2, d: "Mỗi cấp thêm 1 đội thợ, xây thêm 1 công trình đồng thời. Tối đa 2 nhà. Đội thợ chuyên trách, không lấy dân đang thu hoạch. Nhà cháy/ngập không cấp thêm đội; công trình đang xây vẫn được hoàn tất." },
   forge: { n: "Xưởng dụng cụ", era: 1, cost: { wood: 40, stone: 20 }, sec: 30, up: true, max: 2, d: "Mỗi cấp tăng 25% tốc độ chặt cây, đào đá, săn bắn và làm ruộng, trại hái lượm. Áp dụng toàn làng ngay khi xây xong, không cần giao thợ. Tối đa 2 xưởng; nâng cấp sau khi có Đình làng." },
-  wheel: { n: "Cối nước", era: 3, cost: { wood: 200, stone: 100 }, sec: 1200, jobs: 2, prod: { food: 150 }, use: { wood: WATERMILL_WOOD_PER_HOUR }, need: "river", up: true, d: "Sát sông. Mùa đông không giảm. Mỗi cối dùng 2 gỗ/phút khi sản xuất, không tăng theo cấp hay số thợ. Hết gỗ tạm dừng; có gỗ tự chạy lại." },
+  wheel: { n: "Cối nước", era: 3, cost: { wood: 200, stone: 100 }, sec: 1200, jobs: 2, prod: { food: 50 }, use: { wood: WATERMILL_WOOD_PER_HOUR }, need: "river", up: true, d: "Sát sông. Nguồn thực ổn định qua mùa đông; sản lượng không còn vượt trội ruộng được chăm. Mỗi cối dùng 2 gỗ/phút khi sản xuất, không tăng theo cấp hay số thợ. Hết gỗ tạm dừng; có gỗ tự chạy lại." },
   hall: { n: "Đình làng", era: 2, cost: { wood: 300, stone: 200, copper: 20 }, sec: 900, house: 5, storage: 500, up: true, max: 1, drop: ["food", "wood", "stone", "copper", "gold", "diamond", "coal"], d: "Nhà chính. Công trình khác chỉ nâng được tới cấp của Đình. Cấp 3 mở trung tâm điều khiển." },
   envoy: { n: "Nhà sứ giả", era: 1, cost: { wood: 80, stone: 30, food: 30 }, sec: 90, up: true, max: 1, d: "Có sứ giả để đi thăm các nước. Mỗi cấp thêm một sứ giả và đi nhanh hơn." },
   barracks: { n: "Trại lính", era: 1, cost: { wood: 120, stone: 40 }, sec: 120, up: true, max: 3, d: "Huấn luyện quân. Mỗi cấp chứa thêm 10 lính." },
@@ -234,6 +235,7 @@ export type City = {
   gatherFoodStartsAt?: number;
   farmAutoStartsAt?: number;
   hungerStartsAt?: number;
+  economyBalanceStartsAt?: number;
   hunger?: HungerState;
   ver: number;
   seed: number;
@@ -561,7 +563,7 @@ export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
     ver: ENGINE_VER, seed, t, seen: new Array(W * H).fill(0), oldbed: [], xs, camp, b: {}, dep: {}, herds,
     people: [], nextId: 1,
     res: { food: 100, wood: 120, stone: 30, copper: 0, gold: 0, diamond: 0, coal:0 }, pop: 0, popAcc: 0, era: 1,
-    t0: now, last: now, upkeepStartsAt:now, wheelFuelStartsAt:now, gatherFoodStartsAt:now, farmAutoStartsAt:now, hungerStartsAt:now, hunger:{stressMs:0,lossMs:0,warned:0}, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
+    t0: now, last: now, economyBalanceStartsAt:now, upkeepStartsAt:now, wheelFuelStartsAt:now, gatherFoodStartsAt:now, farmAutoStartsAt:now, hungerStartsAt:now, hunger:{stressMs:0,lossMs:0,warned:0}, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
   };
   enrichCopperDeposits(c);
   enrichPreciousDeposits(c);
@@ -804,11 +806,11 @@ export function stats(c: City, D: Derived, at: number): Stats {
     else if(d.use){woodUse+=(legacy?20:d.use.wood??0)*LVL_MULT[b.lvl]*eff;stoneUse+=(legacy?0:d.use.stone??0)*LVL_MULT[b.lvl]*eff;}
     if(b.k==='thermal')rate.coal-=(c.modern?.generation[i]??0)/80*240;
     if (!d.prod || (isField(b.k) && (b.tendUntil || farmRemaining(b)<=0))) continue;
-    const output=Object.values(d.prod)[0]??1;
+    const production=buildingOutput(c,b.k,d.prod,at),output=Object.values(production)[0]??1;
     if(d.input&&RES.some(r=>d.input?.[r]&&c.res[r]<d.input[r]!/output))continue;
     for(const r of RES)if(d.input?.[r])rate[r]-=d.input[r]!*LVL_MULT[b.lvl]*eff*mult*(d.demand?powerFraction(c,i):1);
     for (const r of RES) {
-      let v = d.prod[r];
+      let v = production[r];
       if (!v) continue;
       v *= LVL_MULT[b.lvl] * (b.k==='artisan'||def(b.k).era>=5?1:GATHER_SPEED);
       v *= droughtFactor(c,i,b.k,at)*(d.demand?powerFraction(c,i):1);
@@ -1457,12 +1459,12 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   if (tk.t !== "work") return null;
   const b = c.b[tk.at];
   if (!built(b) || b.flooded || (isField(b.k) && (b.tendUntil || farmRemaining(b)<=0))) return null;
-  const d = def(b.k), resource = RES.find(r => (d.prod?.[r] ?? 0) > 0);
+  const d = def(b.k), production=buildingOutput(c,b.k,d.prod??{},at),resource = RES.find(r => (production[r] ?? 0) > 0);
   if (!resource || !d.jobs) return null;
   if(d.demand&&!powerFraction(c,tk.at))return null;
   if(b.k==='artisan'&&(c.res.wood<20||c.res.stone<10))return null;
-  if(d.input&&Object.entries(d.input).some(([r,n])=>c.res[r as ResKey]<(n??0)/d.prod![resource]!))return null;
-  let rate = d.prod![resource]! * LVL_MULT[b.lvl] / buildingJobs(b) * ctx.mult * (b.k==='artisan'||def(b.k).era>=5?1:GATHER_SPEED);
+  if(d.input&&Object.entries(d.input).some(([r,n])=>c.res[r as ResKey]<(n??0)/production[resource]!))return null;
+  let rate = production[resource]! * LVL_MULT[b.lvl] / buildingJobs(b) * ctx.mult * (b.k==='artisan'||def(b.k).era>=5?1:GATHER_SPEED);
   rate *= droughtFactor(c,tk.at,b.k,at)*(d.demand?powerFraction(c,tk.at):1);
   const crop = isField(b.k) || b.k === "gather";
   if (crop && ctx.D.fert[tk.at]) rate *= isField(b.k) ? (completedWonder(c,'dam')?1.5:2) : 1.5;
@@ -1556,7 +1558,7 @@ function takeCargo(c: City, h: Haul, at: number): number {
   if (h.source.kind === "building") {
     const b=c.b[h.source.key];if(!isBuildingActive(b))return 0;
     const d=def(b.k);if(d.input&&d.prod){
-      const output=d.prod[h.resource!]??1;let amount=h.capacity;
+      const output=buildingOutput(c,b.k,d.prod,at)[h.resource!]??1;let amount=h.capacity;
       for(const r of RES)if(d.input[r])amount=Math.min(amount,c.res[r]*output/d.input[r]!);
       for(const r of RES)if(d.input[r]){const spent=amount*d.input[r]!/output;c.res[r]=Math.max(0,c.res[r]-spent);if(c.industry){const ledger=c.industry.inputsSpent??={};ledger[r]=(ledger[r]??0)+spent;}}
       if(c.industry&&d.era>=5&&amount>0)c.industry.processed=true;
@@ -2210,6 +2212,7 @@ export function settle(c: City, now: number) {
   c.gatherFoodStartsAt??=now;
   c.farmAutoStartsAt??=now;
   c.hungerStartsAt??=now;
+  c.economyBalanceStartsAt??=now;
   if (now <= c.last) return;
   let t = c.haulAt ?? c.last;
   c.haulAt = t;
@@ -2248,6 +2251,7 @@ export function settle(c: City, now: number) {
     if(t<c.upkeepStartsAt&&c.upkeepStartsAt<=nt)dirty=true;
     if(t<c.wheelFuelStartsAt&&c.wheelFuelStartsAt<=nt)dirty=true;
     if(t<c.gatherFoodStartsAt&&c.gatherFoodStartsAt<=nt)dirty=true;
+    if(t<c.economyBalanceStartsAt&&c.economyBalanceStartsAt<=nt)dirty=true;
     const si = seasonIndexAt(c, nt);
     while (c.seasonIdx < si) { c.seasonIdx++; onSeason(c, c.seasonIdx); dirty = true; }
     const services=c.medieval?staffCounts(c):undefined;
