@@ -196,7 +196,8 @@ const ERA_UP: Record<number, string> = {
 
 export const storageLevel = (b: Building, r: ResKey) => b.storageLevels?.[r] ?? b.lvl;
 
-export type Building = { stranded?: boolean; relocation?: { from: number; startedAt: number; duration: number }; floodUntil?:number; off?:boolean; damageCause?: 'earthquake'; shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
+/** Optional metadata preserves old saves without inventing construction dates. */
+export type Building = { builtAt?: number; investment?: Partial<Res>; investmentEstimated?: boolean; stranded?: boolean; relocation?: { from: number; startedAt: number; duration: number }; floodUntil?:number; off?:boolean; damageCause?: 'earthquake'; shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
 export type Task =
   | { t: "idle"; at?: number } // at = where they stand and wait
   | { t: "work"; at: number }
@@ -671,6 +672,43 @@ export const levelCost = (k: BKey, lvl: number, era = 1): Partial<Res> => {
   for (const r of RES) if (def(k).cost[r]) out[r] = def(k).cost[r]! * m;
   return def(k).era>=4?out:eraCost(out, era, 3);
 };
+export const DEMOLITION_FULL_RATE_MS = 6 * HOUR;
+/** Legacy saves have no payment ledger. Use their old, era-independent refund
+ * basis conservatively; all payments from now on are recorded exactly. */
+function demolitionInvestment(b: Building): Partial<Res> {
+  return b.investment ?? levelCost(b.k, Math.max(1, b.lvl));
+}
+function recordBuildingInvestment(b: Building, cost: Partial<Res>) {
+  if (!b.investment) { b.investment = {...demolitionInvestment(b)}; b.investmentEstimated = true; }
+  for (const r of RES) if (cost[r]) b.investment[r] = (b.investment[r] ?? 0) + cost[r]!;
+}
+export function demolitionQuote(c: City, tile: number, now: number) {
+  const b = c.b[tile];
+  const age = b?.lvl === 0 ? 0 : b?.builtAt === undefined ? null : Math.max(0, now - b.builtAt);
+  const percent = age !== null && age < DEMOLITION_FULL_RATE_MS ? 50 : 20;
+  const gross: Partial<Res> = {}, refund: Partial<Res> = {}, overflow: Partial<Res> = {};
+  let error: string | null = !b ? "Ô này trống." : null;
+  if (b) {
+    if ((b.k === 'dam' || b.k === 'green') && c.modern?.completedAt) error = "Kỳ quan cuối đã khánh thành; có thể sửa chữa nhưng không phá hoặc đổi nhánh.";
+    else if (b.shipQueue?.length) error = "Cảng đang đóng thuyền; chờ hoàn tất trước khi phá.";
+    // Mirror stats() storage rules without deriving the whole map for a preview.
+    const capacity = Object.fromEntries(RES.map(r => [r, BASE_STORAGE])) as Res;
+    for (const [i, other] of buildings(c)) if (i !== tile && other.lvl >= 1 && !other.burned && !other.flooded)
+      for (const r of RES) capacity[r] += storageCapacity(other, r);
+    const crowded = RES.filter(r => b.lvl >= 1 && !b.burned && !b.flooded && storageCapacity(b,r) > 0 && c.res[r] > capacity[r]);
+    if (!error && crowded.length) error = `Chưa thể phá: kho còn lại thiếu chỗ cho ${crowded.map(r => `${RN[r].toLowerCase()} (${Math.ceil(c.res[r]-capacity[r])})`).join(", ")}. Dùng bớt tài nguyên hoặc bổ sung Kho trước.`;
+    const paid = demolitionInvestment(b);
+    for (const r of RES) {
+      const amount = Math.floor((paid[r] ?? 0) * percent / 100);
+      if (!amount) continue;
+      gross[r] = amount;
+      const accepted = Math.min(amount, Math.max(0, Math.floor(capacity[r] - c.res[r])));
+      if (accepted) refund[r] = accepted;
+      if (accepted < amount) overflow[r] = amount - accepted;
+    }
+  }
+  return {age, percent, gross, refund, overflow, estimated: !!b && (!b.investment || !!b.investmentEstimated), error};
+}
 export const repairCost = (k: BKey, lvl = 1, burned = false, era = 1): Partial<Res> => {
   const out: Partial<Res> = {};
   for (const r of RES) if (def(k).cost[r]) out[r] = Math.ceil((levelCost(k, Math.max(1, lvl))[r] ?? 0) * (burned ? 0.5 : 0.25));
@@ -2136,6 +2174,7 @@ function completeBuilding(c:City,b:Building,at:number){
     delete b.storageUpgrade;b.doneAt=null;
     log(c,at,`Kho: ngăn ${RN[r]} lên cấp ${storageLevel(b,r)} (${storageCapacity(b,r).toLocaleString("vi-VN")} chỗ).`,"good");return;
   }
+  if (b.lvl === 0) b.builtAt = at;
   b.lvl++;b.doneAt=null;
   if(b.k==="levee"&&replanProtectedCourse(c,at))log(c,at,"Đê vừa hoàn tất đã bảo vệ đất trên tuyến dự báo. Dòng sông dự kiến đã được tính lại; xem đường nét đứt mới.","good");
   log(c,at,`${buildingName(c,b.k)} ${b.lvl===1?"xây xong":"đã nâng lên cấp "+b.lvl}.`,"good");
@@ -2533,18 +2572,20 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     if (!(a.k in B)) return "Công trình không hợp lệ.";
     const err = canPlace(c, derive(c), a.k, a.x, a.y,rules);
     if (err) return err;
-    pay(c, buildingCost(a.k, c.era));
-    c.b[i] = { k: a.k, lvl: 0, doneAt: now + buildMs(a.k, 1) };
+    const cost = buildingCost(a.k, c.era);
+    pay(c, cost);
+    c.b[i] = { k: a.k, lvl: 0, doneAt: now + buildMs(a.k, 1), investment: {...cost} };
     return null;
   }
   if (!b) return "Ô này trống.";
   if (a.type === "demolish") {
-    const wonder=c.b[idx(a.x,a.y)];if(wonder&&(wonder.k==='dam'||wonder.k==='green')&&c.modern?.completedAt)return "Kỳ quan cuối đã khánh thành; có thể sửa chữa nhưng không phá hoặc đổi nhánh.";
-    if(b.shipQueue?.length)return "Cảng đang đóng thuyền; chờ hoàn tất trước khi phá.";
-    const refund = levelCost(b.k, Math.max(1, b.lvl));
-    for (const r of RES) c.res[r] += Math.floor((refund[r] ?? 0) / 2);
+    const quote = demolitionQuote(c, i, now);
+    if (quote.error) return quote.error;
+    pay(c, quote.refund, 1);
     delete c.b[i];
-    for (const p of c.people) if (p.task.t === "work" && p.task.at === i) p.task = { t: "idle" };
+    for (const p of c.people) if (p.task.t === "work" && p.task.at === i) setTask(c, p, {t:"idle"}, now);
+    if (b.k === "levee") replanProtectedCourse(c, now);
+    log(c, now, `Đã phá ${buildingName(c,b.k)}, hoàn ${quote.percent}%: ${costText(quote.refund) || "0 tài nguyên"}.${Object.keys(quote.overflow).length ? ` Kho không đủ chỗ, mất ${costText(quote.overflow)}.` : ""}`, "warn");
     return null;
   }
   if (a.type === "repair") {
@@ -2572,6 +2613,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     if(busyBuilders(c)>=builders(c))return "Tất cả thợ đang bận.";
     const cost=levelCost(b.k,lv+1,c.era),err=missing(c,cost);if(err)return err;
     pay(c,cost);
+    recordBuildingInvestment(b,cost);
     b.storageLevels=Object.fromEntries(RES.map(r=>[r,storageLevel(b,r)]));
     b.storageUpgrade=a.resource;b.doneAt=now+buildMs(b.k,lv+1);return null;
   }
@@ -2589,6 +2631,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     const err = missing(c, cost);
     if (err) return err;
     pay(c, cost);
+    recordBuildingInvestment(b,cost);
     b.doneAt = now + buildMs(b.k, b.lvl + 1);
     return null;
   }

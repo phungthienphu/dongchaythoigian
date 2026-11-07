@@ -1,7 +1,7 @@
 "use client";
 import {useEffect,useRef,useState} from 'react';
 import Game from '@/components/Game';
-import {applyAction,G,H,idx,newCity,R,riverSet,SEASON_MS,settle,type Action,type City} from '@/lib/engine';
+import {applyAction,G,H,HOUR,idx,newCity,R,riverSet,SEASON_MS,settle,type Action,type City} from '@/lib/engine';
 function fixture(now:number,protectedBank=false){
  const c=newCity(now,123);c.t.fill(G);c.seen.fill(1);c.people=[];c.pop=0;c.herds=[];c.camps=[];c.b={};c.era=2;
  c.camp=idx(45,48);c.xs=Array(H).fill(40);for(const i of riverSet(c.xs))c.t[i]=R;
@@ -32,10 +32,15 @@ export default function RiverHarness(){
   setReady(true);return()=>{window.fetch=original;};
  },[]);
  const refresh=()=>setEpoch(n=>n+1);
+ const demolition=(hours:number)=>{
+  offset.current=0;const now=Date.now(),c=fixture(now);
+  c.b[idx(45,51)]={k:'house',lvl:1,doneAt:null,builtAt:now-hours*HOUR,investment:{wood:120,stone:40}};
+  city.current=c;refresh();
+ };
  const shift=(protectedBank:boolean)=>{
   offset.current=0;const now=Date.now(),c=fixture(now,protectedBank);
   c.t0=now+1000-2*SEASON_MS;c.seasonIdx=1;c.shift={warn:0,at:2,xs:Array(H).fill(45),done:false};
   settle(c,now+1000);offset.current=1000;city.current=c;refresh();
  };
- return <><aside style={{position:'sticky',top:0,zIndex:10000,padding:10,background:'#233c32',border:'1px solid #ac995a'}}><b>Local · Không dùng database tài khoản</b> <button onClick={()=>{offset.current=0;city.current=fixture(Date.now());refresh();}}>Cảng mắc cạn</button> <button onClick={()=>shift(false)}>Sông đổi dòng</button> <button onClick={()=>shift(true)}>Đê bảo vệ</button> <button onClick={()=>{const c=city.current!,now=Date.now()+offset.current;c.disaster={kind:'earthquake',at:now+1000,level:1,center:c.camp};settle(c,now+2000);offset.current+=2000;refresh();}}>Động đất</button> <button onClick={()=>{offset.current+=180000;refresh();}}>+3 phút</button></aside>{ready&&<Game key={epoch}/>}</>;
+ return <><aside style={{position:'sticky',top:0,zIndex:10000,padding:10,background:'#233c32',border:'1px solid #ac995a'}}><b>Local · Không dùng database tài khoản</b> <button onClick={()=>{offset.current=0;city.current=fixture(Date.now());refresh();}}>Cảng mắc cạn</button> <button onClick={()=>shift(false)}>Sông đổi dòng</button> <button onClick={()=>shift(true)}>Đê bảo vệ</button> <button onClick={()=>{const c=city.current!,now=Date.now()+offset.current;c.disaster={kind:'earthquake',at:now+1000,level:1,center:c.camp};settle(c,now+2000);offset.current+=2000;refresh();}}>Động đất</button> <button onClick={()=>{offset.current+=180000;refresh();}}>+3 phút</button> <button onClick={()=>demolition(3)}>Phá dỡ · nhà 3 giờ</button> <button onClick={()=>demolition(7)}>Phá dỡ · nhà 7 giờ</button></aside>{ready&&<Game key={epoch}/>}</>;
 }

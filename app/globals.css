@@ -502,3 +502,7 @@ a.google.small { padding: 4px 10px; font-size: 12.5px; }
 .game .disaster-notifications { position: fixed; z-index: 26; top: 160px; left: 16px; width: min(390px, calc(100vw - 100px)); max-height: 50dvh; overflow: auto; margin: 0; box-shadow: 0 4px 20px #0005; }
 .game .disaster-notifications h2 { font-size: 18px; }
 @media (max-width: 680px) { .game .disaster-notifications { top: 134px; left: 12px; width: calc(100vw - 24px); max-height: 42dvh; } }
+
+.demolition-review { padding: 12px; border: 1px solid var(--danger); border-radius: 6px; }
+.demolition-review p { margin: 0 0 10px; }
+.demolition-review button { margin: 4px 6px 0 0; }

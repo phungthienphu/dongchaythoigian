@@ -34,6 +34,7 @@ import DiplomacyMessages, { diplomacyText } from "./DiplomacyMessages";
 import { useDiplomacy } from "./useDiplomacy";
 import CaravanNoticeLink from "./CaravanNoticeLink";
 import DockPanel from "./DockPanel";
+import DemolitionPanel from "./DemolitionPanel";
 import AutoAssignPanel from "./AutoAssignPanel";
 import EraStorageNotice from "./EraStorageNotice";
 import WorkforcePanel from "./WorkforcePanel";
@@ -352,7 +353,6 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [pickedSoldier, setPickedSoldier] = useState<string | null>(null);
   const [guardEditing, setGuardEditing] = useState(false);
   const [battleOpen, setBattleOpen] = useState<string | null>(null);
-  const [armDemolish, setArmDemolish] = useState(false);
 
   const reads = useRef(new ReadFlights());
   const panelRef = useRef(panel); panelRef.current = panel;
@@ -799,7 +799,6 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     viewRef.current.selected = cell;
     setSelected(cell);
     setAssignN(1);
-    setArmDemolish(false);
     setMsg(null);
     if (campAt(c, i)) setSend({ ...c.army });
     if (c.b[i]?.k === "market") setPanel("market");
@@ -1123,11 +1122,12 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                   Lên cấp {sel.lvl + 1} ({costText(levelCost(sel.k, sel.lvl + 1, c.era))}, {fmtDur(buildMs(sel.k, sel.lvl + 1))})
                 </button>
               )}
-              <button disabled={busy} onClick={async () => {
-                if (!armDemolish) { setArmDemolish(true); return; }
-                if (await act({ type: "demolish", ...selected })) { setSelected(null); setMsg({ text: "Đã phá, thu lại một nửa vật liệu." }); }
-                setArmDemolish(false);
-              }}>{armDemolish ? "Bấm lần nữa để phá" : "Phá dỡ"}</button>
+              <DemolitionPanel key={selI} city={c} tile={selI} now={t} disabled={busy||saving} onConfirm={async()=>{
+                const ok=await act({type:"demolish",...selected});
+                if(ok){setSelected(null);setMsg({text:"Đã phá dỡ và hoàn vật liệu vào kho. Chi tiết trong Thông báo."});}
+                return ok;
+              }}/>
+
             </div>
           )}
         </div>
