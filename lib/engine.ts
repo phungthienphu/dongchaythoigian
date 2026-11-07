@@ -1,4 +1,5 @@
 import {ERA_UNITS} from './era-military';
+import {selectTowerTiles,towerLimit} from './tower-balance';
 import {MODERN_BUILDINGS,initializeModern,stepPower,serviceBonus,powerFraction,finalWonderError,completedWonder,floodProtection,retentionProtected,scheduleModernFlood,recoverModernFloods,canToggle,operationJobs,type ModernState,type PowerGroup} from './modern';
 import {INDUSTRIAL_BUILDINGS,initializeIndustry,stepIndustry,pollutionFood,pollutionBirth,staffCounts,transportNetwork,transportSpeed,plantTree,type IndustryState} from './industry';
 import { eraNames, RELEASE_RULES, type EngineRules } from "./eras";
@@ -101,7 +102,7 @@ const DEFS = {
   barracks: { n: "Trại lính", era: 1, cost: { wood: 120, stone: 40 }, sec: 120, up: true, max: 3, d: "Huấn luyện quân. Mỗi cấp chứa thêm 10 lính." },
   wall: { n: "Tường thành", era: 1, cost: { wood: 30, stone: 20 }, sec: 30, up: true, d: "Chặn quân địch. Độ bền tăng theo cấp và thời đại." },
   gate: { n: "Cổng làng", era: 1, cost: { wood: 60, stone: 30 }, sec: 60, up: true, d: "Cho quân nhà đi qua tuyến tường, chặn quân địch." },
-  watchtower: { n: "Tháp canh", era: 1, cost: { wood: 100, stone: 80 }, sec: 120, up: true, d: "Tự bắn quân địch ở gần khi bảo vệ làng." },
+  watchtower: { n: "Tháp canh", era: 1, cost: { wood: 100, stone: 80 }, sec: 120, up: true, d: "Tầm 6 ô, bắn mỗi giây: cấp 1/2/3 gây 6/9/12 sát thương. Giới hạn theo đời: 2/3/4/5/6/8 trụ; cần phối hợp quân phòng thủ." },
   logistics: { n: "Trạm hậu cần", era: 2, cost: { wood: 100, stone: 40 }, sec: 90, up: true, max: 2, d: "Đào tạo đoàn vận tải; mỗi đoàn hỗ trợ 20 chiến binh trên đường xa. Nâng cấp tăng tốc đào tạo." },
   infirmary: { n: "Quân y viện", era: 2, cost: { wood: 80, stone: 60, food: 40 }, sec: 90, up: true, max: 2, d: "Đào tạo quân y; mỗi người chăm sóc 20 chiến binh khi hành quân và chữa thương trong trận." },
   temple: { n: "Đền Sông Mẹ", era: 3, cost: { wood: 800, stone: 1200, copper: 400 }, sec: 4 * 3600, max: 1, d: "Kỳ quan của thành phố." },
@@ -110,6 +111,11 @@ export type BKey = keyof typeof DEFS;
 export const B: Record<BKey, Def> = DEFS;
 export const buildingJobs=(b:Building)=>operationJobs(b,B[b.k]);
 export const BKEYS = Object.keys(B) as BKey[];
+export const buildingLimit=(c:City,k:BKey)=>k==='watchtower'?towerLimit(c.era):B[k].max;
+export function defendingTowers(c:City){
+ const center=Number(Object.keys(c.b).find(i=>c.b[i].k==='hall')??c.camp);
+ return selectTowerTiles(Object.entries(c.b).filter(([,b])=>b.k==='watchtower'&&isBuildingActive(b)).map(([tile,b])=>({tile:+tile,lvl:b.lvl})),c.era,center);
+}
 export const def = (k: BKey): Def => B[k];
 
 /* ---------- army ---------- */
@@ -2232,7 +2238,8 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rul
   if (d.need === "river" && !near(N4, (j) => c.t[j] === R)) return "Cối nước phải sát sông (không chéo).";
   if (d.need === "bank" && D.rd[i] !== 1 && !near(N4,j=>c.b[j]?.k==="levee")) return "Đê phải sát bờ sông hoặc nối thẳng vào đoạn đê khác (không chéo).";
   const finalError=finalWonderError(c,k,c.last);if(finalError)return finalError;
-  if (d.max && count(c, k) >= d.max) return `Đã đủ số lượng tối đa (${d.max}).`;
+  const limit=buildingLimit(c,k);
+  if (limit!==undefined && count(c, k) >= limit) return k==='watchtower'?`Đã đủ giới hạn ${count(c,k)}/${limit} trụ ở thời đại này.`:`Đã đủ số lượng tối đa (${limit}).`;
   if (busyBuilders(c) >= builders(c)) return "Tất cả thợ đang bận.";
   return missing(c, buildingCost(k, c.era));
 }

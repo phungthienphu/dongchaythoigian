@@ -27,7 +27,7 @@ test('flooded towers never fire and combat events contain positions without leak
  const s=createBattle({id:'flood',attackerId:'a',defenderId:'d',attacker:city(),defender,troops:{club:10},now:0});
  s.groups[0].x=5;s.groups[0].y=5;s.groups[0].order={type:'guard',x:5,y:5};
  const hp=s.groups[0].hp;advanceBattle(s,100);assert.equal(s.groups[0].hp,hp);assert.equal(s.strikes?.length,0);
- s.buildings.find(b=>b.k==='watchtower')!.inactive=false;advanceBattle(s,1100);
+ s.buildings.find(b=>b.k==='watchtower')!.inactive=false;delete s.towerSlotsReady;advanceBattle(s,1100);
  const e=s.strikes!.find(e=>e.source.startsWith('b:'))!;assert.ok(e);assert.deepEqual(Object.keys(e.to).sort(),['x','y']);assert.deepEqual(Object.keys(e.from).sort(),['x','y']);
 });
 

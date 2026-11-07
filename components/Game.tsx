@@ -1,4 +1,6 @@
 "use client";
+import {towerStats} from '@/lib/tower-balance';
+import {defendingTowers} from '@/lib/engine';
 import {pollutionBirth} from '@/lib/industry';
 import EraOfflineSummary from './EraOfflineSummary';
 import {canToggle,serviceBonus} from '@/lib/modern';
@@ -1043,6 +1045,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               <h2>{buildingName(c, sel.k)}{sel.lvl ? ` · cấp ${sel.lvl}` : ""}</h2>
               <p className="muted small">Kiến trúc {ERA_NAMES[c.era].toLowerCase()} · Lên thời đại tự đổi kiến trúc, không tự tăng cấp. Bấm nâng cấp để tăng công năng và trang bị; cấp tối đa theo Đình làng.</p>
               <p className="muted small">{B[sel.k].d}</p>
+              {sel.k==='watchtower'&&<p className="small">{towerStats(sel.lvl||1).damage} sát thương/phát · mỗi giây 1 phát · tầm 6 ô. Đã đặt {buildAvailability(c,'watchtower').count}/{buildAvailability(c,'watchtower').limit} trụ. {sel.lvl>0&&!sel.burned&&!sel.flooded&&(defendingTowers(c).has(selI)?'Trong hạn mức phòng thủ.':'Trụ dự phòng: vượt hạn mức tham chiến thời đại.')} Khi có dư trụ, ưu tiên cấp cao rồi gần Đình/điểm tập kết. Trụ tham chiến được chốt lúc bắt đầu trận.</p>}
               {sel.k==='smelter'&&sel.lvl>=1&&<p className="small">Đủ 3 thợ: tối đa {B.smelter.prod!.copper!*GATHER_SPEED*LVL_MULT[sel.lvl]/60} đồng/phút trước thời gian vận chuyển; dùng {B.smelter.use!.wood!*LVL_MULT[sel.lvl]/60} gỗ + {B.smelter.use!.stone!*LVL_MULT[sel.lvl]/60} đá/phút. Nuôi 3 thợ thêm {3*upkeep.civilian.food/60} thực/phút và {3*upkeep.civilian.wood} gỗ/giờ. Giá bán do người chơi quyết định; tính cả các chi phí này khi định giá.</p>}
               {sel.k==='gather'&&sel.lvl>=1&&<p className="small">Phí vận hành: {gatherFoodPerHour(c,D,selI)/60} thực/phút khi sản xuất. {gatherFoodPerHour(c,D,selI)===120?'Đang được kênh có nước tưới.':'Chưa có kênh có nước tưới trong 1 ô; sát sông hoặc kênh cạn vẫn tính 4 thực/phút.'} Cộng riêng với sức ăn dân; không thu lúc đi giao hàng hoặc chờ kho đầy.</p>}
               {sel.k==='wheel'&&sel.lvl>=1&&c.res.wood<=0&&<p className="err small">Cối nước hết gỗ, tạm ngừng sản xuất. Bổ sung gỗ để dân tự làm tiếp; hàng đang mang vẫn được nộp kho.</p>}

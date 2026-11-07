@@ -1,4 +1,5 @@
 import {unitCounter} from './era-military';
+import {selectTowerTiles,towerStats} from './tower-balance';
 /** Serializable, deterministic battle simulation. All time advances in 100 ms ticks.
  * Balance defaults: loot cap is 25% of each starting resource; civilian loss is
  * capped at floor(pop/2). Retreating armies can be pursued until they leave. */
@@ -8,10 +9,10 @@ export const BATTLE_TIMEOUT_MS = 180_000;
 export type BattleSide = 'attacker' | 'defender';
 export type BattleOrder = { type: 'move'; x: number; y: number } | { type: 'attack'; targetId: string } | { type: 'guard'; x: number; y: number } | { type: 'retreat' };
 export type BattleGroup = {nextAttackAt?:number; naval?: boolean; id: string; side: BattleSide; u: UKey; count: number; initial: number; hp: number; x: number; y: number; order: BattleOrder; moving?: boolean; blocked?: boolean; entry?: {x:number;y:number}; resumeOrder?: BattleOrder; breachRetryAt?: number; retreatExit?: {x:number;y:number}; escaped?: boolean; path?: number[] | null; pathGoal?: number; pathVersion?: number };
-export type BattleBuilding = { id: string; tile: number; k: string; lvl: number; hp: number; maxHp: number; inactive?: boolean; burned: boolean; initiallyBurned: boolean; value: number };
+export type BattleBuilding = { nextAttackAt?:number; towerEnabled?:boolean; id: string; tile: number; k: string; lvl: number; hp: number; maxHp: number; inactive?: boolean; burned: boolean; initiallyBurned: boolean; value: number };
 export type BattleCommand = { type: 'move'; groupId: string; x: number; y: number } | { type: 'attack'; groupId: string; targetId: string } | { type: 'retreat' } | { type: 'presence'; online: boolean };
 export type BattleStrike = { id: string; at: number; source: string; kind: 'arrow' | 'stone' | 'melee'|'bullet'|'shell'; from: {x:number;y:number}; to: {x:number;y:number} };
-export type BattleState = { strikes?: BattleStrike[]; defenderEra?:number; id: string; attackerId: string; defenderId: string; startedAt: number; lastTick: number; terrain: number[]; groups: BattleGroup[]; buildings: BattleBuilding[]; status: 'fighting' | 'retreating' | 'finished'; winner?: BattleSide; defenderOnline: boolean; initialPopulation: number; populationLoss: number; startingResources: Res; loot: Res; devastation: number };
+export type BattleState = { towerSlotsReady?:boolean; defenseCenter?:number; strikes?: BattleStrike[]; defenderEra?:number; id: string; attackerId: string; defenderId: string; startedAt: number; lastTick: number; terrain: number[]; groups: BattleGroup[]; buildings: BattleBuilding[]; status: 'fighting' | 'retreating' | 'finished'; winner?: BattleSide; defenderOnline: boolean; initialPopulation: number; populationLoss: number; startingResources: Res; loot: Res; devastation: number };
 export type BattleResult = { winner: BattleSide; attackerSurvivors: Troops; defenderSurvivors: Troops; attackerCasualties: number; defenderCasualties: number; populationLoss: number; burnedTiles: number[]; loot: Res; devastation: number };
 const emptyRes = (): Res => ({ food: 0, wood: 0, stone: 0, copper: 0 , gold: 0, diamond:0,coal:0});
 const dist = (a: {x:number;y:number}, b: {x:number;y:number}) => Math.hypot(a.x-b.x,a.y-b.y);
@@ -80,7 +81,7 @@ export function createBattle(o: { id: string; attackerId: string; defenderId: st
     }
     if(total<count)add('defender',u,count-total,center,defenderNaval,total?':reserve':'');
   }
-  const s:BattleState={defenderEra:o.defender.era,id:o.id,attackerId:o.attackerId,defenderId:o.defenderId,startedAt:o.now,lastTick:o.now,terrain:[...o.defender.t],groups,buildings,status:'fighting',defenderOnline:!!o.defenderOnline,initialPopulation:o.defender.pop,populationLoss:0,startingResources:{...o.defender.res},loot:emptyRes(),devastation:0};
+  const s:BattleState={defenseCenter:o.defender.camp,defenderEra:o.defender.era,id:o.id,attackerId:o.attackerId,defenderId:o.defenderId,startedAt:o.now,lastTick:o.now,terrain:[...o.defender.t],groups,buildings,status:'fighting',defenderOnline:!!o.defenderOnline,initialPopulation:o.defender.pop,populationLoss:0,startingResources:{...o.defender.res},loot:emptyRes(),devastation:0};
   for(const g of groups) if(g.side==='attacker') { const target=buildings.find(b=>b.k==='hall'&&!b.burned)??buildings.find(b=>!b.burned); if(target)g.order={type:'attack',targetId:target.id}; }
   return s;
 }
@@ -167,9 +168,9 @@ function retreatExit(s:BattleState,g:BattleGroup){
 }
 
 function damage(g:BattleGroup,amount:number){g.hp=Math.max(0,g.hp-amount);g.count=Math.ceil(g.hp/UNITS[g.u].hp);}
-function strike(s:BattleState,source:string,kind:BattleStrike['kind'],from:{x:number;y:number},to:{x:number;y:number}) {
+function strike(s:BattleState,source:string,kind:BattleStrike['kind'],from:{x:number;y:number},to:{x:number;y:number},force=false) {
   // One visual volley per second; damage remains on the authoritative 100 ms clock.
-  if (!s.groups.some(g=>g.id===source&&UNITS[g.u].attackMs)&& (s.lastTick-s.startedAt-BATTLE_TICK_MS)%1000!==0) return;
+  if (!force&&!s.groups.some(g=>g.id===source&&UNITS[g.u].attackMs)&& (s.lastTick-s.startedAt-BATTLE_TICK_MS)%1000!==0) return;
   (s.strikes ??= []).push({id:`${source}:${s.lastTick}`,at:s.lastTick,source,kind,from:{x:from.x,y:from.y},to:{x:to.x,y:to.y}});
 }
 function volley(s:BattleState,g:BattleGroup,target:BattleGroup|BattleBuilding){
@@ -218,7 +219,18 @@ function tick(s:BattleState){
       else if(g.side==='attacker'){const next=s.buildings.filter(b=>!b.burned).sort((a,b)=>dist(g,xy(a.tile))-dist(g,xy(b.tile)))[0];if(next)g.order={type:'attack',targetId:next.id};else if(enemy)g.order={type:'attack',targetId:enemy.id};}
     }
   }
-  for(const b of s.buildings)if(b.k==='watchtower'&&!b.burned&&!b.inactive){const target=s.groups.find(g=>g.side==='attacker'&&living(g)&&dist(g,xy(b.tile))<=7);if(target){strike(s,b.id,(s.defenderEra??3)>=5?'bullet':'arrow',xy(b.tile),target);damage(target,2*b.lvl);}}
+  if(!s.towerSlotsReady){
+    const center=s.buildings.find(b=>b.k==='hall')?.tile??s.defenseCenter??Math.floor(W*H/2);
+    const enabled=selectTowerTiles(s.buildings.filter(b=>b.k==='watchtower'&&!b.burned&&!b.inactive),s.defenderEra??3,center);
+    for(const b of s.buildings)if(b.k==='watchtower')b.towerEnabled=enabled.has(b.tile);
+    s.towerSlotsReady=true;
+  }
+  for(const b of s.buildings)if(b.k==='watchtower'&&b.towerEnabled&&!b.burned&&!b.inactive&&(b.nextAttackAt??0)<=s.lastTick){
+    const weapon=towerStats(b.lvl),origin=xy(b.tile);
+    let target:BattleGroup|undefined,nearest=weapon.range;
+    for(const g of s.groups)if(g.side==='attacker'&&living(g)){const distance=dist(g,origin);if(distance<=nearest){target=g;nearest=distance;}}
+    if(target){b.nextAttackAt=s.lastTick+weapon.attackMs;strike(s,b.id,(s.defenderEra??3)>=5?'bullet':'arrow',origin,target,true);damage(target,weapon.damage);}
+  }
   const total=s.buildings.reduce((n,b)=>n+(b.initiallyBurned?0:b.value),0),burned=s.buildings.reduce((n,b)=>n+(b.burned&&!b.initiallyBurned?b.value:0),0),fraction=total?burned/total:0;
   s.populationLoss=Math.min(Math.floor(s.initialPopulation/2),Math.floor(fraction*s.initialPopulation/2));
   if(s.status==='fighting')for(const r of RES)s.loot[r]=Math.floor((s.startingResources[r]??0)*.25*fraction);
