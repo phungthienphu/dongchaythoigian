@@ -1,6 +1,6 @@
 # Phát hành Chặng A và rollback
 
-Ngày 07/11/2026. Code giữ MongoDB làm nguồn chính, Worker combat không thay đổi.
+Ngày 07/11/2026. Code giữ MongoDB làm nguồn chính, combat tiếp tục ở Worker.
 Hiện có code local và kiểm thử; chưa bật batch 10 giây trên production. Không
 đánh dấu T00/G-A hoàn thành trước đo tải tích hợp và canary.
 
@@ -45,7 +45,8 @@ canary hoặc secret, chỉ nhận boolean của làng mình.
 4. Kiểm tra lifecycle điện thoại và soak thật 2 giờ/100 reconnect, giới hạn memory.
    Unit test thời gian giả và browser harness không thay cho bước này.
 5. Pin deployment hash/cửa sổ/tải. Deploy trước với delay off; sau đó bật canary
-   theo ID làng được phép thử. Không cần redeploy Worker cho Chặng A.
+   theo ID làng được phép thử. Chặng A không đổi engine Worker, nhưng cần deploy
+   sửa lỗi cleanup WebSocket `d169657` được phát hiện trong kiểm thử tích hợp.
 
 Theo dõi >=48 giờ với >=24 giờ workload đủ luồng; so cùng tải, tính tổng Vercel
 (batch/checkpoint/GET/reconcile/telemetry), Mongo và Worker. Chưa có số sau
@@ -74,11 +75,19 @@ CAS/replay/body/auth được chặn. Lib tests kiểm tra engine tương đươ
 queue, checkpoint, offline và reconnect. Xem [sync-baseline.md](./sync-baseline.md)
 cho số local, browser và dashboard production cùng giới hạn phép đo.
 
-Lần kiểm tra cuối: **296 lib tests + 46 API tests qua**, `npm run build` qua
+Lần kiểm tra cuối: **296 lib tests + 50 API tests + 16 Worker tests qua**, `npm run build` qua
 (bao gồm TypeScript), `git diff --check` qua. Các API suite chạy riêng từng
 process: single-session, city-auth, online-command-telemetry, city-batch-api,
-city-read, city-version, world-api, envoy-outbox, diplomacy-api, market-api,
+city-read, city-version, world-api, friends-api, envoy-outbox, diplomacy-api, market-api,
 naval-war-api, battle-result, action-boundary. Không tính đây là QA Mongo thật.
+
+QA tích hợp riêng đã qua **8 scenario Next HTTP/Mongo replica set, 4 scenario
+Worker WebSocket/combat/callback và 1 regression close handshake**. Game browser
+qua giao dân, tuyển quân/reload, đăng chợ và chuyển controller giữa hai tab.
+Profiler thật xác nhận batch 20 lệnh = 1 find/1 update; duplicate và GET =
+1 find/0 update. Setup, bảng đo và giới hạn ở [sync-integration.md](./sync-integration.md).
+Soak hai giờ thực đã khởi chạy, chưa ghi nhận hoàn tất; mobile và Google OAuth
+hai browser vẫn cần QA. Không thay các gate còn thiếu bằng kết quả mock/benchmark.
 
 T05–T12 chưa triển khai. Chỉ quyết định Village Durable Object nếu G-A vẫn không
 đạt ngân sách; không chuyển user production chỉ từ kết quả microbenchmark.

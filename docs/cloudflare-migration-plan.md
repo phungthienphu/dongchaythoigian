@@ -122,11 +122,11 @@ Description, acceptance criteria, test và rollback chi tiết nằm trong
 
 | Task | Nội dung | Phụ thuộc | Trạng thái |
 |---|---|---|---|
-| T00 | Baseline, workload và ngân sách đo | Không | Có runner/so sánh local và dashboard 1h/6h; còn tải tích hợp, deployment pin và production đại diện |
+| T00 | Baseline, workload và ngân sách đo | Không | Có runner/so sánh local, profiler Mongo thật, HTTP/Worker và dashboard 1h/6h; còn deployment pin và production đại diện |
 | T01 | Kiểm kê nơi ghi và chốt giao thức/timeline | T00 | Đã có `docs/sync-protocol.md`, đối chiếu bằng API/queue tests |
 | T02 | Một phiên chơi, thu hồi quyền API/combat | Không | Web đã vào main; Worker đã deploy/probe 401; còn OAuth hai browser thật |
-| T03 | Client batch 10 giây, IndexedDB, UX chờ lưu | T01, T02 | Code local; harness browser qua reload, mất ACK, offline, nhiều tab; còn game E2E/mobile/soak thật |
-| T04 | Batch API, một lần load/save, giảm refresh/ghi thừa | T01, T02 | Code local/API tests qua; còn Mongo/HTTP tích hợp và canary |
+| T03 | Client batch 10 giây, IndexedDB, UX chờ lưu | T01, T02 | Harness và Game/Mongo thật qua giao dân, tuyển/reload, chợ, nhiều tab; còn mobile/soak thật hoàn tất/OAuth |
+| T04 | Batch API, một lần load/save, giảm refresh/ghi thừa | T01, T02 | API tests và Mongo/HTTP/Worker tích hợp qua; profiler xác nhận 1 load/save; còn canary |
 | G-A | Đo Chặng A, quyết định có cần migration | T03, T04 | Chưa đạt gate |
 | T05 | Prototype Village DO và benchmark free thực tế | T00, T01 | Chưa làm |
 | T06 | Bộ định tuyến quyền ghi, migrator và fencing | T01, T05 | Chưa làm |

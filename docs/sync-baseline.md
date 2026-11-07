@@ -22,8 +22,9 @@ bun build scripts/sync-baseline.ts --target=node --outfile=/tmp/dong-song-sync-b
 node /tmp/dong-song-sync-baseline.mjs
 ```
 
-T00 còn thiếu workload tích hợp DB/HTTP, trace chợ/sứ giả/combat và baseline
-production 24h cùng tải. Không đánh dấu T00 hoặc G-A hoàn thành chỉ với microbenchmark.
+Workload tích hợp DB/HTTP và trace chợ/sứ giả/combat đã bổ sung trong
+[sync-integration.md](./sync-integration.md). Còn baseline production cùng tải.
+Không đánh dấu T00 hoặc G-A hoàn thành chỉ với microbenchmark.
 
 ## So sánh cùng workload sau batch
 
@@ -92,5 +93,7 @@ Browser: Codex in-app, desktop Linux; Node 24.14.1, Intel i5-11400H cho benchmar
 - 100 reconnect trong 2 giờ **thời gian giả** qua unit test; chưa chạy soak thật
   2 giờ hoặc vòng đời tab nền trên điện thoại.
 
-Chưa QA Game + Google OAuth + Mongo thật, chợ/combat hai tài khoản qua browser,
-Mongo restart hay canary 48h. API tests mock DB/Next độc lập với browser harness.
+Đã bổ sung Game + Mongo thật và HTTP/Worker tích hợp bằng account tổng hợp,
+chi tiết tại [sync-integration.md](./sync-integration.md). Google OAuth, chợ/combat
+hai browser qua UI, mobile, Mongo restart và canary 48h vẫn cần QA. Soak hai giờ
+thực đang chạy, chưa kết luận pass. API tests mock vẫn là lớp kiểm tra riêng.

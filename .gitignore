@@ -1,5 +1,6 @@
 node_modules
 .next
+.next-sync-qa
 .env*.local
 .env
 next-env.d.ts
