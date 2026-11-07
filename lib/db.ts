@@ -9,6 +9,7 @@ export type CityDoc = {
   world?: { x: number; y: number }; // position on the world map
   envoyOutbox?: { key: string; trip: Pick<import("./engine").EnvoyTrip, "id" | "depart" | "target" | "targetName" | "arrive"> }[];
   actionReceipts?: { id: string; result: unknown }[];
+  citySync?: import('./city-sync').SyncLedger;
   incomingBattleId?: string;
   outboundBattleId?: string;
   state: City;

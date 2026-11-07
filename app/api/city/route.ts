@@ -5,17 +5,17 @@ import { newCity, score } from "@/lib/engine";
 import { PID_COOKIE, playerId, withCity, UnsupportedCityVersionError } from "@/lib/city-store";
 import { currentUser, SESSION_COOKIE } from "@/lib/auth";
 import { users } from "@/lib/db";
+import { citySync } from '@/lib/sync-anchor';
 
 export async function GET() {
-  const pid = await playerId();
-  if (!pid) {
-    if (!await currentUser()) return NextResponse.json({ error: "Đăng nhập Google để vào làng.", needsLogin: true, sessionEnded: !!(await cookies()).get(SESSION_COOKIE)?.value }, { status: 401 });
-    return NextResponse.json({ needsName: true }, { status: 404 });
-  }
+  const user=await currentUser();
+  if(!user)return NextResponse.json({error:'Đăng nhập Google để vào làng.',needsLogin:true,sessionEnded:!!(await cookies()).get(SESSION_COOKIE)?.value},{status:401});
+  const pid=user.cityId;
+  if(!pid)return NextResponse.json({needsName:true},{status:404});
   try {
     const out = await withCity(pid, () => null, { readOnlyFallback: true });
     if (!out) return NextResponse.json({ needsName: true }, { status: 404 });
-    return NextResponse.json({ name: out.doc.name, state: out.doc.state, serverNow: out.now });
+    return NextResponse.json({ name: out.doc.name, state: out.doc.state, serverNow: out.now, ...(user.sessionVersion?{sync:citySync(out.doc,user.sessionVersion,out.now),batchEnabled:process.env.CITY_BATCH_ENABLED==='true'}:{}) });
   } catch (error) {
     if (error instanceof UnsupportedCityVersionError) return NextResponse.json({ error: error.message }, { status: 409 });
     throw error;
@@ -47,5 +47,5 @@ export async function POST(req: Request) {
     httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 * 5,
     secure: process.env.NODE_ENV === "production",
   });
-  return NextResponse.json({ name, state, serverNow: now });
+  return NextResponse.json({ name, state, serverNow: now, ...(user.sessionVersion?{sync:citySync({_id:pid,ver:0},user.sessionVersion,now),batchEnabled:process.env.CITY_BATCH_ENABLED==='true'}:{}) });
 }

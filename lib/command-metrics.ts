@@ -9,6 +9,7 @@ export type CommandMetrics = {
   settleMs: number;
   commandMs: number;
   attempts: number;
+  commands?: Record<string,number>;
 };
 export function newCommandMetrics(route: CommandRoute): CommandMetrics {
   return { command: `${route}.invalid`, rejected: false, replayed: false, settleMs: 0, commandMs: 0, attempts: 0 };
@@ -47,7 +48,8 @@ export function commandBucketUpdate(sample: CommandSample) {
       $setOnInsert: { cityId: sample.cityId, route: sample.route, command: sample.command, bucket: new Date(bucket), expiresAt: new Date(bucket + COMMAND_BUCKET_MS + COMMAND_RETENTION_MS) },
       $min: { firstSeen: new Date(sample.at) },
       $max: { lastSeen: new Date(sample.at) },
-      $inc: { requests: 1, ok: Number(sample.outcome === 'ok'), rejected: Number(sample.outcome === 'rejected'), errors: Number(sample.outcome === 'error'), replayed: Number(sample.replayed), handlerMs: sample.handlerMs, settleMs: sample.settleMs, commandMs: sample.commandMs, attempts: sample.attempts },
+      $inc: { requests: 1, ok: Number(sample.outcome === 'ok'), rejected: Number(sample.outcome === 'rejected'), errors: Number(sample.outcome === 'error'), replayed: Number(sample.replayed), handlerMs: sample.handlerMs, settleMs: sample.settleMs, commandMs: sample.commandMs, attempts: sample.attempts,
+        ...Object.fromEntries(Object.entries(sample.commands??{}).map(([k,n])=>[`actions.${k}`,n])) },
     },
   };
 }

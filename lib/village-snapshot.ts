@@ -15,7 +15,7 @@ export class VillageSnapshots {
   }
   get size() { return this.entries.size; }
   get weight() { return this.entries.weight; }
-  view(doc: Source, now: number): City {
+  checkpoint(doc: Source, now: number): City {
     const source = doc.state;
     const old = this.entries.get(doc._id);
     const reusable = old && old.revision === doc.ver && old.sourceLast === source.last
@@ -30,7 +30,10 @@ export class VillageSnapshots {
       revision: doc.ver, sourceLast: source.last, engine: source.ver,
       at: reusable ? old.at : now, state, weight: JSON.stringify(state).length * 2,
     });
-    return villageView(state);
+    return structuredClone(state);
   }
+  view(doc: Source, now: number): City { return villageView(this.checkpoint(doc,now)); }
 }
 export const villageSnapshots = new VillageSnapshots();
+// Separate retention budgets for owners and visitors; no cross-request auth cache.
+export const ownerSnapshots = new VillageSnapshots();

@@ -6,6 +6,7 @@ import { ENGINE_VER, score, settle, enrichCopperDeposits, enrichPreciousDeposits
 import { registerEnvoyVisits } from "./diplomacy";
 import { resolveDiscoveries } from "./world";
 import type { CommandMetrics } from "./command-metrics";
+import { ownerSnapshots } from './village-snapshot';
 
 export const PID_COOKIE = "pid";
 export class UnsupportedCityVersionError extends Error {
@@ -50,6 +51,22 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
       return { doc, result: receipt.result as T, now };
     }
     normalizeResources(doc.state);
+    // Most reads need only a deterministic projection. Persist only the rare
+    // bootstrap/discovery work which has side effects outside the village.
+    const s=doc.state;
+    const needsCheckpoint=s.upkeepStartsAt===undefined || s.wheelFuelStartsAt===undefined || s.gatherFoodStartsAt===undefined
+      || !s.copperDepositsVersion || !s.preciousDepositsVersion
+      || (s.era>=4&&!s.medieval) || (s.era>=5&&!s.industry) || (s.era>=6&&!s.modern)
+      || (s.trips??[]).some(t=>t.scouting&&!t.target&&t.arrive<=now);
+    if(opts.readOnlyFallback && !needsCheckpoint) {
+      if(doc.envoyOutbox?.length) {
+        try {
+          await registerEnvoyVisits(pid,doc.name,doc.envoyOutbox.map(entry=>entry.trip));
+          await col.updateOne({_id:pid},{$pull:{envoyOutbox:{key:{$in:doc.envoyOutbox.map(entry=>entry.key)}}}});
+        } catch { /* Keep the durable outbox for the next request. */ }
+      }
+      return {doc:{...doc,state:ownerSnapshots.checkpoint(doc,now)},result:null as T,now};
+    }
     if (doc.state.battleId) {
       if (opts.readOnlyFallback) return { doc, result: null as T, now };
       throw new Error("Làng đang trong trận đánh. Hãy dùng bảng chỉ huy trận.");
@@ -84,7 +101,7 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
         await registerEnvoyVisits(pid,doc.name,envoyOutbox.map(entry=>entry.trip));
         if(envoyOutbox.length)await col.updateOne({_id:pid},{$pull:{envoyOutbox:{key:{$in:envoyOutbox.map(entry=>entry.key)}}}});
       } catch { /* Durable outbox retries on the next successful city load. */ }
-      return { doc: { ...doc, state: c } as CityDoc, result, now };
+      return { doc: { ...doc, state: c, ver:doc.ver+1 } as CityDoc, result, now };
     }
     // a plain load lost the race to another save: show the settled state without saving it
     if (opts.readOnlyFallback && attempt === 4) return { doc: { ...doc, state: c } as CityDoc, result, now };
