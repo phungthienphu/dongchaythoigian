@@ -7,6 +7,12 @@ function fixture(workers=2,level=1):City{
  for(const p of c.people){p.pos=idx(22,20);p.task={t:'work',at:idx(22,20)};}return c;
 }
 const close=(a:number,b:number)=>assert.ok(Math.abs(a-b)<1e-7,`${a} != ${b}`);
+function startReturn(c:City){
+ // The balance update changed production time. Fuel behaviour must be checked
+ // at an actual loaded return trip, independently of the output rate.
+ for(let at=1000;at<=MIN;at+=1000){settle(c,at);if(c.people.every(p=>p.haul?.phase==='return'&&p.haul.carried>0))return;}
+ assert.fail('watermill workers did not begin a loaded return trip');
+}
 test('each producing watermill costs two wood per minute, independent of workers and level',()=>{
  for(const workers of [1,2])for(const level of [1,2,3]){
   const c=fixture(workers,level),st=stats(c,derive(c),0);assert.equal(st.wheelWoodUse,120);assert.equal(st.woodUse,120);
@@ -19,8 +25,8 @@ test('no wood pauses work without losing assignment; refuelling resumes and exis
  const c=fixture();c.res.wood=0;settle(c,MIN);
  assert.equal(c.res.wood,0);assert.ok(c.people.every(p=>p.task.t==='work'&&p.haul?.phase==='work'&&p.haul.carried===0));
  c.res.wood=1;settle(c,MIN+10_000);assert.ok(c.res.food>2000-2*480*70_000/HOUR);assert.ok(c.res.wood>=0&&c.res.wood<1);
- const carrying=fixture();settle(carrying,4000);assert.ok(carrying.people.some(p=>p.haul?.carried));carrying.res.wood=0;const stock=carrying.res.food;
- settle(carrying,10_000);assert.ok(carrying.res.food>stock);
+ const carrying=fixture();startReturn(carrying);carrying.res.wood=0;const stock=carrying.res.food;
+ settle(carrying,carrying.last+6000);assert.ok(carrying.res.food>stock);
 });
 test('empty, damaged, travelling, returning and full-store mills do not burn operating wood',()=>{
  for(const mode of ['empty','burned','flooded','travel','full'] as const){
@@ -30,8 +36,8 @@ test('empty, damaged, travelling, returning and full-store mills do not burn ope
   else c.res.food=5500;
   settle(c,1000);close(c.res.wood,100-8/3600);
  }
- const c=fixture();settle(c,4000);assert.ok(c.people.every(p=>p.haul?.phase==='return'));const wood=c.res.wood;
- settle(c,5000);close(c.res.wood,wood-8/3600);
+ const c=fixture();startReturn(c);const wood=c.res.wood;
+ settle(c,c.last+1000);close(c.res.wood,wood-8/3600);
 });
 test('partial fuel and offline progress match irregular polling; old villages catch up before the new cost',()=>{
  const a=fixture();a.res.wood=.02;const b=structuredClone(a);settle(a,2*MIN);

@@ -51,5 +51,5 @@ test('era food goal cannot be reached by extra gathering camps until storage is 
  c.res.food=1900;settle(c,2*60_000);assert.equal(caps(c).food,2000);assert.ok(c.res.food>1950&&c.res.food<=2000);
  c.b[idx(23,20)]={k:'gather',lvl:1,doneAt:null};assert.equal(caps(c).food,2000);
  c.b[idx(21,20)]={k:'storehouse',lvl:1,doneAt:null};assert.equal(caps(c).food,3000);
- settle(c,5*60_000);assert.ok(c.res.food>2500&&c.res.food<=3000);
+ settle(c,5*60_000);assert.ok(c.res.food>2000&&c.res.food<=3000,'production can exceed the old food compartment after storage expansion');
 });

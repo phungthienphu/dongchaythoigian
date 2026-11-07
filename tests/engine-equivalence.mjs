@@ -1,17 +1,18 @@
 // Differential check against the committed engine, using synthetic cities only.
-// Run: bun tests/engine-equivalence.mjs [baseline-ref]
+// Run: bun tests/engine-equivalence.mjs [baseline-ref] [--routes-only]
+// Use routes-only when intentional economy changes invalidate city equality.
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {mkdtempSync,readFileSync,writeFileSync,mkdirSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-const ref=process.argv[2]??'a269224',dir=mkdtempSync(join(tmpdir(),'dong-song-equivalence-'));
+const ref=process.argv.slice(2).find(arg=>!arg.startsWith('--'))??'a269224',routesOnly=process.argv.includes('--routes-only'),dir=mkdtempSync(join(tmpdir(),'dong-song-equivalence-'));
 const probe='\nexport function auditPaths(c:City,from:number,targets:number[],seen=false){const ctx=haulingContext(c,derive(c));return targets.map(to=>haulPath(c,from,to,ctx,seen));}\n';
 try{
  for(const side of ['old','next']){
   mkdirSync(join(dir,side));
-  for(const file of ['hunger.ts','engine.ts','action-input.ts','bounded-cache.ts','eras.ts','medieval.ts','industry.ts','modern.ts','era-military.ts','tower-balance.ts']){
+  for(const file of ['hunger.ts','economy-balance.ts','resource-history.ts','engine.ts','action-input.ts','bounded-cache.ts','eras.ts','medieval.ts','industry.ts','modern.ts','era-military.ts','tower-balance.ts']){
    let source;try{source=side==='old'?execFileSync('git',['show',`${ref}:lib/${file}`],{encoding:'utf8',stdio:['ignore','pipe','ignore']}):readFileSync(resolve('lib',file),'utf8');}catch{if(side==='old')continue;throw Error('Missing '+file);}
    writeFileSync(join(dir,side,file),source+(file==='engine.ts'?probe:''));
   }
@@ -26,7 +27,7 @@ try{
    const from=Math.floor(random()*c.t.length),targets=Array.from({length:8},(_,j)=>j<3?Math.max(0,Math.min(c.t.length-1,from+[-1,96,97][j])):Math.floor(random()*c.t.length));
    for(const seen of [false,true]){assert.deepEqual(next.auditPaths(c,from,targets,seen),old.auditPaths(c,from,targets,seen),`seed ${seed}, origin ${from}, explored ${seen}`);routes+=targets.length;}
   }
-  if(seed<=12){
+  if(!routesOnly&&seed<=12){
    const base=next.newCity(0,seed);base.seen.fill(1);base.manualWorkforce=true;
    for(let n=0;n<base.people.length;n++){
     const source=base.t.findIndex((t,i)=>!base.b[i]&&t===(n%2?next.HL:next.F)&&next.cheb(i,base.camp)<10);
@@ -35,5 +36,5 @@ try{
    for(const end of [60000,180000]){const a=structuredClone(base),b=structuredClone(base);old.settle(a,end);next.settle(b,end);assert.deepEqual(b,a,`complete city seed ${seed}, ${end}`);cities++;}
   }
  }
- console.log(`PASS ${routes} exact routes (shared searches included) and ${cities} complete city comparisons against ${ref}.`);
+ console.log(`PASS ${routes} exact routes (shared searches included) and ${cities} complete city comparisons against ${ref}.${routesOnly?' City equality deliberately skipped for gameplay changes.':''}`);
 }finally{rmSync(dir,{recursive:true,force:true});}
