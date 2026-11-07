@@ -10,14 +10,14 @@ function fixture(era=4,at=0):City{
  for(const r of RES)c.res[r]=20000;initializeMedieval(c,at);return c;
 }
 function staff(c:City,tile:number,n:number){for(let k=0;k<n;k++)c.people.push({id:c.nextId++,name:'Thợ',task:{t:'work',at:tile},pos:tile});c.pop=c.people.length;}
-test('future eras require an explicit local rules context; forged action flags cannot enable production',()=>{
+test('restricted rules cannot be overridden by forged action flags',()=>{
  const c=fixture(3);c.b[idx(17,20)]={k:'temple',lvl:1,doneAt:null};staff(c,idx(30,30),100);
- const before=structuredClone(c);assert.equal(reqMet(c),false);assert.equal(reqMet(c,LOCAL_RULES),true);
- assert.match(applyAction(c,{type:'advance',maxEra:6} as never,0)!,/sắp ra mắt/);assert.deepEqual(c,before);
+ const before=structuredClone(c);assert.equal(reqMet(c,{maxEra:3}),false);assert.equal(reqMet(c,LOCAL_RULES),true);
+ assert.match(applyAction(c,{type:'advance',maxEra:6} as never,0,{maxEra:3})!,/sắp ra mắt/);assert.deepEqual(c,before);
  assert.equal(applyAction(c,{type:'advance'},0,LOCAL_RULES),null);assert.equal(c.era,4);assert.equal(c.res.food,8000);assert.equal(c.medieval?.enteredAt,0);
  assert.deepEqual(c.t,before.t);assert.deepEqual(c.people,before.people);assert.deepEqual(c.b,before.b);
  assert.match(applyAction(c,{type:'advance'},0,LOCAL_RULES)!,/sắp ra mắt/);
- assert.match(applyAction(c,{type:'build',k:'well',x:25,y:25},0)!,/sắp ra mắt/);
+ assert.match(applyAction(c,{type:'build',k:'well',x:25,y:25},0,{maxEra:3})!,/sắp ra mắt/);
  c.b[idx(17,20)].burned=true;c.era=3;assert.equal(reqMet(c,LOCAL_RULES),false);
 });
 test('new prices are final, hall can reach four while other buildings remain capped at three',()=>{

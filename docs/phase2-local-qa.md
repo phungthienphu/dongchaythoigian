@@ -1,6 +1,6 @@
 # Phase 2: bản chơi thử local
 
-Ba thời đại mới được triển khai trên nhánh `codex/eras-phase2`, từ bản ổn định `f5c4dc6`. Production tiếp tục dùng `RELEASED_ERA = 3`; không đổi cấu hình triển khai và không dùng MongoDB production để thử.
+Ba thời đại mới được triển khai trên nhánh `codex/eras-phase2`, từ bản ổn định `f5c4dc6`. Báo cáo dưới đây ghi lại mốc QA local trước khi phát hành; không dùng MongoDB production để thử. Ngày 2026-11-07, người dùng yêu cầu phát hành đời 4–6 cùng bản cân bằng trụ; xem `docs/phase2-release.md`.
 
 ## Chạy thử
 
@@ -48,4 +48,4 @@ Snapshot công trình và mạng vận tải chỉ tồn tại trong một lần
 
 Đo Node trên máy local bằng `tests/era-benchmark.ts`: mẫu Hiện đại 300 dân, settle 24 giờ mất 8.728 ms wall / 10.439 ms CPU, save 69.186 byte. Settle 14 ngày mất 32.562 ms wall / 34.459 ms CPU, save 56.580 byte; sau đó còn 3 dân do bỏ mặc hết thực. Cả hai giữ tài nguyên hữu hạn và không âm. Đây là mẫu tổng hợp, không phải đo Vercel production và không chứng minh cân bằng kinh tế. Nhiều giờ offline vẫn là tác vụ nặng; cần giải quyết ngân sách CPU này trước khi mở đời 4–6 trên production.
 
-Chưa xác nhận PvP đời 4–6 bằng hai tài khoản thật, mạng reconnect, thị trường live, cân bằng từ save nghèo đến đời 6, hoặc tải đồng thời nhiều làng. Không coi pass build/unit test là đạt các điều kiện đó. Bản này là mốc local để chơi thử và hiệu chỉnh; không đẩy lên main hoặc triển khai Worker production.
+Ở mốc QA local này, chưa xác nhận PvP đời 4–6 bằng hai tài khoản thật, mạng reconnect, thị trường live, cân bằng từ save nghèo đến đời 6, hoặc tải đồng thời nhiều làng. Không coi pass build/unit test là đạt các điều kiện đó. Kết quả phát hành sau mốc này được ghi riêng trong `docs/phase2-release.md`.

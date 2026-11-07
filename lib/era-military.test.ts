@@ -12,7 +12,7 @@ test('every new unit has explicit training, transport and battle stats, with fin
   const u=key as UKey,c=fixture(unit.era);c.b[idx(23,20)]={k:'barracks',lvl:3,doneAt:null};
   for(const r of Object.keys(c.res))c.res[r as keyof typeof c.res]=10000;
   assert.deepEqual(trainingCost(u,unit.era),unit.cost);
-  const before=structuredClone(c);assert.match(applyAction(c,{type:'train',u,n:1},0)!,/sắp ra mắt/);assert.deepEqual(c,before);
+  const before=structuredClone(c);assert.match(applyAction(c,{type:'train',u,n:1},0,{maxEra:3})!,/sắp ra mắt/);assert.deepEqual(c,before);
   c.era=unit.era-1;assert.match(applyAction(c,{type:'train',u,n:1},0,LOCAL_RULES)!,/thời đại/);c.era=unit.era;
   assert.equal(applyAction(c,{type:'train',u,n:1},0,LOCAL_RULES),null);
   assert.equal(c.queue[0].u,u);assert.ok(c.queue[0].doneAt>0);

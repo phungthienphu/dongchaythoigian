@@ -1,10 +1,11 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {applyAction,B,ERA_REQ,idx,levelCap,reqMet,RES,settle,stats,derive,type BKey} from './engine';
-import {LOCAL_RULES} from './eras';
+import {LOCAL_RULES,RELEASE_RULES} from './eras';
 import {eraFixture,eraStaff} from './era-fixtures.test-utils';
 
-test('iron to modern has no hall/wonder/coal circular lock or diamond requirement',()=>{
+test('released iron-to-modern progression has no hall/wonder/coal circular lock or diamond requirement',()=>{
+ assert.equal(RELEASE_RULES.maxEra,6);
  const c=eraFixture(3),hall=idx(19,20);c.b[hall].lvl=3;
  for(const next of [4,5,6]){
   const req=ERA_REQ[next];c.people=[];eraStaff(c,c.camp,req.pop);
@@ -12,7 +13,7 @@ test('iron to modern has no hall/wonder/coal circular lock or diamond requiremen
   for(const r of RES)c.res[r]=req.cost[r]??0;
   assert.equal(c.res.diamond,0);assert.equal(levelCap(c,'hall'),next-1);assert.equal(reqMet(c,LOCAL_RULES),true);
   c.b[idx(35,20)].burned=true;assert.equal(reqMet(c,LOCAL_RULES),false);c.b[idx(35,20)].burned=false;
-  assert.equal(applyAction(c,{type:'advance'},c.last,LOCAL_RULES),null);assert.equal(c.era,next);assert.equal(levelCap(c,'hall'),next);assert.equal(levelCap(c,'farm'),3);
+  assert.equal(reqMet(c),true);assert.equal(applyAction(c,{type:'advance'},c.last),null);assert.equal(c.era,next);assert.equal(levelCap(c,'hall'),next);assert.equal(levelCap(c,'farm'),3);
   for(const r of RES)c.res[r]=r==='diamond'?0:100000;
   assert.equal(applyAction(c,{type:'upgrade',x:19,y:20},c.last,LOCAL_RULES),null);const done=c.b[hall].doneAt!;
   settle(c,done);assert.equal(c.b[hall].lvl,next);
