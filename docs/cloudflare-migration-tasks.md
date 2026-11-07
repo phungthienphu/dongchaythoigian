@@ -60,8 +60,9 @@ là cùng một phiên; phối hợp sequence nhiều tab thuộc T03.
 
 **Hiện trạng:** code commit `5076aa7`, đã có 35 kiểm thử liên quan qua và build qua.
 Chi tiết kỹ thuật: [single-session.md](./single-session.md). Chưa coi là nghiệm thu
-production. Code web đã vào `main`/push đến `af463b9`. Worker đã deploy version
-`9a7a9f44-6097-47b7-bef6-26dab0084ecb`; probe không quyền tại
+OAuth production. Code web đã phát hành đến `7ced7e9`; HTTP/Worker thật local đã
+kiểm tra thay phiên chặn cả socket đang mở. Worker đã deploy version
+`9e73ae84-83a0-4e73-81de-0c90f814ef09` (gồm sửa cleanup close); probe không quyền tại
 `/rooms/player-release-probe/session` trả **401**, router mới đã nhận endpoint.
 OAuth takeover trên hai browser thật và quyền WebSocket cũ vẫn cần QA.
 

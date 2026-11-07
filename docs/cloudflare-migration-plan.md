@@ -1,7 +1,7 @@
 # Kế hoạch giảm CPU và thử chuyển backend làng sang Cloudflare
 
-Ngày lập/cập nhật: 07/11/2026. Trạng thái: **Chặng A đã có code local và kiểm thử;
-chưa phát hành batch, chưa triển khai migration**. Runbook: [sync-release.md](./sync-release.md).
+Ngày lập/cập nhật: 07/11/2026. Trạng thái: **Chặng A đã push/phát hành với delay off;
+chưa bật canary 10 giây, chưa triển khai migration**. Runbook: [sync-release.md](./sync-release.md).
 
 ## 1. Mục tiêu và cách ra quyết định
 
@@ -122,7 +122,7 @@ Description, acceptance criteria, test và rollback chi tiết nằm trong
 
 | Task | Nội dung | Phụ thuộc | Trạng thái |
 |---|---|---|---|
-| T00 | Baseline, workload và ngân sách đo | Không | Có runner/so sánh local, profiler Mongo thật, HTTP/Worker và dashboard 1h/6h; còn deployment pin và production đại diện |
+| T00 | Baseline, workload và ngân sách đo | Không | Có runner/so sánh local, profiler Mongo thật, HTTP/Worker, dashboard 1h/6h và deployment pin; còn production đại diện |
 | T01 | Kiểm kê nơi ghi và chốt giao thức/timeline | T00 | Đã có `docs/sync-protocol.md`, đối chiếu bằng API/queue tests |
 | T02 | Một phiên chơi, thu hồi quyền API/combat | Không | Web đã vào main; Worker đã deploy/probe 401; còn OAuth hai browser thật |
 | T03 | Client batch 10 giây, IndexedDB, UX chờ lưu | T01, T02 | Harness và Game/Mongo thật qua giao dân, tuyển/reload, chợ, nhiều tab; còn mobile/soak thật hoàn tất/OAuth |

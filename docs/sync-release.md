@@ -1,8 +1,23 @@
 # Phát hành Chặng A và rollback
 
 Ngày 07/11/2026. Code giữ MongoDB làm nguồn chính, combat tiếp tục ở Worker.
-Hiện có code local và kiểm thử; chưa bật batch 10 giây trên production. Không
-đánh dấu T00/G-A hoàn thành trước đo tải tích hợp và canary.
+Đã phát hành Chặng A với delay off; chưa bật gom 10 giây trên production. Không
+đánh dấu T00/G-A hoàn thành trước canary và so tải production đại diện.
+
+## Mốc phát hành đã xác minh
+
+- `main` code: `7ced7e9da277fe3a229bdd51677c00ad39e2c673`, đã push GitHub.
+- Vercel production: `dpl_4LWYKezTQPcnnm8do5qvPU3cQxaR`, **Ready**, tạo
+  07/11/2026 lúc 17:23 UTC+7; alias `https://dongchaythoigian.vercel.app`.
+- Worker: `9e73ae84-83a0-4e73-81de-0c90f814ef09`, đã deploy. Probe endpoint
+  phiên không quyền trả 401. Bản sửa close không đổi engine hay luật combat.
+- CLI kiểm tra tên env production: chưa có `CITY_BATCH_ENABLED` hoặc
+  `CITY_BATCH_CANARY_IDS`, nên delay mặc định off. Không đổi Mongo/OAuth/secret.
+- Sau deploy: trang chủ 200, GET `/api/city` và POST `/api/city/batch` không có
+  phiên đều 401. Đây là kiểm tra routing/auth, không chứng minh luồng chơi đã QA
+  production. Cần Google login chủ dự án để chọn làng canary.
+- Soak local hai giờ/100 reconnect đang chạy riêng, chưa coi là pass. Không mở
+  delay cho tất cả người chơi để thay thế canary còn thiếu.
 
 ## Những gì thay đổi
 
@@ -69,7 +84,8 @@ engine/session hay compact high-water ACK nhằm làm lệnh cũ được nhận
 
 Các commit backend: `5868039`, `807c18c`; protocol `658ec20`, runner `3abc684`.
 Canary/receipt: `db97877`; client/IndexedDB/Game: `f4f7dc6`; báo cáo lệnh con:
-`5cce7d3`. Các commit Chặng A hiện nằm trên `main` local, chưa push/deploy.
+`5cce7d3`. Bộ QA thật: `56b107f`; merge với đồ họa đã publish: `7ced7e9`.
+Các commit này đã push và phát hành với delay off như mốc phía trên.
 API tests chứng minh load/write thường 1/1 bằng mock, duplicate không ghi,
 CAS/replay/body/auth được chặn. Lib tests kiểm tra engine tương đương timeline,
 queue, checkpoint, offline và reconnect. Xem [sync-baseline.md](./sync-baseline.md)
