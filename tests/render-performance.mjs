@@ -9,9 +9,9 @@ import { stripTypeScriptTypes } from 'node:module';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dong-render-check-'));
 try {
-  for (const [input, name] of [['lib/tower-balance.ts','tower-balance'], ['lib/industry.ts','industry'], ['lib/modern.ts','modern'], ['lib/era-military.ts','era-military'], ['lib/eras.ts','eras'], ['lib/medieval.ts','medieval'], ['lib/bounded-cache.ts', 'bounded-cache'], ['lib/action-input.ts', 'action-input'], ['lib/engine.ts', 'engine'], ['lib/villager-mood.ts','villager-mood'], ['lib/build-placement.ts', 'build-placement'], ['components/actor-art.ts', 'actor-art'], ['components/trade-actors.ts', 'trade-actors'], ['components/draw.ts', 'draw'], ['components/villagers.ts', 'villagers']]) {
+  for (const [input, name] of [['lib/tower-balance.ts','tower-balance'], ['lib/industry.ts','industry'], ['lib/modern.ts','modern'], ['lib/era-military.ts','era-military'], ['lib/eras.ts','eras'], ['lib/medieval.ts','medieval'], ['lib/bounded-cache.ts', 'bounded-cache'], ['lib/action-input.ts', 'action-input'], ['lib/engine.ts', 'engine'], ['lib/villager-mood.ts','villager-mood'], ['lib/build-placement.ts', 'build-placement'], ['components/villager-art.ts', 'villager-art'], ['components/actor-art.ts', 'actor-art'], ['components/trade-actors.ts', 'trade-actors'], ['components/draw.ts', 'draw'], ['components/villagers.ts', 'villagers']]) {
     const output = stripTypeScriptTypes(fs.readFileSync(path.join(root, input), 'utf8'))
-      .replaceAll('"./eras"', '"./eras.js"').replaceAll('"./medieval"', '"./medieval.js"').replaceAll('"./bounded-cache"', '"./bounded-cache.js"').replaceAll('"@/lib/bounded-cache"', '"./bounded-cache.js"').replaceAll('"./action-input"', '"./action-input.js"').replaceAll('"@/lib/villager-mood"', '"./villager-mood.js"').replaceAll('"@/lib/engine"', '"./engine.js"').replaceAll('"@/lib/build-placement"', '"./build-placement.js"').replaceAll("'./engine'", "'./engine.js'").replaceAll('"./actor-art"', '"./actor-art.js"').replaceAll('"./trade-actors"', '"./trade-actors.js"').replaceAll('"./draw"', '"./draw.js"').replaceAll('"./villagers"', '"./villagers.js"');
+      .replaceAll('"./eras"', '"./eras.js"').replaceAll('"./medieval"', '"./medieval.js"').replaceAll('"./bounded-cache"', '"./bounded-cache.js"').replaceAll('"@/lib/bounded-cache"', '"./bounded-cache.js"').replaceAll('"./action-input"', '"./action-input.js"').replaceAll('"@/lib/villager-mood"', '"./villager-mood.js"').replaceAll('"@/lib/engine"', '"./engine.js"').replaceAll('"@/lib/build-placement"', '"./build-placement.js"').replaceAll("'./engine'", "'./engine.js'").replaceAll('"./villager-art"', '"./villager-art.js"').replaceAll('"./actor-art"', '"./actor-art.js"').replaceAll('"./trade-actors"', '"./trade-actors.js"').replaceAll('"./draw"', '"./draw.js"').replaceAll('"./villagers"', '"./villagers.js"');
     fs.writeFileSync(path.join(temp, `${name}.js`), output.replace(/from (['"])(?:@\/lib\/|\.\/)(industry|modern|medieval|eras|era-military|tower-balance)\1/g, 'from $1./$2.js$1'));
   }
   fs.writeFileSync(path.join(temp, 'package.json'), '{"type":"module"}');
@@ -46,6 +46,24 @@ for (const [draw, kinds] of [[drawSoldierArt,UKEYS],[drawAnimalArt,['buffalo','e
  }
 }
 console.log(`PASS: ${artChecks} shared-art poses with finite coordinates, nonempty drawing and isolated Canvas state.`);
+const {drawVillagerArt}=await import(pathToFileURL(path.join(temp,'villager-art.js')).href);
+function villagerTrace(pose){
+ const trace=[];let depth=0;
+ const c=new Proxy({}, {set(){return true;},get(_,key){
+  if(key==='save')return ()=>depth++;
+  if(key==='restore')return ()=>{assert.ok(depth>0);depth--;};
+  assert.ok(primitives.has(key));
+  return (...args)=>{assert.ok(args.every(v=>typeof v!=='number'||Number.isFinite(v)));trace.push([key,...args]);};
+ }});
+ drawVillagerArt(c,20,30,1,Object.freeze(pose));assert.equal(depth,0);return trace;
+}
+let villagerChecks=0;
+for(const job of ['idle','farm','gather','wood','quarry','build','smith','hunt','trade','explore','other'])for(const era of [1,4,5,6])for(const face of [-1,1])for(const mode of ['idle','walk','run','work','carry']){
+ const p={job,era,face,time:12345,seed:.3,walking:mode==='walk'||mode==='run',running:mode==='run',working:mode==='work',carrying:mode==='carry',resource:'coal',swing:.8,skin:'#dfb28a',shirt:'#8c9c87',band:'#bc986b'};
+ villagerTrace(p);villagerChecks++;
+ if(p.walking||p.carrying)assert.deepEqual(villagerTrace({...p,working:true}),villagerTrace({...p,working:false}),'walking/loaded villagers must not work');
+}
+console.log(`PASS: ${villagerChecks} villager poses and work suppression while walking/carrying.`);
 let checked=0,minReduction=Infinity;
 for(const [w,h] of [[390,844],[1440,900]]) for(const zoom of [1,3,8,18]) for(const [cx,cy] of [[1,1],[48,48],[95,95]]) {
  const f=fitView(w,h),cam={zoom:1,px:0,py:0};focusOn(f,cam,cx,cy,zoom);

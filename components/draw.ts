@@ -1,3 +1,4 @@
+import { drawVillagerArt } from "./villager-art";
 import { drawAnimalArt, drawSoldierArt, drawFutureArt } from "./actor-art";
 import type {EngineRules} from '@/lib/eras';
 import { BoundedCache } from "@/lib/bounded-cache";
@@ -1141,109 +1142,13 @@ function drawSwimmer(r: RC, vl: Villager) {
 
 function drawVillager(r: RC, vl: Villager) {
   if (inWater(r, vl.fx, vl.fy)) { drawSwimmer(r, vl); return; }
-  const c = r.c, s = Math.max(r.v.s * 1.45, 0.7);
-  const [sx, sy] = P(r.v, vl.fx, vl.fy);
-  const walking = vl.moving;
-  const working = vl.state === "work" && !vl.moving;
-  const run = vl.run && walking;
-  const ph = r.anim / (run ? 75 : 140) + vl.seed * 10;
-  const bob = walking ? Math.abs(Math.sin(ph)) * (run ? 2 : 1.2) * s : 0;
-  const bend = working && (vl.job === "gather" || vl.job === "farm") ? (Math.sin(r.anim / 420 + vl.seed * 9) * 0.5 + 0.5) * 3 * s : 0;
-  const face = vl.face;
-  const lean = run ? 2.2 * s : vl.carrying ? 0.8 * s : 0; // lean forward when running or loaded
-  const hipY = sy - 5 * s - bob, neckY = sy - 11 * s - bob + bend * 0.6;
-  const headX = sx + face * (bend * 0.6 + lean), headY = sy - 13.5 * s - bob + bend;
-
-  c.fillStyle = "rgba(20,30,10,.3)"; c.beginPath(); c.ellipse(sx, sy, 4 * s, 1.8 * s, 0, 0, Math.PI * 2); c.fill();
-  // legs
-  c.strokeStyle = "#3b2a1e"; c.lineWidth = Math.max(1.2, 1.6 * s); c.lineCap = "round";
-  const leg = walking ? Math.sin(ph) * (run ? 3.4 : 2.2) * s : 0;
-  c.beginPath(); c.moveTo(sx - 1 * s, hipY); c.lineTo(sx - 1 * s + leg, sy - (run && leg > 0 ? 1.2 * s : 0)); c.moveTo(sx + 1 * s, hipY); c.lineTo(sx + 1 * s - leg, sy - (run && leg < 0 ? 1.2 * s : 0)); c.stroke();
-  // explorer's pack behind the back
-  if (vl.job === "explore") { c.fillStyle = "#8a6a42"; c.beginPath(); c.ellipse(sx - face * 3 * s + face * lean * 0.5, neckY + 3.5 * s, 2.4 * s, 3.2 * s, 0, 0, Math.PI * 2); c.fill(); }
-  // body
-  c.fillStyle = vl.shirt;
-  c.beginPath(); c.moveTo(sx - 2.8 * s, hipY + 0.5 * s); c.lineTo(sx + 2.8 * s, hipY + 0.5 * s); c.lineTo(headX + 2.2 * s, neckY); c.lineTo(headX - 2.2 * s, neckY); c.closePath(); c.fill();
-  c.fillStyle = darken(vl.shirt, 0.25); c.fillRect(sx - 2.8 * s, hipY - 0.6 * s, 5.6 * s, 1.2 * s);
-  // arm + tool
-  const shX = headX + face * 1.6 * s, shY = neckY + 1 * s;
-  c.strokeStyle = vl.skin; c.lineWidth = Math.max(1, 1.3 * s);
-  const striker = vl.job === "wood" || vl.job === "quarry" || vl.job === "build" || vl.job === "smith";
-  if (working && striker) {
-    // raise slowly, strike fast: swing 1 = just hit (arm down), decays back to raised
-    const a = 1.0 - 1.9 * vl.swing;
-    const hx = shX + face * Math.cos(a) * 4 * s, hy = shY - Math.sin(a) * 4 * s;
-    c.beginPath(); c.moveTo(shX, shY); c.lineTo(hx, hy); c.stroke();
-    const tx = hx + face * Math.cos(a) * 5 * s, ty = hy - Math.sin(a) * 5 * s;
-    c.strokeStyle = "#6b4526"; c.lineWidth = Math.max(1, 1.2 * s);
-    c.beginPath(); c.moveTo(hx, hy); c.lineTo(tx, ty); c.stroke();
-    if (vl.job === "quarry") { c.strokeStyle = "#c9ccd1"; c.beginPath(); c.moveTo(tx - 2.5 * s, ty + 1 * s); c.quadraticCurveTo(tx, ty - 1.5 * s, tx + 2.5 * s, ty + 1 * s); c.stroke(); }
-    else if (vl.job === "wood") { c.fillStyle = "#c9ccd1"; c.beginPath(); c.moveTo(tx, ty - 1.8 * s); c.lineTo(tx + face * 2.6 * s, ty - 0.4 * s); c.lineTo(tx, ty + 1.8 * s); c.fill(); }
-    else { c.fillStyle = "#8a8f96"; c.fillRect(tx - 1.6 * s, ty - 1.6 * s, 3.2 * s, 3.2 * s); }
-  } else if (vl.job === "hunt" && !vl.carrying) {
-    // spear held high; thrown arm flicks forward right after a throw
-    const thrown = vl.swing > 0.4;
-    const hx = shX + face * (thrown ? 4.5 : 1.5) * s, hy = shY - (thrown ? 1 : 3.5) * s;
-    c.beginPath(); c.moveTo(shX, shY); c.lineTo(hx, hy); c.stroke();
-    if (!thrown) {
-      c.strokeStyle = "#6b4526"; c.beginPath(); c.moveTo(hx - face * 5 * s, hy + 1.5 * s); c.lineTo(hx + face * 6 * s, hy - 2 * s); c.stroke();
-      c.fillStyle = "#cfc6b4"; c.beginPath(); c.moveTo(hx + face * 8 * s, hy - 2.6 * s); c.lineTo(hx + face * 5.5 * s, hy - 3 * s); c.lineTo(hx + face * 5.8 * s, hy - 1.2 * s); c.fill();
-    }
-  } else if (working && vl.job === "farm") {
-    const a = 0.3 + Math.sin(r.anim / 170 + vl.seed * 20) * 0.5, hx = shX + face * 4 * s, hy = shY + 3 * s;
-    c.beginPath(); c.moveTo(shX, shY); c.lineTo(hx, hy); c.stroke();
-    c.strokeStyle = "#6b4526"; c.beginPath(); c.moveTo(hx - face * 3 * s, hy - 5 * s * Math.cos(a)); c.lineTo(hx + face * 2 * s, sy - 0.5 * s); c.stroke();
-  } else if (working && vl.job === "gather") {
-    c.beginPath(); c.moveTo(shX, shY); c.lineTo(shX + face * 3 * s, sy - 3 * s + bend * 0.2); c.stroke();
-    c.fillStyle = "#9b6f3d"; c.beginPath(); c.ellipse(sx - face * 3.5 * s, sy - 1.5 * s, 2.6 * s, 1.6 * s, 0, 0, Math.PI * 2); c.fill();
-    c.fillStyle = "#c6384a"; c.beginPath(); c.arc(sx - face * 3.5 * s, sy - 2.6 * s, 1 * s, 0, Math.PI * 2); c.fill();
-  } else if (vl.job === "explore") {
-    // walking stick
-    const st = walking ? Math.sin(ph) * 1.5 * s : 0;
-    c.beginPath(); c.moveTo(shX, shY); c.lineTo(shX + face * 2.5 * s, shY + 3 * s); c.stroke();
-    c.strokeStyle = "#7a5530"; c.beginPath(); c.moveTo(shX + face * 2.5 * s, shY - 2 * s); c.lineTo(shX + face * 3.5 * s + st, sy); c.stroke();
-  } else if (working && vl.job === "trade") {
-    c.beginPath(); c.moveTo(shX, shY); c.lineTo(shX + face * 2.5 * s, shY - 3 * s - Math.abs(Math.sin(r.anim / 300)) * 2 * s); c.stroke();
-  } else if (vl.carrying && vl.state === "toHome") {
-    c.beginPath(); c.moveTo(shX, shY); c.lineTo(shX - face * 1 * s, shY - 2.5 * s); c.stroke(); // steadying the load
-  } else {
-    const aw = walking ? -Math.sin(ph) * (run ? 3 : 1.8) * s : 0;
-    c.beginPath(); c.moveTo(shX, shY); c.lineTo(shX + aw + face * (run ? 1.5 : 0) * s, hipY + (run ? -2 : 0) * s); c.stroke();
-  }
-  c.lineCap = "butt";
-  // head + hat
-  c.fillStyle = vl.skin; c.beginPath(); c.arc(headX, headY, 2.3 * s, 0, Math.PI * 2); c.fill();
-  if (vl.job === "farm" || vl.job === "gather" || vl.job === "explore") {
-    c.fillStyle = "#e8d39a"; c.beginPath(); c.moveTo(headX, headY - 5 * s); c.lineTo(headX - 4.6 * s, headY - 0.6 * s); c.lineTo(headX + 4.6 * s, headY - 0.6 * s); c.closePath(); c.fill();
-    c.fillStyle = "#c9b278"; c.beginPath(); c.moveTo(headX, headY - 5 * s); c.lineTo(headX + 4.6 * s, headY - 0.6 * s); c.lineTo(headX + 1 * s, headY - 0.6 * s); c.closePath(); c.fill();
-  } else if (vl.job === "build" || r.city.era>=5&&(vl.job==='smith'||vl.job==='quarry'||vl.job==='wood')) {
-    c.fillStyle = "#e2b240"; c.beginPath(); c.arc(headX, headY - 0.6 * s, 2.6 * s, Math.PI, 0); c.fill(); c.fillRect(headX - 3.2 * s, headY - 0.8 * s, 6.4 * s, 0.9 * s);
-  } else if(r.city.era>=4){
-    c.fillStyle=r.city.era>=6?'#426b82':r.city.era===5?'#4d5c68':vl.band;c.beginPath();c.arc(headX,headY-1.2*s,2.5*s,Math.PI,0);c.fill();c.fillRect(headX-3*s,headY-1.1*s,6*s,s);
-  } else {
-    c.fillStyle = "#2b1e14"; c.beginPath(); c.arc(headX, headY - 0.7 * s, 2.3 * s, Math.PI, 0); c.fill();
-    c.fillStyle = vl.band; c.fillRect(headX - 2.3 * s, headY - 1.2 * s, 4.6 * s, 0.9 * s);
-  }
-  // loads
-  if (vl.carrying && vl.state === "toHome" && vl.carry) {
-    const shoulder = headY + 1.5 * s;
-    if (vl.carry === "wood") {
-      // log over the shoulder
-      c.save(); c.translate(headX - face * 1 * s, shoulder); c.rotate(-face * 0.35);
-      c.fillStyle = "#8a5a2b"; c.fillRect(-6 * s, -1.4 * s, 12 * s, 2.8 * s);
-      c.fillStyle = "#e0b27a"; c.beginPath(); c.ellipse(face * 6 * s, 0, 0.9 * s, 1.4 * s, 0, 0, Math.PI * 2); c.fill();
-      c.restore();
-    } else if (vl.job === "hunt") {
-      // haunch of meat on the shoulder
-      c.fillStyle = "#b5523e"; c.beginPath(); c.ellipse(headX - face * 2.5 * s, shoulder - 1 * s, 3.4 * s, 2.2 * s, -face * 0.4, 0, Math.PI * 2); c.fill();
-      c.fillStyle = "#f2ead8"; c.fillRect(headX - face * 6 * s - 0.6 * s, shoulder - 2.4 * s, 1.6 * s, 1.2 * s);
-    } else {
-      const by = headY - 4.2 * s;
-      if (vl.carry === "stone") { c.fillStyle = "#c9c2b2"; c.beginPath(); c.ellipse(headX, by, 3 * s, 2 * s, 0, 0, Math.PI * 2); c.fill(); }
-      else if (vl.carry === "copper") { c.fillStyle = "#d9813a"; c.fillRect(headX - 2.5 * s, by - 1.2 * s, 5 * s, 2.4 * s); }
-      else { c.fillStyle = "#9b6f3d"; c.beginPath(); c.ellipse(headX, by + 0.5 * s, 3.2 * s, 1.8 * s, 0, 0, Math.PI * 2); c.fill(); c.fillStyle = "#d9443f"; c.beginPath(); c.arc(headX - 1 * s, by - 0.8 * s, 1.1 * s, 0, Math.PI * 2); c.arc(headX + 1.2 * s, by - 0.6 * s, 1.1 * s, 0, Math.PI * 2); c.fill(); }
-    }
-  }
+  const [x,y] = P(r.v, vl.fx, vl.fy);
+  drawVillagerArt(r.c,x,y,Math.max(r.v.s*1.12,.54),{
+    time:r.anim,seed:vl.seed,face:vl.face,era:r.city.era,job:vl.job,
+    walking:vl.moving,running:vl.run&&vl.moving,working:vl.state==='work',
+    swing:vl.swing,carrying:vl.carrying,resource:vl.carry,
+    skin:vl.skin,shirt:vl.shirt,band:vl.band,
+  });
 }
 
 function drawAnimal(r: RC, kind: "deer" | "boar", fx: number, fy: number, face: 1 | -1, graze: boolean, buck: boolean, seed: number) {
