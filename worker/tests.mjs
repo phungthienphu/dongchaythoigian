@@ -63,6 +63,20 @@ test('two defender tabs aggregate active presence across blur, close and expiry'
   await h.room.tick(); assert.equal(h.data.get('battle').defenderOnline, false); assert.ok(second.closed);
 });
 
+test('abnormal peer closes never echo reserved codes or skip defender presence cleanup',async()=>{
+  for(const code of [1005,1006,1015]){
+    const state=battle();state.defenderOnline=true;
+    const h=harness({battle:state,roomId:'one'});await h.ready;
+    const ws=socket({roomId:'one',playerId:'d',side:'defender',exp:Date.now()/1000+60,active:true});h.sockets.push(ws);
+    let sent;ws.close=value=>{sent=value;assert.equal(value,1000);};
+    await h.room.webSocketClose(ws,code,'');assert.equal(sent,1000);assert.equal(h.data.get('battle').defenderOnline,false);
+  }
+  const state=battle();state.defenderOnline=true;const h=harness({battle:state,roomId:'one'});await h.ready;
+  const ws=socket({roomId:'one',playerId:'d',side:'defender',exp:Date.now()/1000+60,active:true});h.sockets.push(ws);
+  ws.close=()=>{throw new Error('already closed');};
+  await h.room.webSocketClose(ws,1000,'');assert.equal(h.data.get('battle').defenderOnline,false);
+});
+
 test('network snapshots omit navigation buffers but durable state keeps routes and resume orders',async()=>{
   const state=battle();
   for(const group of state.groups){group.path=Array.from({length:9000},(_,i)=>i);group.pathGoal=7000;group.pathVersion=10;group.resumeOrder={type:'move',x:30,y:30};group.retreatExit={x:0,y:20};}

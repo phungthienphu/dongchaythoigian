@@ -268,7 +268,9 @@ export class BattleRoom {
   async webSocketClose(socket: WebSocket, code: number, reason: string) {
     const user = socket.deserializeAttachment() as Identity | null;
     if (user) socket.serializeAttachment({ ...user, active: false, closed: true });
-    socket.close(code, reason);
+    // 1005/1006/1015 are receive-only status codes, never valid close frames.
+    const replyCode=[1004,1005,1006,1015].includes(code)?1000:code;
+    try { socket.close(replyCode, reason); } catch { /* The peer may already be closed. */ }
     this.refreshPresence();
     if (this.battle) { await this.ctx.storage.put('battle', this.battle); this.broadcast(); }
   }
