@@ -3,6 +3,8 @@ import type { Action, BKey, UKey } from './engine';
 // Exhaustive typed tables keep the JSON boundary in sync with engine keys,
 // without a runtime engine import (the engine itself invokes this guard).
 const BUILDINGS: Record<BKey, true> = {
+  thermal:true,hydro:true,solar:true,apartment:true,complex:true,hospital:true,university:true,park:true,retention:true,dam:true,green:true,
+  coalmine:true,charcoal:true,machine:true,factory:true,transport:true,tenement:true,treatment:true,nursery:true,ironbridge:true,
   grandstore:true, tilehouse:true, well:true, reservoir:true, estate:true, school:true, artisan:true, academy:true,
   dock: true, builderhouse: true, hut: true, gather: true, wood: true, quarry: true, storehouse: true,
   fire: true, farm: true, canal: true, levee: true, house: true,
@@ -10,8 +12,8 @@ const BUILDINGS: Record<BKey, true> = {
   hall: true, envoy: true, barracks: true, wall: true, gate: true,
   watchtower: true, temple: true, logistics: true, infirmary: true,
 };
-const UNITS: Record<UKey, true> = { club: true, sling: true, spear: true, bow: true, sword: true, elephant: true, wagon: true, medic: true };
-const RESOURCES = ['food', 'wood', 'stone', 'copper', 'gold', 'diamond'] as const;
+const UNITS: Record<UKey, true> = {crossbow:true,cavalry:true,musket:true,cannon:true,infantry:true,armor:true, club: true, sling: true, spear: true, bow: true, sword: true, elephant: true, wagon: true, medic: true };
+const RESOURCES = ['food', 'wood', 'stone', 'copper', 'gold', 'diamond','coal'] as const;
 const MAP_SIDE = 96;
 const own = (object: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(object, key);
 const record = (value: unknown): value is Record<string, unknown> => {
@@ -50,11 +52,12 @@ function troops(value: unknown) {
 export function isActionInput(value: unknown): value is Action {
   if (!record(value) || !own(value, 'type')) return false;
   switch (value.type) {
+    case 'setPowerPriority': return Array.isArray(value.priority)&&value.priority.length===3&&new Set(value.priority).size===3&&value.priority.every(p=>['essential','housing','production'].includes(p));
     case 'advance': case 'alarm': return true;
-    case 'build': return known(BUILDINGS, value.k) && point(value);
+    case 'build': return known(BUILDINGS, value.k) && point(value) && (!own(value,'confirmFinal')||typeof value.confirmFinal==='boolean');
     case 'upgradeStorage': return point(value) && RESOURCES.includes(value.resource as typeof RESOURCES[number]);
-    case 'buildShip': case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'speedBuild': return point(value);
-    case 'moveSoldier': return typeof value.id === 'string' && /^(club|sling|spear|bow|sword|elephant|wagon|medic):\d{1,3}$/.test(value.id) && point(value);
+    case 'plantTree': case 'toggleBuilding': case 'buildShip': case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'speedBuild': return point(value);
+    case 'moveSoldier': return typeof value.id === 'string' && /^(club|sling|spear|bow|sword|elephant|wagon|medic|crossbow|cavalry|musket|cannon|infantry|armor):\d{1,3}$/.test(value.id) && point(value);
     case 'train': return known(UNITS, value.u) && integer(value.n, 1, 50);
     case 'recall': return integer(value.exp, 1);
     case 'attack': return integer(value.camp, 1) && troops(value.units);
@@ -63,13 +66,13 @@ export function isActionInput(value: unknown): value is Action {
     case 'setWorkforce': {
       if(!record(value.counts)||!integer(value.scouts,0,10_000))return false;
       const counts=value.counts;
-      return Object.keys(counts).length===RESOURCES.length && RESOURCES.every(r=>own(counts,r)&&integer(counts[r],0,10_000));
+      return [6,7].includes(Object.keys(counts).length) && RESOURCES.every(r=>r==='coal'&&!own(counts,r)||own(counts,r)&&integer(counts[r],0,10_000));
     }
     case 'setGuardPosts': return Array.isArray(value.posts) && value.posts.length <= 20 && value.posts.every(point);
     case 'auto': {
       if (typeof value.on !== 'boolean' || !record(value.mix)) return false;
       const mix = value.mix;
-      return [4,6].includes(Object.keys(mix).length) && Object.keys(mix).every(key => RESOURCES.includes(key as typeof RESOURCES[number])) && RESOURCES.every(key => (key==='gold'||key==='diamond')&&!own(mix,key) || own(mix,key) && typeof mix[key] === 'number' && Number.isFinite(mix[key]) && mix[key] >= 0 && mix[key] <= 100);
+      return [4,6,7].includes(Object.keys(mix).length) && Object.keys(mix).every(key => RESOURCES.includes(key as typeof RESOURCES[number])) && RESOURCES.every(key => (key==='gold'||key==='diamond'||key==='coal')&&!own(mix,key) || own(mix,key) && typeof mix[key] === 'number' && Number.isFinite(mix[key]) && mix[key] >= 0 && mix[key] <= 100);
     }
     default: return false;
   }

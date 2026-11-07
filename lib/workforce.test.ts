@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {newCity,G,F,HL,idx,applyAction,settle,MIN,workforceCounts,isScout,availableForWork,type City,type Res} from './engine';
-const zero:Res={food:0,wood:0,stone:0,copper:0,gold:0,diamond:0};
+const zero:Res={food:0,wood:0,stone:0,copper:0,gold:0,diamond:0,coal:0};
 const mix={...zero,wood:100};
 function fixture():City {
  const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.camp=idx(20,20);c.herds=[];c.camps=[];

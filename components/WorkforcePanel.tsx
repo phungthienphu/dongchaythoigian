@@ -18,7 +18,7 @@ export default function WorkforcePanel({c,busy,act,pickGroup}:{c:City;busy:boole
   <h3>Phân công số dân</h3>
   <p className="small muted">Nhập tổng số người muốn giao cho từng việc, rồi áp dụng một lần. Nhóm khám phá được giữ riêng; bấm chọn nhóm rồi bấm bản đồ để đi tiếp.</p>
   <p role="status" className="small">{c.manualWorkforce?'Đang phân công theo số dân · dân mới chờ lệnh':c.auto?.on?'Đang bật tự động · áp dụng số dân sẽ tắt tự động':'Chưa đặt số dân cố định'} · {free} dân có thể nhận việc{other>0?` · ${other} người giữ lệnh/dịch vụ khác`:''}.</p>
-  <div className="workforce-rows">{keys.map(r=>{
+  <div className="workforce-rows">{keys.filter(r=>r!=='coal'||c.era>=5).map(r=>{
    const count=r==='scouts'?current.scouts:current.counts[r],label=r==='scouts'?'Khám phá':RN[r];
    const locked=r==='gold'&&c.era<2||r==='diamond'&&c.era<3;
    return <div key={r} className="workforce-row">

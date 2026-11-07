@@ -43,10 +43,10 @@ export type Villager = {
 /** Short-lived visual effects: thrown spears and flying chips. */
 export type Fx = { kind: "spear" | "chip"; x0: number; y0: number; x1: number; y1: number; t0: number; dur: number; col?: string };
 
-const HOMES = new Set(["hut", "house", "stonehouse"]);
+const HOMES = new Set(["hut", "house", "stonehouse", "tilehouse", "tenement", "apartment"]);
 const SKINS = ["#f1c9a0", "#d9a77a", "#b98057"];
 const BANDS = ["#c9503e", "#e2b240", "#3f6fb0", "#5c9a8a"];
-const JOB_OF: Record<string, Job> = { wood: "wood", quarry: "quarry", gather: "gather", farm: "farm", estate:"farm", artisan:"smith", school:"other", reservoir:"other", smelter: "smith", forge: "smith", market: "trade", wheel: "farm" };
+const JOB_OF: Record<string, Job> = { wood: "wood", quarry: "quarry", gather: "gather", farm: "farm", estate:"farm",coalmine:"quarry",charcoal:"smith",machine:"smith",factory:"smith",complex:"smith",nursery:"farm",thermal:"smith",hydro:"other",transport:"trade",hospital:"other",university:"other",treatment:"other",retention:"other", artisan:"smith", school:"other", reservoir:"other", smelter: "smith", forge: "smith", market: "trade", wheel: "farm" };
 const SHIRT: Record<Job, string> = { wood: "#3f6fb0", quarry: "#8a8f96", gather: "#c9503e", farm: "#6f9a3a", build: "#e2b240", smith: "#5a4a40", trade: "#b6869f", hunt: "#7a5530", explore: "#2f8f8a", idle: "#a9779a", other: "#5c9a8a" };
 const WALK = 0.9, RUN = 1.9; // tiles per second
 

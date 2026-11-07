@@ -15,7 +15,9 @@ export function drawBattleStrikes(ctx: CanvasRenderingContext2D, battle: BattleS
       const t=Math.min(1,age/500),x=a.x+(b.x-a.x)*t,y=a.y+(b.y-a.y)*t-Math.sin(t*Math.PI)*18*scale;
       const angle=Math.atan2(b.y-a.y-Math.cos(t*Math.PI)*18*scale*Math.PI,b.x-a.x);
       ctx.translate(x,y);ctx.rotate(angle);
-      if(e.kind==='stone'){ctx.fillStyle='#d9d4bc';ctx.beginPath();ctx.arc(0,0,3,0,Math.PI*2);ctx.fill();}
+      if(e.kind==='bullet'){ctx.strokeStyle='#ffe7a1';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-9,0);ctx.lineTo(4,0);ctx.stroke();}
+      else if(e.kind==='shell'){ctx.fillStyle='#414a40';ctx.beginPath();ctx.arc(0,0,4*scale,0,Math.PI*2);ctx.fill();if(t>=.9){ctx.strokeStyle='#ffc96c';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,12*scale,0,Math.PI*2);ctx.stroke();}}
+      else if(e.kind==='stone'){ctx.fillStyle='#d9d4bc';ctx.beginPath();ctx.arc(0,0,3,0,Math.PI*2);ctx.fill();}
       else {ctx.strokeStyle='#f5dfad';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(-13,0);ctx.lineTo(3,0);ctx.moveTo(0,-3);ctx.lineTo(4,0);ctx.lineTo(0,3);ctx.moveTo(-12,-3);ctx.lineTo(-9,0);ctx.lineTo(-12,3);ctx.stroke();}
     }
     ctx.restore();

@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {applyAction,buildingCost,buildMs,derive,farmCapacity,farmRemaining,foodEraScale,G,HOUR,idx,levelCap,levelCost,MAX_LVL,MIN,newCity,R,reqMet,RES,settle,stats,storageCapacity,upkeepRates,type City} from './engine';
-import {LOCAL_RULES} from './eras';
+const LOCAL_RULES={maxEra:4};
 import {droughtFactor,initializeMedieval,medievalBonus,scheduleDrought,stepMedieval} from './medieval';
 function fixture(era=4,at=0):City{
  const c=newCity(at,123);c.t.fill(G);c.seen.fill(1);c.people=[];c.pop=0;c.herds=[];c.camps=[];c.b={};c.camp=idx(20,20);c.era=era;c.manualWorkforce=true;c.army={};

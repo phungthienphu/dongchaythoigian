@@ -131,11 +131,15 @@ export default function WorldMap({ caravans=[], onMarket, signedIn, onFriendsCha
         const r = Math.max(7, Math.min(18, k.z * 1.4));
         ctx.fillStyle = "rgba(0,0,0,.3)"; ctx.beginPath(); ctx.ellipse(sx, sy + r * 0.7, r, r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
         // keep shape by era: hut, wooden hall, stone keep
-        const body = n.era === 1 ? "#c79a63" : n.era === 2 ? "#a8743e" : "#c9c2b2";
-        const roof = n.era === 1 ? "#e2bd5e" : n.era === 2 ? "#b0543a" : "#4f5a66";
+        const body = n.era>=6?"#c8dcd8":n.era===5?"#b59480":n.era === 1 ? "#c79a63" : n.era === 2 ? "#a8743e" : "#c9c2b2";
+        const roof = n.era===4?"#b5583e":n.era>=5?"#607d83":n.era === 1 ? "#e2bd5e" : n.era === 2 ? "#b0543a" : "#4f5a66";
         ctx.fillStyle = body; ctx.fillRect(sx - r * 0.7, sy - r * 0.6, r * 1.4, r * 1.1);
         ctx.fillStyle = roof; ctx.beginPath(); ctx.moveTo(sx - r, sy - r * 0.55); ctx.lineTo(sx, sy - r * 1.5); ctx.lineTo(sx + r, sy - r * 0.55); ctx.fill();
         if (n.era >= 3) { ctx.fillStyle = body; ctx.fillRect(sx - r * 0.95, sy - r * 1.1, r * 0.4, r * 1.6); ctx.fillRect(sx + r * 0.55, sy - r * 1.1, r * 0.4, r * 1.6); }
+        if(n.era>=5){
+          ctx.fillStyle=n.era===5?'#59615c':'#729baa';ctx.fillRect(sx-r*.65,sy-r*1.65,r*.35,r*1.2);
+          if(n.era===6){ctx.fillRect(sx-r*.2,sy-r*1.8,r*.55,r*1.5);ctx.fillStyle='#c4ebed';for(let row=0;row<3;row++)ctx.fillRect(sx-r*.1,sy-r*(1.65-row*.35),r*.3,r*.15);}
+        }
         if (n.me || n.friend) {
           ctx.strokeStyle = n.me ? "#f0c766" : "#7fe0ff"; ctx.lineWidth = 2.5;
           ctx.beginPath(); ctx.arc(sx, sy - r * 0.3, r * 1.7, 0, Math.PI * 2); ctx.stroke();

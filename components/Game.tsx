@@ -1,11 +1,15 @@
 "use client";
+import {pollutionBirth} from '@/lib/industry';
+import EraOfflineSummary from './EraOfflineSummary';
+import {canToggle,serviceBonus} from '@/lib/modern';
 import {RELEASE_RULES,type EngineRules} from '@/lib/eras';
 
+import EraCivicPanel,{EraCivicBuilding} from './EraCivicPanel';
 import { ReadFlights } from "@/lib/read-flights";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  storageCapacity, availableForWork, isScout, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
+  buildingJobs,storageCapacity, availableForWork, isScout, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
   armyCap, armyUsed, buildingCost, trainingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -92,8 +96,17 @@ function taskLabel(c: City, p: Person) {
     default: return isScout(p) ? "Khám phá · chờ lệnh" : tk.t === "idle" && tk.at !== undefined ? "Đứng theo lệnh" : p.assignment === "manual" ? "Nghỉ · chờ lệnh" : "Rảnh";
   }
 }
-function haulDetail(p: Person, at: number, storage: City["res"], stock: City["res"]) {
+function haulDetail(p: Person, at: number, storage: City["res"], stock: City["res"],city:City) {
   const h = p.haul;
+  if(!h&&p.task.t==='work'){
+    const b=city.b[p.task.at],d=b&&B[b.k];
+    if(b&&d?.jobs&&!d.prod){
+      if(b.off)return 'Công trình đang tắt; vẫn giữ người đã giao.';
+      if(b.burned||b.flooded)return 'Công trình hư hại, chờ sửa hoặc nước rút.';
+      if(p.pos===p.task.at)return `Đang trực tại ${buildingName(city,b.k)}. Xem bảng công trình để biết công suất và hiệu quả.`;
+      return 'Chờ đường tới nơi làm; kiểm tra lối vào công trình.';
+    }
+  }
   if (!h) return isScout(p) && p.task.t === "idle" ? "Nhóm khám phá đang chờ lệnh, không tự đổi việc." : p.task.t === "idle" ? "Chờ lệnh — chọn dân rồi bấm nơi cần đến." : p.task.t === "explore" ? "Đang dò đường trong làng." : "Chưa làm được: kiểm tra tài nguyên gần trại và đường đi; có thể giao việc khác.";
   const left = fmtDur(h.nextAt - at), name = h.resource ? RN[h.resource].toLowerCase() : "hàng";
   if (h.resting) return `${h.phase === "travel" ? "Đang đi theo lệnh" : "Đã nghỉ"} · vẫn giữ ${fmt(h.carried)} ${name} vì kho đầy. Dùng bớt tài nguyên hoặc xây Kho.`;
@@ -121,6 +134,7 @@ const ICON = {
   copper: <svg viewBox="0 0 24 24"><path d="M3 16l4-6h10l4 6z" fill="#d9813a" /><path d="M7 10h10l-2-3H9z" fill="#f0a868" /></svg>,
   gold: <svg viewBox="0 0 24 24"><path d="M3 17l4-8h10l4 8z" fill="#f1c64f"/><path d="M7 9l3-3h7v3z" fill="#fff1a1"/></svg>,
   diamond: <svg viewBox="0 0 24 24"><path d="M3 9l5-5h8l5 5-9 12z" fill="#70dbe7"/><path d="M3 9h18M8 4l4 17 4-17" fill="none" stroke="#e6ffff"/></svg>,
+  coal: <svg viewBox="0 0 24 24"><path d="M3 17l3-9 9-3 6 10-5 5H7z" fill="#455158"/><path d="M6 8l7 4 2-7" fill="#77888b"/></svg>,
   pop: <svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="3.5" fill="#f1c9a0" /><path d="M5 21c0-5 3-8 7-8s7 3 7 8z" fill="#c9503e" /></svg>,
   build: <svg viewBox="0 0 24 24"><path d="M4 20l8-8" stroke="#8a5a2b" strokeWidth="2.5" strokeLinecap="round" /><rect x="10" y="4" width="10" height="6" rx="1" fill="#d6a03f" transform="rotate(45 15 7)" /></svg>,
   army: <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z" fill="#b04130" /><path d="M12 6l4 1.7V11c0 3-1.7 5-4 6.3z" fill="#e2b240" /></svg>,
@@ -311,6 +325,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [name, setName] = useState("");
   const [nameInput, setNameInput] = useState("");
   const [, setVersion] = useState(0);
+  const [planting,setPlanting]=useState(false);
+  const [finalReview,setFinalReview]=useState<BKey|null>(null);
+  const finalConfirmed=useRef<BKey|null>(null);
+  const finalDialog=useRef<HTMLDialogElement>(null);
+  useEffect(()=>{if(finalReview&&!finalDialog.current?.open)finalDialog.current?.showModal();},[finalReview]);
   const [tool, setTool] = useState<BKey | null>(null);
   const [selected, setSelected] = useState<Cell | null>(null);
   const [herdSel, setHerdSel] = useState<number | null>(null);
@@ -695,6 +714,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     const c = cityRef.current;
     if (!c) return;
     const p = local(e);
+    if(planting){const cell=cellAt(e);if(cell)await act({type:"plantTree",...cell});return;}
     if (guardEditing) {
       const cell = cellAt(e); if (!cell) return;
       const posts = c.guardPosts ?? [];
@@ -705,7 +725,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if (tool) {
       const cell = cellAt(e);
       if (!cell) return;
-      const ok = await act({ type: "build", k: tool, x: cell.x, y: cell.y });
+      const ok = await act({ type: "build", k: tool, x: cell.x, y: cell.y, ...(finalConfirmed.current===tool?{confirmFinal:true}:{}) });
       if (ok) {
         if(cityRef.current && buildAvailability(cityRef.current,tool).capped)pickTool(null);
         setMsg({ text: `Thợ bắt đầu xây ${buildingName(c, tool)}.` });
@@ -774,6 +794,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   };
 
   const pickTool = (k: BKey | null) => {
+    setPlanting(false);
     setPickedSoldier(null);
     setGuardEditing(false);
     setTool(k);
@@ -786,7 +807,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setPickedSoldier(null); setGuardEditing(false); setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
+      setPlanting(false);setFinalReview(null);setPickedSoldier(null); setGuardEditing(false); setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -835,9 +856,10 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const nextSeasonIn = c.t0 + (si + 1) * SEASON_MS - t;
   const busyN = busyBuilders(c), maxB = builders(c);
   const idle = c.people.filter(availableForWork);
-  const populationStatus = c.battleId ? "Tạm dừng do trận đánh" : c.res.food <= 0 ? "Dân đang đói" : c.people.length >= st.housing ? "Cần thêm nhà" : `+1 dân sau ${fmtDur((1-c.popAcc) / (POP_GROWTH_PER_HOUR * (1+(c.res.wood>0?st.fires:0))) * HOUR)}`;
-  const hasFoodWorker = c.people.some(p => p.task.t === "hunt" || p.task.t === "work" && ["gather","farm","wheel"].includes(c.b[p.task.at]?.k ?? ""));
-  const goal = !hasFoodWorker ? { text: "1. Kiếm thức ăn: bấm Trại hái lượm → Giao người rảnh, hoặc chọn dân rồi bấm đàn thú.", panel: "people" as Panel }
+  const birthRate=POP_GROWTH_PER_HOUR*(1+(c.res.wood>0?st.fires:0))*pollutionBirth(c)*serviceBonus(c).birth;
+  const populationStatus = c.battleId ? "Tạm dừng do trận đánh" : c.res.food <= 0 ? "Dân đang đói" : c.people.length >= st.housing ? "Cần thêm nhà" : birthRate<=0?"Ô nhiễm ngăn sinh dân": `+1 dân sau ${fmtDur((1-c.popAcc) / birthRate * HOUR)}`;
+  const hasFoodWorker = c.people.some(p => p.task.t === "hunt" || p.task.t === "work" && ["gather","farm","estate","wheel"].includes(c.b[p.task.at]?.k ?? ""));
+  const goal = c.era>=4?{text:`${ERA_NAMES[c.era]} · xem nước, sản xuất và mục tiêu phát triển.`,panel:"era" as Panel}:!hasFoodWorker ? { text: "1. Kiếm thức ăn: bấm Trại hái lượm → Giao người rảnh, hoặc chọn dân rồi bấm đàn thú.", panel: "people" as Panel }
     : c.people.length >= st.housing ? { text: "2. Tăng dân: mở Cửa hàng → xây Lều. Còn chỗ ở và đủ ăn thì khoảng 1 phút có thêm dân.", panel: "shop" as Panel }
     : !c.people.some(p => p.task.t === "chop") ? { text: "3. Lấy gỗ: chọn dân rảnh → bấm rừng. Gom khoảng 10 giây rồi dân mang 10 gỗ về nộp.", panel: "people" as Panel }
     : { text: `Làng đang phát triển · ${populationStatus}. Bấm Dân làng để xem từng chuyến hàng.`, panel: "people" as Panel };
@@ -940,7 +962,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
             <Icon k="army" />
             <div className="cv"><span className="v">{troopCount(c.army)}<small>/{cap}</small></span><span className="d">⚔ {fmt(homePower)}</span></div>
           </div>
-          {RES.map((r) => {
+          {RES.filter(r=>r!=="coal"||c.era>=5).map((r) => {
             const rate = r === "copper" ? st.copperRate : r === "wood" ? st.rate.wood - st.woodUse : r === "stone" ? st.rate.stone-st.stoneUse : st.rate[r];
             const pct = Math.min(100, (c.res[r] / st.storage[r]) * 100);
             const waiting = c.people.some(p => p.haul?.resource === r && p.haul.carried > 0 && st.storage[r]-c.res[r] < p.haul.carried);
@@ -979,7 +1001,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           {hunters.length > 0 && (
             <ul className="people compact">
               {hunters.map((p) => (
-                <li key={p.id}><span>{p.name}<HungryVillager city={c} person={p}/><small className="haul-detail">{haulDetail(p,t,st.storage,c.res)}</small></span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
+                <li key={p.id}><span>{p.name}<HungryVillager city={c} person={p}/><small className="haul-detail">{haulDetail(p,t,st.storage,c.res,c)}</small></span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
               ))}
             </ul>
           )}
@@ -1029,13 +1051,13 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               {c.cropDamage?.tile===selI && c.cropDamage.until>t && <p className="err small">Ruộng bị thú rừng giẫm: năng suất còn 50%, phục hồi sau {fmtDur(c.cropDamage.until-t)}.</p>}
               {sel.doneAt && <button disabled={busy||c.res.diamond<speedBuildCost(sel,t)} onClick={()=>act({type:"speedBuild",...selected})}>Hoàn tất ngay · {speedBuildCost(sel,t)} kim cương (30 giây / viên)</button>}
               {(sel.flooded || sel.burned) && <p className="err small">{sel.damageCause==='earthquake'?"Hư hại do động đất, cần sửa để hoạt động lại.":sel.burned ? "Bị cháy, cần sửa để hoạt động lại." : "Bị ngập, không hoạt động."}</p>}
-              {sel.k==="farm" && <>
+              {["farm","estate"].includes(sel.k) && <>
                 <p className={farmRemaining(sel)<=0?"err small":"small"}>Dinh dưỡng: {Math.ceil(farmRemaining(sel))}/{farmCapacity(sel)} · giảm theo lượng lương thực thực sự thu hoạch.</p>
                 {sel.tendUntil ? <p className="small">Đang cải tạo & gieo lại: {fmtDur(sel.tendUntil-t)}</p> : <button disabled={busy || !!sel.doneAt || !!sel.burned || !!sel.flooded || farmRemaining(sel)>=farmCapacity(sel)} onClick={()=>act({type:"tendFarm",x:selI%W,y:Math.floor(selI/W)})}>Cải tạo & gieo lại · {costText(farmTendCost(sel,c.era))} · 30 giây</button>}
                 {farmRemaining(sel)<=0 && <p className="err small">Ruộng bạc màu. Người đã giao đang nghỉ, cần cải tạo để tiếp tục thu hoạch.</p>}
               </>}
-              {sel.k==="farm" && <p className="small">Đã giao {onTarget.length}/{B.farm.jobs} người ({onTarget.filter(p=>p.refuge).length} đang tránh địch): {onTarget.filter(p=>!p.refuge && p.haul?.phase==="work").length} đang làm trên ruộng; {onTarget.filter(p=>!p.refuge && p.haul?.phase!=="work").length} đang đi hoặc chở/chờ nộp hàng. Người về kho vẫn giữ chỗ, không cần cử thêm.</p>}
-              {B[sel.k].jobs ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{B[sel.k].jobs}</b>. {workersAt(c,selI) ? "Gom đủ một chuyến rồi mang về nộp; chỉ khi nộp xong kho mới tăng." : "Chưa có người làm nên chưa tạo tài nguyên. Bấm Giao người rảnh bên dưới."}</p> : null}
+              {["farm","estate"].includes(sel.k) && <p className="small">Đã giao {onTarget.length}/{buildingJobs(sel)} người ({onTarget.filter(p=>p.refuge).length} đang tránh địch): {onTarget.filter(p=>!p.refuge && p.haul?.phase==="work").length} đang làm trên ruộng; {onTarget.filter(p=>!p.refuge && p.haul?.phase!=="work").length} đang đi hoặc chở/chờ nộp hàng. Người về kho vẫn giữ chỗ, không cần cử thêm.</p>}
+              <EraCivicBuilding city={c} building={sel} tile={selI} now={t}/>{B[sel.k].jobs ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{buildingJobs(sel)}</b>. {workersAt(c,selI) ? !B[sel.k].prod ? "Nhân viên vận hành dịch vụ tại đây; không mang hàng về kho." : "Gom đủ một chuyến rồi mang về nộp; chỉ khi nộp xong kho mới tăng." : "Chưa có người làm nên chưa tạo tài nguyên. Bấm Giao người rảnh bên dưới."}</p> : null}
             </>
           ) : (
             <>
@@ -1054,12 +1076,14 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           {onTarget.length > 0 && (
             <ul className="people compact">
               {onTarget.map((p) => (
-                <li key={p.id}><span>{p.name}<HungryVillager city={c} person={p}/><small className="haul-detail">{haulDetail(p,t,st.storage,c.res)}</small></span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
+                <li key={p.id}><span>{p.name}<HungryVillager city={c} person={p}/><small className="haul-detail">{haulDetail(p,t,st.storage,c.res,c)}</small></span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
               ))}
             </ul>
           )}
           {sel && selected && (
             <div className="actions">
+              {sel.k==='nursery'&&sel.lvl>=1&&<button onClick={()=>{setPlanting(true);setTool(null);setPanel(null);setSelected(null);setMsg({text:'Bấm đồng cỏ trống trong 6 ô Vườn ươm để trồng; 10 thực/cây, 30 phút lớn. Tối đa 4 cây/vườn.'});}}>Trồng cây · 10 thực/cây</button>}
+              {canToggle(B[sel.k])&&sel.lvl>0&&<button disabled={busy} onClick={()=>act({type:'toggleBuilding',...selected})}>{sel.off?'Bật lại công trình':'Tắt công trình'}</button>}
               {sel.k === "envoy" && sel.lvl >= 1 && <>
                 <p className="small">Sứ giả riêng: {Math.max(0,envoyCount(c)-envoysAway(c))}/{envoyCount(c)} đang rảnh. Dân làng chỉ dò địa hình trong làng; tìm nước khác cần cử sứ giả.</p>
                 <button className="primary" disabled={busy || saving || !envoyCount(c) || envoysAway(c)>=envoyCount(c)} onClick={()=>sendEnvoy()}>Cử sứ giả rảnh đi do thám · 2 phút</button>
@@ -1070,7 +1094,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               {sel.k==="dock"&&sel.lvl>=1&&<DockPanel city={c} building={sel} now={t} busy={busy} onBuild={()=>{void act({type:"buildShip",...selected});}}/>}
               {sel.k === "market" && sel.lvl >= 1 && <button className="primary" onClick={()=>setPanel("market")}>Giao thương bằng đoàn xe</button>}
               {sel.k === "hall" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("control")}>{control ? "Trung tâm điều khiển" : "Xem Đình làng"}</button>}
-              {["storehouse","grandstore"].includes(sel.k) && sel.lvl >= 1 && <div><p className="small">Nâng riêng từng ngăn. Kho thường thêm 1.000 chỗ; Đại kho tăng 10.000 → 20.000 → 40.000.</p>{RES.map(r=>{
+              {["storehouse","grandstore"].includes(sel.k) && sel.lvl >= 1 && <div><p className="small">Nâng riêng từng ngăn. Kho thường thêm 1.000 chỗ; Đại kho tăng 10.000 → 20.000 → 40.000.</p>{RES.filter(r=>r!=="coal"||c.era>=5).map(r=>{
                 const lv=storageLevel(sel,r), cap=levelCap(c,sel.k), locked=lv>=cap;
                 const reason=lv>=MAX_LVL?"Đã tối đa":locked?"Cần xây/nâng Đình làng":sel.doneAt?"Kho đang nâng cấp":sel.flooded||sel.burned?"Cần sửa Kho":"";
                 return <div key={r}><p>{RN[r]} · cấp {lv} · {fmt(storageCapacity(sel,r))} chỗ{sel.storageUpgrade===r?` · đang nâng (${fmtDur((sel.doneAt??t)-t)})`:""}</p><button disabled={busy||!!reason} onClick={()=>act({type:"upgradeStorage",...selected,resource:r})}>{reason||`Nâng ${RN[r]} lên cấp ${lv+1} · ${costText(levelCost(sel.k,lv+1,c.era))} · ${fmtDur(buildMs(sel.k,lv+1))}`}</button></div>;
@@ -1105,7 +1129,10 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         </div>
       )}
 
+      {finalReview&&<dialog ref={finalDialog} aria-label="Chọn kỳ quan cuối" className="final-wonder-modal" onCancel={e=>{e.preventDefault();setFinalReview(null);}}><div className="final-wonder-card"><h2>{B[finalReview].n}</h2><p>{B[finalReview].d}</p><p>Khi hoàn thành, lựa chọn này cố định. Trong lúc xây có thể hủy theo luật hoàn trả; hoàn thành rồi chỉ có thể sửa chữa.</p><button onClick={()=>{finalConfirmed.current=finalReview;pickTool(finalReview);setFinalReview(null);}}>Đồng ý đánh đổi · chọn vị trí</button><button onClick={()=>setFinalReview(null)}>Quay lại</button></div></dialog>}
       <div className="hud-bottom">
+        {planting&&<button onClick={()=>setPlanting(false)}>Kết thúc trồng cây</button>}
+        {c.era>=4&&<button onClick={()=>openPanel('era')}>{c.modern?`⚡ ${fmt(c.modern.supply)}/${fmt(c.modern.demand)} MW · `:''}{c.industry?`Ô nhiễm ${fmt(c.industry.pollution)}/100`:'Quản lý nước và Trung đại'}</button>}
         <HungerNotice city={c} onFindFood={()=>openPanel("people")}/>
         {!tool && !picked.size && <button className="next-step" onClick={() => openPanel(goal.panel)}>{goal.text}</button>}
         {picked.size > 0 && (
@@ -1123,7 +1150,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
             <b>Đang xây {buildingName(c, tool)}</b>
             <span>Ô xanh: xây được · ô đỏ: không hợp lệ. {placementHint(tool)}</span>
             <button onClick={()=>{
-              const allowed=placementTiles(c,D,tool);
+              const allowed=placementTiles(c,D,tool,rules);
               let best=-1,distance=Infinity;
               for(let i=0;i<W*W;i++)if(allowed(i)){const d=cheb(c.camp,i);if(d<distance){best=i;distance=d;}}
               if(best<0){setMsg({text:"Chưa có ô xây được: kiểm tra vật liệu, thợ rảnh, giới hạn công trình và điều kiện vị trí. "+placementHint(tool),err:true});return;}
@@ -1136,7 +1163,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         <div className={"status" + (status?.err ? " err" : "")}>{saving && <span className="save-state">Đang lưu… · </span>}{status?.text ?? "Bấm vào dân để chọn rồi bấm vào rừng, đồi, đàn thú hoặc sương mù để giao việc. Mở Cửa hàng để xây nhà."}</div>
       </div>
 
-      {helpOpen && <HowToPlay onClose={()=>setHelpOpen(false)} />}
+      {!visitRef.current&&c.era>=5&&<EraOfflineSummary city={c} now={t}/>}
+      {helpOpen && <HowToPlay maxEra={rules.maxEra} onClose={()=>setHelpOpen(false)} />}
       {!worldOpen && !battleOpen && panel!=="log" && me.user && <BattleReports wars={war.wars} playerId={me.user.id} />}
       {battleOpen && <BattleView id={battleOpen} onClose={() => { setBattleOpen(null); void loadCity(); void war.refresh(); }} onSettled={() => { void loadCity(); void war.refresh(); }} />}
       {!worldOpen && !battleOpen && readNotice.key===noticeKey && notices[0]?.at>readNotice.at && panel!=="log" && <div className="war-alerts" role="status"><span>{notices[0].cls==="warn"?"⚠ ":"✉ "}{notices[0].msg}</span><button onClick={()=>openPanel("log")}>Xem thông báo</button><CaravanNoticeLink id={notices[0].caravanId} onTrack={trackCaravan}/></div>}
@@ -1233,7 +1261,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                     const availability=buildAvailability(c,k,rules),locked=availability.locked;
                     const poor = RES.some((r) => (buildingCost(k, Math.max(B[k].era,c.era))[r] ?? 0) > c.res[r]);
                     return (
-                      <button key={k} className="shopcard" aria-pressed={tool === k} disabled={locked} title={availability.reason??undefined} onClick={() => pickTool(k)}>
+                      <button key={k} className="shopcard" aria-pressed={tool === k} disabled={locked} title={availability.reason??undefined} onClick={() => {if(k==="dam"||k==="green")setFinalReview(k);else pickTool(k);}}>
                         <Thumb city={c} D={D} k={k} />
                         <span className="n">{buildingName(c, k)}</span>
                         {availability.limit!==undefined && <span className={availability.capped?"err small":"small"}>Đã đặt {availability.count}/{availability.limit}{availability.capped?" · Đã đủ giới hạn":""}</span>}
@@ -1257,7 +1285,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                   <p className="small">Sức chứa trại: <b>{used}/{cap}</b> · Quân ở nhà: <b>⚔ {fmt(homePower)}</b></p>
                 )}
                 <ul className="units train">
-                  {UKEYS.map((u) => {
+                  {UKEYS.filter(u=>UNITS[u].era<=rules.maxEra).map((u) => {
                     const U = UNITS[u], needsBuilding=U.building && !Object.values(c.b).some(b=>b.k===U.building && b.lvl>0 && !b.burned && !b.flooded), locked = U.era > c.era || !!needsBuilding;
                     return (
                       <li key={u} className={locked ? "locked" : ""}>
@@ -1313,7 +1341,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                       <button className={"person" + (p.task.t === "idle" ? " idle" : "")} aria-pressed={picked.has(p.id)}
                         onClick={(e) => togglePick(p.id, e.shiftKey || e.ctrlKey || e.metaKey)}>
                         <span className="nm">{p.name}</span>
-                        <HungryVillager city={c} person={p}/><span className="tk">{taskLabel(c, p)}</span><small className="haul-detail">{haulDetail(p,t,st.storage,c.res)}</small>
+                        <HungryVillager city={c} person={p}/><span className="tk">{taskLabel(c, p)}</span><small className="haul-detail">{haulDetail(p,t,st.storage,c.res,c)}</small>
                       </button>
                     </li>
                   ))}
@@ -1322,6 +1350,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               </>
             )}
 
+            {panel === "era" && <EraCivicPanel city={c} now={t} busy={busy} act={act} onLocate={tile=>{setSelected({x:tile%W,y:Math.floor(tile/W)});setPanel(null);focusOn(fitRef.current,camRef.current,tile%W+.5,Math.floor(tile/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));}}/>}
             {panel === "era" && <div className="era-roadmap">{ERA_ROADMAP.map(e=><p key={e.id}><b>{e.name}</b> · {e.id>rules.maxEra?"Sắp ra mắt":e.id===c.era?"Thời hiện tại":e.id<c.era?"Đã mở":"Chưa mở"}<br/><small>{e.theme}</small></p>)}</div>}
             {panel === "era" && (next ? (
               <>

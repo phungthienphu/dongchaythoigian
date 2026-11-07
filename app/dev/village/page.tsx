@@ -5,7 +5,7 @@ import {Crowd} from '@/components/villagers';
 import HowToPlay from '@/components/HowToPlay';
 import {newCity,derive,idx,G,HL,sendEnvoy,envoyVillagePosition,buildingName,type City,type BKey} from '@/lib/engine';
 const view:View={TW:88,TH:44,ox:470,oy:-650,width:940,height:540,s:88/64};
-function fixture(){const c=newCity(0,123);c.era=2;c.t.fill(G);c.seen.fill(1);c.b={};c.camps=[];c.herds=[];c.people=c.people.slice(0,3);c.camp=idx(20,20);c.res={food:500,wood:500,stone:500,copper:100, gold: 0, diamond: 0};
+function fixture(){const c=newCity(0,123);c.era=2;c.t.fill(G);c.seen.fill(1);c.b={};c.camps=[];c.herds=[];c.people=c.people.slice(0,3);c.camp=idx(20,20);c.res={food:500,wood:500,stone:500,copper:100, gold: 0, diamond:0,coal:0};
  for(const [x,y,k] of [[20,20,'house'],[22,20,'farm'],[18,20,'envoy'],[22,23,'logistics'],[20,23,'infirmary']] as const)c.b[idx(x,y)]={k,lvl:1,doneAt:null};
  c.t[idx(18,19)]=HL;c.t[idx(17,19)]=HL;
  c.people[0].task={t:'idle'};c.people[0].pos=idx(20,20);

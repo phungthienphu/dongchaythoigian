@@ -23,6 +23,7 @@ export async function marketAction(pid:string,a:MarketAction){
  const changed=await transaction(async session=>{
   const me=await col.findOne({_id:pid},{session});if(!me)throw new Error('Không có làng.');prepare(me,now);
   if(a.type==='create'){
+   if((a.resource==='coal'||a.currency==='coal')&&me.state.era<5)throw new Error('Giao thương than mở từ Công nghiệp.');
    const id=`${pid}:${a.requestId}`;if(await orders.findOne({_id:id},{session}))return[pid];usable(me);
    if(await orders.countDocuments({seller:pid,status:'open'},{session})>=10)throw new Error('Tối đa 10 lô hàng đang bán.');
    if(a.price>stats(me.state,derive(me.state),now).storage[a.currency])throw new Error('Giá lớn hơn sức chứa Kho: nâng Kho trước khi đăng bán.');
@@ -41,6 +42,7 @@ export async function marketAction(pid:string,a:MarketAction){
    const id=`${pid}:${a.requestId}`;if(await ships.findOne({_id:id},{session}))return[pid];usable(me);
    const order=await orders.findOne({_id:a.id,status:'open'},{session});if(!order)throw new Error('Lô hàng đã được mua hoặc hủy.');if(order.seller===pid)throw new Error('Không thể tự mua hàng của mình.');
    const seller=await col.findOne({_id:order.seller},{session});usable(seller);prepare(seller,now);
+   if((order.resource==='coal'||order.currency==='coal')&&(me.state.era<5||seller.state.era<5))throw new Error('Cả hai làng phải từ Công nghiệp để giao thương than.');
    if(!seller.world||!me.world)throw new Error('Mở Thế giới để xác lập vị trí làng trước.');
    const route=envoyVillageRoute(seller.state,'market'),incoming=envoyVillageRoute(me.state,'market');if(route.length<2||incoming.length<2)throw new Error('Chợ của một bên đang bị bịt lối ra.');
    if(me.state.res[order.currency]<order.price)throw new Error('Không đủ tài nguyên thanh toán.');

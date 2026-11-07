@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {newCity,applyAction,settle,idx,G,F,HL,MIN,type City,type Mix} from './engine';
-const wood:Mix={food:0,wood:100,stone:0,copper:0,gold:0,diamond:0};
+const wood:Mix={food:0,wood:100,stone:0,copper:0,gold:0,diamond:0,coal:0};
 function fixture():City {
  const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.camp=idx(20,20);
  c.b={[idx(19,20)]:{k:'hall',lvl:3,doneAt:null}};c.herds=[];c.camps=[];c.army={};
  c.people=c.people.slice(0,4);c.pop=c.people.length;
  for(const p of c.people){p.pos=c.camp;p.task={t:'idle'};delete p.haul;}
- c.res={food:1000,wood:1000,stone:1000,copper:1000,gold:0,diamond:0};
+ c.res={food:1000,wood:1000,stone:1000,copper:1000,gold:0,diamond:0,coal:0};
  c.t[idx(22,20)]=F;c.t[idx(20,22)]=HL;
  return c;
 }

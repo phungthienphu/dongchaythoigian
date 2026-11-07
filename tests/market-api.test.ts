@@ -23,7 +23,7 @@ mock.module('../lib/war',()=>({warConfigured:()=>true,workerRequest:async(path:s
 mock.module('../lib/city-store',()=>({battlePlayerId:async()=>pid}));
 const {marketAction,advanceCaravan,marketData,reconcileCaravans}=await import('../lib/market');
 const api=await import('../app/api/market/route');
-function reset(){hints=[];failWrite=false;pid='seller';tables={cities:['seller','buyer','raider','other'].map((id,n)=>{const c=newCity(now,1);c.t.fill(G);c.seen.fill(1);c.b={[idx(20,20)]:{k:'market',lvl:1,doneAt:null},[idx(22,20)]:{k:'barracks',lvl:3,doneAt:null}};c.era=2;c.camp=idx(19,20);c.res={food:10000,wood:200,stone:200,copper:0,gold:100,diamond:20};c.army={club:20,sword:20};c.discoveries=['seller','buyer'];c.shieldUntil=now+999999;return{_id:id,name:id,owner:id,ver:0,state:c,world:{x:40+n*10,y:40}};}),orders:[],ships:[]};}
+function reset(){hints=[];failWrite=false;pid='seller';tables={cities:['seller','buyer','raider','other'].map((id,n)=>{const c=newCity(now,1);c.t.fill(G);c.seen.fill(1);c.b={[idx(20,20)]:{k:'market',lvl:1,doneAt:null},[idx(22,20)]:{k:'barracks',lvl:3,doneAt:null}};c.era=2;c.camp=idx(19,20);c.res={food:10000,wood:200,stone:200,copper:0,gold:100,diamond:20,coal:0};c.army={club:20,sword:20};c.discoveries=['seller','buyer'];c.shieldUntil=now+999999;return{_id:id,name:id,owner:id,ver:0,state:c,world:{x:40+n*10,y:40}};}),orders:[],ships:[]};}
 const city=(id:string)=>tables.cities.find(d=>d._id===id).state;
 const create=(requestId='create_123',escorts={})=>marketAction('seller',{type:'create',resource:'stone',amount:100,currency:'gold',price:20,escorts,requestId});
 const buy=(requestId='buy_12345',buyer='buyer')=>marketAction(buyer,{type:'buy',id:tables.orders[0]._id,requestId});
@@ -114,4 +114,15 @@ test('recovery selects due and legacy convoys without starving them behind futur
  expect(tables.ships.find(s=>s._id===due._id).status).toBe('completed');
  const legacy={...future[0],_id:'legacy'};delete legacy.nextCheckAt;tables.ships.push(legacy);const before=structuredClone(tables.cities);
  expect(await reconcileCaravans()).toEqual({checked:1,failed:0});expect(tables.ships.at(-1).nextCheckAt).toBe(legacy.arrive);expect(tables.cities).toEqual(before);
+});
+
+test('coal trading requires both villages in industry and delivers actual coal once by convoy',async()=>{
+ reset();city('seller').res.coal=100;
+ const sale={type:'create' as const,resource:'coal' as const,amount:100,currency:'gold' as const,price:20,escorts:{},requestId:'coal_order_123'};
+ await expect(marketAction('seller',sale)).rejects.toThrow('Công nghiệp');expect(city('seller').res.coal).toBe(100);
+ city('seller').era=5;await marketAction('seller',sale);expect(city('seller').res.coal).toBe(0);
+ await expect(buy()).rejects.toThrow('Công nghiệp');expect(city('buyer').res.gold).toBe(100);
+ city('buyer').era=5;await buy();const convoy=tables.ships[0];expect(city('buyer').res.coal).toBe(0);
+ await advanceCaravan(convoy._id,convoy.arrive);expect(city('buyer').res.coal).toBe(100);
+ await advanceCaravan(convoy._id,convoy.back+1000);expect(city('buyer').res.coal).toBe(100);
 });

@@ -1,3 +1,6 @@
+import {ERA_UNITS} from './era-military';
+import {MODERN_BUILDINGS,initializeModern,stepPower,serviceBonus,powerFraction,finalWonderError,completedWonder,floodProtection,retentionProtected,scheduleModernFlood,recoverModernFloods,canToggle,operationJobs,type ModernState,type PowerGroup} from './modern';
+import {INDUSTRIAL_BUILDINGS,initializeIndustry,stepIndustry,pollutionFood,pollutionBirth,staffCounts,transportNetwork,transportSpeed,plantTree,type IndustryState} from './industry';
 import { eraNames, RELEASE_RULES, type EngineRules } from "./eras";
 import { MEDIEVAL_BUILDINGS, initializeMedieval, stepMedieval, scheduleDrought, medievalBonus, droughtFactor, hasWaterSource, isField, isStorage, type MedievalState } from "./medieval";
 import { BoundedCache } from "./bounded-cache";
@@ -10,10 +13,10 @@ import { isActionInput } from "./action-input";
 export const ENGINE_VER = 3;
 export const W = 96;
 export const H = 96;
-export const G = 0, F = 1, HL = 2, R = 3, O = 4, GOLD = 5, DIAMOND = 6;
-export const isRock = (t: number) => t === HL || t === O || t === GOLD || t === DIAMOND;
-export const mineralResource = (t:number): ResKey => t===GOLD?"gold":t===DIAMOND?"diamond":t===O?"copper":"stone";
-export const depositCapacity = (t:number) => t===F?CAP.forest:t===GOLD?CAP.gold:t===DIAMOND?CAP.diamond:t===O?CAP.ore:t===HL?CAP.hill:0;
+export const G = 0, F = 1, HL = 2, R = 3, O = 4, GOLD = 5, DIAMOND = 6, COAL = 7;
+export const isRock = (t: number) => t === HL || t === O || t === GOLD || t === DIAMOND || t === COAL;
+export const mineralResource = (t:number): ResKey => t===COAL?"coal":t===GOLD?"gold":t===DIAMOND?"diamond":t===O?"copper":"stone";
+export const depositCapacity = (t:number) => t===COAL?CAP.coal:t===F?CAP.forest:t===GOLD?CAP.gold:t===DIAMOND?CAP.diamond:t===O?CAP.ore:t===HL?CAP.hill:0;
 
 export const MIN = 60_000;
 export const HOUR = 60 * MIN;
@@ -36,18 +39,18 @@ const MIN_POP = 3;
 // gathering by hand (per person per hour) and how much each tile/animal holds
 export const GATHER_SPEED = 120; // Active play: a wood load takes 10 seconds, not 20 minutes.
 const CHOP_RATE = 30 * GATHER_SPEED, STONE_RATE = 20 * GATHER_SPEED, ORE_RATE = 8 * GATHER_SPEED, HUNT_RATE = 40 * GATHER_SPEED;
-export const CAP = { forest: 400, hill: 1500, ore: 1200, gold: 800, diamond: 120 };
+export const CAP = { forest: 400, hill: 1500, ore: 1200, gold: 800, diamond: 120, coal:30000 };
 const MEAT_PER_ANIMAL = 50, HERD_REGROW = 0.5; // animals per hour
 export const EXPLORE_TILES_PER_MIN = 36; // matches the on-screen walking pace (~0.6 tiles/s)
 const START_SIGHT = 9, SCOUT_SIGHT = 3;
 
 export const SEASONS = ["Xuân", "Hạ", "Thu", "Đông"];
 export const ERA_NAMES = eraNames;
-export const TERRAIN = ["Đồng cỏ", "Rừng", "Đồi đá", "Sông", "Mỏ đồng", "Mỏ vàng", "Mỏ kim cương"];
-export const RES = ["food", "wood", "stone", "copper", "gold", "diamond"] as const;
+export const TERRAIN = ["Đồng cỏ", "Rừng", "Đồi đá", "Sông", "Mỏ đồng", "Mỏ vàng", "Mỏ kim cương", "Mỏ than"];
+export const RES = ["food", "wood", "stone", "copper", "gold", "diamond", "coal"] as const;
 export type ResKey = (typeof RES)[number];
 export type Res = Record<ResKey, number>;
-export const RN: Record<ResKey, string> = { food: "Lương thực", wood: "Gỗ", stone: "Đá", copper: "Đồng", gold: "Vàng", diamond: "Kim cương" };
+export const RN: Record<ResKey, string> = { food: "Lương thực", wood: "Gỗ", stone: "Đá", copper: "Đồng", gold: "Vàng", diamond: "Kim cương", coal:"Than" };
 const NAMES = ["Tí", "Tèo", "Mận", "Đào", "Sửu", "Dần", "Bống", "Cò", "Sẻ", "Mít", "Na", "Bưởi", "Cốm", "Gạo", "Nụ", "Lúa", "Cau", "Sen", "Mây", "Gió", "Đá", "Suối", "Trúc", "Tre", "Muối", "Vừng", "Hến", "Ốc", "Ngô", "Khoai"];
 
 type Need = "forest" | "hill" | "ore" | "water" | "river" | "bank";
@@ -56,6 +59,10 @@ export type Def = {
   era: number;
   cost: Partial<Res>;
   sec: number; // build time for level 1
+  input?: Partial<Res>;
+  emission?: number;
+  demand?: number;
+  supply?: number;
   jobs?: number;
   prod?: Partial<Res>; // per hour at level 1, with all job slots filled
   use?: Partial<Res>;
@@ -70,11 +77,13 @@ export type Def = {
 
 const DEFS = {
   ...MEDIEVAL_BUILDINGS,
+  ...INDUSTRIAL_BUILDINGS,
+  ...MODERN_BUILDINGS,
   hut: { n: "Lều", era: 1, cost: { wood: 20 }, sec: 10, house: 3, up: true, d: "Chỗ ở cho 3 người mỗi cấp." },
   gather: { n: "Trại hái lượm", era: 1, cost: { wood: 15 }, sec: 10, jobs: 2, prod: { food: 60 }, use: { food: GATHER_DRY_FOOD_PER_HOUR }, up: true, d: "Lương thực. Thêm 50% trên đất phù sa. Khi sản xuất, mỗi trại dùng 2 thực/phút nếu được kênh có nước tưới trong 1 ô, nếu không dùng 4 thực/phút. Cộng riêng với sức ăn dân, cố định mọi cấp và số thợ. Hết thực dân vẫn kiếm ăn." },
   wood: { n: "Trại đốn gỗ", era: 1, cost: { food: 10 }, sec: 10, jobs: 2, prod: { wood: 60 }, need: "forest", up: true, drop: ["wood"], d: "Phải kề rừng. Người chặt cây gần đây đỡ phải đi xa." },
   quarry: { n: "Bãi đá", era: 1, cost: { wood: 20 }, sec: 15, jobs: 2, prod: { stone: 40 }, need: "hill", up: true, drop: ["stone", "copper"], d: "Đặt trên đồi. Người đào đá gần đây đỡ phải đi xa." },
-  storehouse: { n: "Kho", era: 1, cost: { wood: 40, stone: 10 }, sec: 30, storage: 1000, up: true, drop: ["food", "wood", "stone", "copper", "gold", "diamond"], d: "Cấp đầu +1.000 mỗi loại. Sau đó nâng riêng từng ngăn tài nguyên." },
+  storehouse: { n: "Kho", era: 1, cost: { wood: 40, stone: 10 }, sec: 30, storage: 1000, up: true, drop: ["food", "wood", "stone", "copper", "gold", "diamond", "coal"], d: "Cấp đầu +1.000 mỗi loại. Sau đó nâng riêng từng ngăn tài nguyên." },
   fire: { n: "Bếp lửa chung", era: 1, cost: { wood: 80, stone: 30 }, sec: 60, max: 2, use:{wood:300}, drop: ["food"], d: "Mỗi bếp đốt 50 gỗ / 10 phút để tăng tốc sinh dân. Thiếu củi giảm hiệu quả, hết củi bếp tắt. Tối đa 2 bếp." },
   farm: { n: "Ruộng lúa", era: 2, cost: { wood: 80 }, sec: 120, jobs: 2, prod: { food: 90 }, up: true, d: "Gấp đôi trên đất phù sa." },
   canal: { n: "Kênh tưới", era: 2, cost: { stone: 40 }, sec: 30, need: "water", d: "Nối thẳng vào sông hoặc kênh. Đất quanh kênh thành phù sa." },
@@ -87,7 +96,7 @@ const DEFS = {
   builderhouse: { n: "Nhà thợ xây", era: 1, cost: { wood: 70, stone: 30 }, sec: 40, up: true, max: 2, d: "Mỗi cấp thêm 1 đội thợ, xây thêm 1 công trình đồng thời. Tối đa 2 nhà. Đội thợ chuyên trách, không lấy dân đang thu hoạch. Nhà cháy/ngập không cấp thêm đội; công trình đang xây vẫn được hoàn tất." },
   forge: { n: "Xưởng dụng cụ", era: 1, cost: { wood: 40, stone: 20 }, sec: 30, up: true, max: 2, d: "Mỗi cấp tăng 25% tốc độ chặt cây, đào đá, săn bắn và làm ruộng, trại hái lượm. Áp dụng toàn làng ngay khi xây xong, không cần giao thợ. Tối đa 2 xưởng; nâng cấp sau khi có Đình làng." },
   wheel: { n: "Cối nước", era: 3, cost: { wood: 200, stone: 100 }, sec: 1200, jobs: 2, prod: { food: 150 }, use: { wood: WATERMILL_WOOD_PER_HOUR }, need: "river", up: true, d: "Sát sông. Mùa đông không giảm. Mỗi cối dùng 2 gỗ/phút khi sản xuất, không tăng theo cấp hay số thợ. Hết gỗ tạm dừng; có gỗ tự chạy lại." },
-  hall: { n: "Đình làng", era: 2, cost: { wood: 300, stone: 200, copper: 20 }, sec: 900, house: 5, storage: 500, up: true, max: 1, drop: ["food", "wood", "stone", "copper", "gold", "diamond"], d: "Nhà chính. Công trình khác chỉ nâng được tới cấp của Đình. Cấp 3 mở trung tâm điều khiển." },
+  hall: { n: "Đình làng", era: 2, cost: { wood: 300, stone: 200, copper: 20 }, sec: 900, house: 5, storage: 500, up: true, max: 1, drop: ["food", "wood", "stone", "copper", "gold", "diamond", "coal"], d: "Nhà chính. Công trình khác chỉ nâng được tới cấp của Đình. Cấp 3 mở trung tâm điều khiển." },
   envoy: { n: "Nhà sứ giả", era: 1, cost: { wood: 80, stone: 30, food: 30 }, sec: 90, up: true, max: 1, d: "Có sứ giả để đi thăm các nước. Mỗi cấp thêm một sứ giả và đi nhanh hơn." },
   barracks: { n: "Trại lính", era: 1, cost: { wood: 120, stone: 40 }, sec: 120, up: true, max: 3, d: "Huấn luyện quân. Mỗi cấp chứa thêm 10 lính." },
   wall: { n: "Tường thành", era: 1, cost: { wood: 30, stone: 20 }, sec: 30, up: true, d: "Chặn quân địch. Độ bền tăng theo cấp và thời đại." },
@@ -99,13 +108,15 @@ const DEFS = {
 } satisfies Record<string, Def>;
 export type BKey = keyof typeof DEFS;
 export const B: Record<BKey, Def> = DEFS;
+export const buildingJobs=(b:Building)=>operationJobs(b,B[b.k]);
 export const BKEYS = Object.keys(B) as BKey[];
 export const def = (k: BKey): Def => B[k];
 
 /* ---------- army ---------- */
-export type UKey = "club" | "sling" | "spear" | "bow" | "sword" | "elephant" | "wagon" | "medic";
-export type Unit = { n: string; era: number; cost: Partial<Res>; sec: number; atk: number; hp: number; space: number; building?: BKey; d: string };
+export type UKey = "crossbow"|"cavalry"|"musket"|"cannon"|"infantry"|"armor"| "club" | "sling" | "spear" | "bow" | "sword" | "elephant" | "wagon" | "medic";
+export type Unit = {range?:number;attackMs?:number;speed?:number;shot?:'arrow'|'melee'|'bullet'|'shell';buildingAtk?:number; n: string; era: number; cost: Partial<Res>; sec: number; atk: number; hp: number; space: number; building?: BKey; d: string };
 export const UNITS: Record<UKey, Unit> = {
+  ...ERA_UNITS,
   club: { n: "Chiến binh gậy", era: 1, cost: { food: 30, wood: 10 }, sec: 30, atk: 4, hp: 20, space: 1, d: "Rẻ, nhanh, đánh gần." },
   sling: { n: "Lính ném đá", era: 1, cost: { food: 25, stone: 10 }, sec: 40, atk: 6, hp: 12, space: 1, d: "Đánh xa, máu mỏng." },
   spear: { n: "Giáo binh đồng", era: 2, cost: { food: 50, copper: 10 }, sec: 90, atk: 9, hp: 40, space: 1, d: "Chắc chắn, giữ hàng đầu." },
@@ -149,7 +160,7 @@ export function marchLogistics(troops: Troops, oneWayMs: number) {
   const survivors:Troops={...troops};let losses=0;
   // Stable proportional rounding conserves the exact predicted total.
   let accumulated=0,allocated=0;
-  for(const u of ['club','sling','spear','bow','sword','elephant'] as const){
+  for(const u of UKEYS.filter(u=>UNITS[u].atk>0)){
     const n=troops[u]??0;accumulated+=n*risk;
     const loss=Math.min(n,Math.floor(accumulated)-allocated);allocated+=loss;
     if(n)survivors[u]=n-loss;losses+=loss;
@@ -157,7 +168,7 @@ export function marchLogistics(troops: Troops, oneWayMs: number) {
   return {fighters,transport,medical,risk,losses,survivors,long:base>0};
 }
 
-const FLOODPROOF = new Set<BKey>(["canal", "levee", "wheel", "stonehouse", "temple", "tilehouse", "reservoir", "well"]);
+const FLOODPROOF = new Set<BKey>(["canal", "levee", "wheel", "stonehouse", "temple", "tilehouse", "reservoir", "well", "tenement", "apartment", "retention", "hydro", "dam"]);
 export const isFloodproof = (k: BKey) => FLOODPROOF.has(k);
 export const LVL_MULT = [0, 1, 1.6, 2.4];
 export const MAX_LVL = 3;
@@ -166,9 +177,12 @@ export const ERA_REQ: Record<number, { pop: number; cost: Partial<Res>; hall?: n
   2: { pop: 15, cost: { food: 300, wood: 300, stone: 150 } },
   3: { pop: 50, cost: { food: 3000, wood: 1000, stone: 2000, copper: 600 }, hall: 3 },
   4: { pop:100, hall:3, wonder:"temple", cost:{food:12000,wood:6000,stone:6000,copper:1800,gold:300} },
+  6: {pop:300,hall:5,wonder:"ironbridge",cost:{food:80000,wood:20000,stone:35000,copper:10000,gold:3000,coal:6000}},
   5: { pop:180, hall:4, wonder:"academy", cost:{food:35000,wood:12000,stone:16000,copper:5000,gold:1200} },
 };
 const ERA_UP: Record<number, string> = {
+  5: "Bước vào Công nghiệp: mở than, vườn ươm, vận tải, xử lý nước và Cầu Sắt Đại Hà. Chú ý ô nhiễm.",
+  6: "Bước vào Hiện đại: điện, dịch vụ đô thị và hai hướng kỳ quan cuối.",
   4: "Bước vào Trung đại: mở Đại kho, nhà ngói, giếng, hồ chứa, nông trang, trường làng, xưởng thủ công và Văn Miếu. Nhà và công việc cũ được giữ nguyên.",
   2: "Bước vào Thời đồ đồng: mở ruộng lúa, kênh tưới, đê đất, nhà gỗ, lò đúc đồng và chợ.",
   3: "Bước vào Thời đồ sắt: mở nhà đá, lò rèn, cối nước và Đền Sông Mẹ.",
@@ -176,7 +190,7 @@ const ERA_UP: Record<number, string> = {
 
 export const storageLevel = (b: Building, r: ResKey) => b.storageLevels?.[r] ?? b.lvl;
 
-export type Building = { damageCause?: 'earthquake'; shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
+export type Building = { floodUntil?:number; off?:boolean; damageCause?: 'earthquake'; shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
 export type Task =
   | { t: "idle"; at?: number } // at = where they stand and wait
   | { t: "work"; at: number }
@@ -203,6 +217,8 @@ export type Herd = { id: number; at: number; kind: "deer" | "boar"; n: number; m
 export type LogEntry = { caravanId?: string; at: number; msg: string; cls?: "warn" | "good" };
 export type RaidEncounter = { start:number; engage:number; resolveAt:number; end:number; route:number[]; power:number; won?:boolean };
 export type City = {
+  modern?:ModernState;
+  industry?: IndustryState;
   medieval?: MedievalState;
   upkeepStartsAt?: number;
   wheelFuelStartsAt?: number;
@@ -303,37 +319,37 @@ export const WORLD = 200; // world map is WORLD × WORLD cells
 const ENVOY_CELLS_PER_MIN = 2;
 
 /** Envoy house and envoy names change with the era. */
-export const ENVOY_NAMES = ["", "Người đưa tin", "Sứ giả", "Sứ thần", "Sứ thần", "Đại sứ", "Đại sứ"];
-export const ENVOY_HOUSE = ["", "Lều đưa tin", "Nhà sứ giả", "Sứ quán", "Sứ quán mái ngói", "Tòa đại sứ", "Tòa đại sứ"];
+export const ENVOY_NAMES = ["", "Người đưa tin", "Sứ giả", "Sứ thần", "Sứ bộ", "Đại sứ", "Nhà ngoại giao"];
+export const ENVOY_HOUSE = ["", "Lều đưa tin", "Nhà sứ giả", "Sứ quán", "Sứ quán mái ngói", "Tòa đại sứ", "Bộ ngoại giao"];
 export const DEFENSE_NAMES: Partial<Record<BKey, string[]>> = {
-  wall: ["", "Hàng rào gỗ", "Tường đất", "Tường thành đá"],
-  gate: ["", "Cổng gỗ", "Cổng đồng", "Cổng thành"],
-  watchtower: ["", "Chòi canh", "Tháp canh gỗ", "Tháp canh đá"],
+  wall: ["", "Hàng rào gỗ", "Tường đất", "Tường thành đá", "Tường đá mái ngói", "Tường gạch thép", "Tường bê tông"],
+  gate: ["", "Cổng gỗ", "Cổng đồng", "Cổng thành", "Cổng thành ngói", "Cổng sắt", "Cổng kiểm soát"],
+  watchtower: ["", "Chòi canh", "Tháp canh gỗ", "Tháp canh đá", "Tháp nỏ", "Tháp súng", "Ụ phòng thủ"],
 };
 export const BUILDING_ERA_NAMES: Partial<Record<BKey, string[]>> = {
   hut: ["", "Lều", "Nhà gỗ nhỏ", "Nhà đá nhỏ"],
   house: ["", "Nhà gỗ", "Nhà gỗ", "Nhà xây mái ngói"],
-  gather: ["", "Trại hái lượm", "Nhà thu hoạch", "Trạm lương thực"],
-  wood: ["", "Trại đốn gỗ", "Xưởng gỗ", "Xưởng cưa"],
-  quarry: ["", "Bãi đá", "Trạm khai thác đá", "Công trường đá"],
+  gather: ["", "Trại hái lượm", "Nhà thu hoạch", "Trạm lương thực", "Trạm thu hoạch mái ngói", "Trạm lương thực cơ giới", "Trạm lương thực đô thị"],
+  wood: ["", "Trại đốn gỗ", "Xưởng gỗ", "Xưởng cưa", "Xưởng gỗ mái ngói", "Xưởng cưa máy", "Xưởng gỗ hiện đại"],
+  quarry: ["", "Bãi đá", "Trạm khai thác đá", "Công trường đá", "Công trường đá mái ngói", "Mỏ đá cơ giới", "Mỏ đá đô thị"],
   storehouse: ["", "Kho tranh", "Kho gỗ", "Kho kiên cố"],
   builderhouse: ["", "Lều thợ xây", "Nhà thợ mộc", "Xưởng kiến trúc"],
   forge: ["", "Xưởng dụng cụ", "Lò rèn đồng", "Lò rèn sắt"],
-  barracks: ["", "Trại chiến binh", "Doanh trại", "Doanh trại kiên cố"],
+  barracks: ["", "Trại chiến binh", "Doanh trại", "Doanh trại kiên cố", "Doanh trại mái ngói", "Doanh trại công nghiệp", "Căn cứ quân sự"],
   fire: ["", "Bếp lửa chung", "Bếp làng", "Bếp xây"],
   farm: ["", "Ruộng lúa", "Ruộng lúa", "Ruộng có thủy lợi"],
   canal: ["", "Kênh tưới", "Kênh đất", "Kênh xây"],
   levee: ["", "Đê", "Đê đất", "Đê kè đá"],
   smelter: ["", "Lò đúc đồng", "Lò đúc đồng", "Lò luyện kim"],
-  dock: ["", "Bến thuyền", "Bến cảng gỗ", "Cảng đá mái ngói"],
+  dock: ["", "Bến thuyền", "Bến cảng gỗ", "Cảng đá mái ngói", "Bến ngói", "Cảng khung thép", "Cảng vận tải hiện đại"],
   market: ["", "Chợ", "Chợ làng", "Thương quán"],
-  logistics: ["", "Trạm hậu cần", "Trạm xe lương", "Cục hậu cần mái ngói"],
-  infirmary: ["", "Quân y viện", "Nhà thuốc quân y", "Y viện mái ngói"],
+  logistics: ["", "Trạm hậu cần", "Trạm xe lương", "Cục hậu cần mái ngói", "Trạm tiếp vận", "Cục vận tải", "Trung tâm hậu cần"],
+  infirmary: ["", "Quân y viện", "Nhà thuốc quân y", "Y viện mái ngói", "Y quán quân sự", "Bệnh xá quân đội", "Trung tâm quân y"],
   hall: ["", "Đình làng", "Đình gỗ", "Đình đá"],
 };
 export const buildingName = (c: City, k: BKey) => (k === "envoy" ? (ENVOY_HOUSE[c.era] ?? "Sứ quán") : DEFENSE_NAMES[k]?.[c.era] ?? BUILDING_ERA_NAMES[k]?.[c.era] ?? def(k).n);
 /** Built structures cease providing services while flooded or burned. */
-export const isBuildingActive = (b: Building | undefined): b is Building => !!b && b.lvl >= 1 && !b.flooded && !b.burned;
+export const isBuildingActive = (b: Building | undefined): b is Building => !!b && b.lvl >= 1 && !b.flooded && !b.burned && !b.off;
 export const envoyCount = (c: City) => Object.values(c.b).reduce((a, b) => (b.k === "envoy" && isBuildingActive(b) ? Math.max(a, b.lvl) : a), 0);
 export const envoysAway = (c: City) => (c.trips ?? []).length;
 /** One-way travel time on the world map, faster with a higher-level envoy house. */
@@ -341,7 +357,7 @@ export const envoyMs = (c: City, cells: number) => (Math.max(1, cells) / (ENVOY_
 export const canVisit = (c: City, id: string, at: number) => (c.visits?.[id] ?? 0) > at;
 
 export type Mix = Record<ResKey, number>;
-export const DEFAULT_MIX: Mix = { food: 40, wood: 30, stone: 20, copper: 10, gold: 0, diamond: 0 };
+export const DEFAULT_MIX: Mix = { food: 40, wood: 30, stone: 20, copper: 10, gold: 0, diamond: 0, coal:0 };
 export const RAID_WARNING_MS = 30 * MIN;
 export const RAID_SHELTER_MS = MIN; // Work through the warning; shelter only just before arrival.
 
@@ -445,11 +461,11 @@ export function enrichCopperDeposits(c: City): number {
 }
 
 export function normalizeResources(c:City){
-  c.res.gold ??= 0;c.res.diamond ??= 0;
-  if(c.auto){c.auto.mix.gold ??= 0;c.auto.mix.diamond ??= 0;}
+  c.res.gold ??= 0;c.res.diamond ??= 0;c.res.coal??=0;
+  if(c.auto){c.auto.mix.gold ??= 0;c.auto.mix.diamond ??= 0;c.auto.mix.coal??=0;}
 }
 export const speedBuildCost=(b:Building,now:number)=>Math.max(0,Math.ceil(((b.doneAt??now)-now)/30_000));
-const gatheringRate=(r:ResKey)=>r==='wood'?CHOP_RATE:r==='stone'?STONE_RATE:r==='gold'?ORE_RATE*.5:r==='diamond'?ORE_RATE*.08:ORE_RATE;
+const gatheringRate=(r:ResKey)=>r==='wood'?CHOP_RATE:r==='stone'?STONE_RATE:r==='gold'?ORE_RATE*.5:r==='diamond'?ORE_RATE*.08:r==='coal'?60:ORE_RATE;
 /** Deterministic additive migration on untouched hills; never builds over a route. */
 export function enrichPreciousDeposits(c:City){
   normalizeResources(c);if((c.preciousDepositsVersion??0)>=1)return 0;
@@ -524,7 +540,7 @@ export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
     army: {}, queue: [], camps, exps: [], nextExp: 1, wins: 0,
     ver: ENGINE_VER, seed, t, seen: new Array(W * H).fill(0), oldbed: [], xs, camp, b: {}, dep: {}, herds,
     people: [], nextId: 1,
-    res: { food: 100, wood: 120, stone: 30, copper: 0, gold: 0, diamond: 0 }, pop: 0, popAcc: 0, era: 1,
+    res: { food: 100, wood: 120, stone: 30, copper: 0, gold: 0, diamond: 0, coal:0 }, pop: 0, popAcc: 0, era: 1,
     t0: now, last: now, upkeepStartsAt:now, wheelFuelStartsAt:now, gatherFoodStartsAt:now, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
   };
   enrichCopperDeposits(c);
@@ -544,7 +560,7 @@ function addPerson(c: City) {
 }
 
 export type Derived = { rd: number[]; wet: boolean[]; fert: boolean[]; prot: boolean[] };
-const built = (b: Building | undefined): b is Building => !!b && b.lvl >= 1 && !b.burned;
+const built = (b: Building | undefined): b is Building => !!b && b.lvl >= 1 && !b.burned && !b.off;
 
 // Cache only the enclosure mask: harvesting and ordinary actions do not change it.
 const leveeEnclosures = new WeakMap<City,{key:string;mask:Uint8Array}>();
@@ -631,9 +647,10 @@ export const eraCost = (cost: Partial<Res>, era: number, ironMultiplier: number)
 };
 export const buildingCost = (k: BKey, era: number) => def(k).era>=4 ? {...def(k).cost} : eraCost(def(k).cost, era, 3);
 export const storageCapacity = (b:Building,r:ResKey) => b.k==="grandstore" ? 10000*2**(storageLevel(b,r)-1) : (def(b.k).storage??0)*(b.k==="storehouse"?storageLevel(b,r):b.lvl);
-export const trainingCost = (u: UKey, era: number) => eraCost(UNITS[u].cost, era, 2);
+export const trainingCost = (u: UKey, era: number) => UNITS[u].era>=4?{...UNITS[u].cost}:eraCost(UNITS[u].cost, era, 2);
 export const levelCost = (k: BKey, lvl: number, era = 1): Partial<Res> => {
   if(k==="hall"&&lvl===4)return {wood:3000,stone:5000,copper:1000,gold:200};
+  if(k==="hall"&&lvl===6)return {wood:8000,stone:18000,copper:5000,gold:1500,coal:3000};
   if(k==="hall"&&lvl===5)return {wood:5000,stone:10000,copper:2500,gold:600};
   const m = 2**Math.max(0,lvl-1), out: Partial<Res> = {};
   for (const r of RES) if (def(k).cost[r]) out[r] = def(k).cost[r]! * m;
@@ -703,11 +720,12 @@ export function stats(c: City, D: Derived, at: number): Stats {
   let jobs = 0, housing = 0;
   const storage = Object.fromEntries(RES.map(r => [r, BASE_STORAGE])) as Res;
   for (const b of Object.values(c.b)) {
-    if (!built(b) || b.flooded) continue;
+    if (b.lvl<1 || b.burned || b.flooded) continue;
     const d = def(b.k);
-    jobs += d.jobs ?? 0;
     housing += (d.house ?? 0) * b.lvl;
     for (const r of RES) storage[r] += storageCapacity(b,r);
+    if(b.off)continue;
+    jobs += buildingJobs(b);
     cnt[b.k] = (cnt[b.k] ?? 0) + 1;
   }
   const workers = new Map<number, number>();
@@ -716,30 +734,34 @@ export function stats(c: City, D: Derived, at: number): Stats {
   const tools = 1 + 0.25 * buildings(c).reduce((n, [, b]) => n + (b.k === "forge" && built(b) && !b.flooded ? b.lvl : 0), 0);
   const winter = seasonAt(c, at) === 3;
   const boost = at < c.boostUntil;
-  const rate: Res = { food: 0, wood: 0, stone: 0, copper: 0, gold: 0, diamond: 0 };
+  const rate: Res = { food: 0, wood: 0, stone: 0, copper: 0, gold: 0, diamond: 0, coal:0 };
   let woodUse = 0,stoneUse=0,fireWoodUse=0,wheelWoodUse=0,gatherFoodUse=0;
   const legacy=c.upkeepStartsAt!==undefined&&at<c.upkeepStartsAt;
   for (const [i, b] of buildings(c)) {
     if (!built(b) || b.flooded) continue;
     const d = def(b.k);
-    const eff = d.jobs ? Math.min(1, (workers.get(i) ?? 0) / d.jobs) : 1;
+    const jobs=buildingJobs(b),eff = jobs ? Math.min(1, (workers.get(i) ?? 0) / jobs) : 1;
     if(b.k==='fire'){fireWoodUse+=legacy?0:300;woodUse+=legacy?0:300;}
     else if(b.k==='wheel'){const use=eff>0&&at>=(c.wheelFuelStartsAt??-Infinity)?WATERMILL_WOOD_PER_HOUR:0;wheelWoodUse+=use;woodUse+=use;}
     else if(b.k==='gather'){if(eff>0&&at>=(c.gatherFoodStartsAt??-Infinity))gatherFoodUse+=gatherFoodPerHour(c,D,i);}
     else if(d.use){woodUse+=(legacy?20:d.use.wood??0)*LVL_MULT[b.lvl]*eff;stoneUse+=(legacy?0:d.use.stone??0)*LVL_MULT[b.lvl]*eff;}
+    if(b.k==='thermal')rate.coal-=(c.modern?.generation[i]??0)/80*240;
     if (!d.prod || (isField(b.k) && (b.tendUntil || farmRemaining(b)<=0))) continue;
+    const output=Object.values(d.prod)[0]??1;
+    if(d.input&&RES.some(r=>d.input?.[r]&&c.res[r]<d.input[r]!/output))continue;
+    for(const r of RES)if(d.input?.[r])rate[r]-=d.input[r]!*LVL_MULT[b.lvl]*eff*mult*(d.demand?powerFraction(c,i):1);
     for (const r of RES) {
       let v = d.prod[r];
       if (!v) continue;
-      v *= LVL_MULT[b.lvl] * (b.k==='artisan'?1:GATHER_SPEED);
-      v *= droughtFactor(c,i,b.k,at);
+      v *= LVL_MULT[b.lvl] * (b.k==='artisan'||def(b.k).era>=5?1:GATHER_SPEED);
+      v *= droughtFactor(c,i,b.k,at)*(d.demand?powerFraction(c,i):1);
       const crop = isField(b.k) || b.k === "gather";
-      if (crop && D.fert[i]) v *= isField(b.k) ? 2 : 1.5;
+      if (crop && D.fert[i]) v *= isField(b.k) ? (completedWonder(c,'dam')?1.5:2) : 1.5;
       if (crop && D.fert[i] && boost) v *= 1.5;
       if (crop && winter) v *= 0.4;
       if (c.cropDamage?.tile===i && at<c.cropDamage.until) v *= .5;
       if (crop || b.k === "wood" || b.k === "quarry") v *= tools;
-      if(r==='food')v*=foodEraScale(c,at);
+      if(r==='food')v*=foodEraScale(c,at)*pollutionFood(c);
       rate[r] += v * eff * mult;
     }
   }
@@ -787,7 +809,7 @@ export function taskResource(c:City,p:Person):ResKey|null {
   return null;
 }
 export function workforceCounts(c:City) {
-  const counts:Res={food:0,wood:0,stone:0,copper:0,gold:0,diamond:0};
+  const counts:Res={food:0,wood:0,stone:0,copper:0,gold:0,diamond:0,coal:0};
   let scouts=0;
   for(const p of c.people){if(isScout(p)){scouts++;continue;}const r=taskResource(c,p);if(r)counts[r]++;}
   return {counts,scouts};
@@ -815,7 +837,7 @@ function autoAssign(c: City, now: number, context?: HaulContext) {
   const ctx = context ?? haulingContext(c, derive(c));
   let changed = false;
   for (const p of idle) {
-    const have: Res = { food: 0, wood: 0, stone: 0, copper: 0, gold: 0, diamond: 0 };
+    const have: Res = { food: 0, wood: 0, stone: 0, copper: 0, gold: 0, diamond: 0, coal:0 };
     for (const q of c.people) { const r = taskResource(c,q); if (r) have[r]++; }
     const order = [...RES].sort((a, b) => (have[a] - (total * c.auto!.mix[a]) / mixSum) - (have[b] - (total * c.auto!.mix[b]) / mixSum));
     for (const r of order) {
@@ -832,7 +854,7 @@ function autoAssign(c: City, now: number, context?: HaulContext) {
 
 /** Nearest sensible job producing `r`: an open building slot first, then gathering by hand. */
 function autoTarget(c: City, r: ResKey, p: Person, now: number, ctx: HaulContext): TaskInput | null {
-  if(r==='gold'&&c.era<2||r==='diamond'&&c.era<3)return null;
+  if(r==='gold'&&c.era<2||r==='diamond'&&c.era<3||r==='coal'&&c.era<5)return null;
   const from = p.pos ?? c.camp;
   // Use the same source and path rules as actual harvesting. An empty logging
   // camp or an exhausted farm must not absorb workers who could gather elsewhere.
@@ -841,7 +863,7 @@ function autoTarget(c: City, r: ResKey, p: Person, now: number, ctx: HaulContext
     return !!job && !!haulPath(c, from, job.tile, ctx);
   };
   const slots = buildings(c)
-    .filter(([i, b]) => built(b) && !b.flooded && def(b.k).jobs && Object.keys(def(b.k).prod ?? {})[0] === r && workersAt(c, i) < def(b.k).jobs!)
+    .filter(([i, b]) => built(b) && !b.flooded && def(b.k).jobs && Object.keys(def(b.k).prod ?? {})[0] === r && workersAt(c, i) < buildingJobs(b))
     .sort((a, b) => cheb(a[0], from) - cheb(b[0], from));
   for (const [at] of slots) {
     const tk: TaskInput = { t: "work", at };
@@ -909,7 +931,7 @@ function autoStaff(c: City, now: number) {
   const idle = c.people.filter((p) => availableForWork(p) && !p.assignment);
   if (!idle.length) return;
   for (const [i, b] of buildings(c)) {
-    const jobs = def(b.k).jobs ?? 0;
+    const jobs = buildingJobs(b);
     if (!jobs || !built(b) || b.flooded) continue;
     let w = workersAt(c, i);
     while (w < jobs && idle.length) { idle.shift()!.task = { t: "work", at: i }; w++; }
@@ -932,13 +954,13 @@ function taskError(c: City, tk: TaskInput, adding: number): string | null {
   if (!Number.isInteger(tk.at) || tk.at < 0 || tk.at >= W * H) return "Ô không hợp lệ.";
   if (!c.seen[tk.at]) return "Vùng này chưa khám phá.";
   if (tk.t === "chop") return c.t[tk.at] === F ? null : "Chỉ chặt được ô rừng.";
-  if (tk.t === "mine") return isRock(c.t[tk.at]) ? (c.t[tk.at]===GOLD&&c.era<2?"Vàng mở từ đời đồng.":c.t[tk.at]===DIAMOND&&c.era<3?"Kim cương mở từ đời sắt.":null) : "Chỉ đào được đồi đá hoặc mỏ khoáng sản.";
+  if (tk.t === "mine") return isRock(c.t[tk.at]) ? (c.t[tk.at]===COAL&&c.era<5?"Than mở từ Công nghiệp.":c.t[tk.at]===GOLD&&c.era<2?"Vàng mở từ đời đồng.":c.t[tk.at]===DIAMOND&&c.era<3?"Kim cương mở từ đời sắt.":null) : "Chỉ đào được đồi đá hoặc mỏ khoáng sản.";
   const b = c.b[tk.at];
   if (!b || !def(b.k).jobs) return "Công trình này không cần người làm.";
   if (!b || b.lvl < 1) return "Công trình chưa xây xong.";
   if (b.burned) return "Công trình bị cháy, sửa trước đã.";
   if (b.flooded) return "Công trình đang ngập, sửa trước đã.";
-  if (workersAt(c, tk.at) + adding > def(b.k).jobs!) return `Chỉ nhận tối đa ${def(b.k).jobs} người.`;
+  if (workersAt(c, tk.at) + adding > buildingJobs(b)) return `Chỉ nhận tối đa ${buildingJobs(b)} người.`;
   return null;
 }
 
@@ -1035,7 +1057,7 @@ const HAUL_UNLOAD_MS = 1000;
 type HaulJob = { tile: number; resource: ResKey; rate: number; source: NonNullable<Haul["source"]> };
 type DropRoute = { route: number[]; drop: number; length: number };
 type RouteTree = { prev: Int32Array; rank: Uint16Array; queue: Int32Array; head: number; size: number };
-type HaulContext = { pass?: Uint8Array; trees: BoundedCache<string, RouteTree>; drops: BoundedCache<string, DropRoute | null>; paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number; medievalBonus:number };
+type HaulContext = { civic:ReturnType<typeof civicContext>; transport:ReturnType<typeof transportNetwork>; pass?: Uint8Array; trees: BoundedCache<string, RouteTree>; drops: BoundedCache<string, DropRoute | null>; paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number; medievalBonus:number };
 const taskKey = (p: Person) => JSON.stringify(p.task);
 
 /** Tile-centre position along the persisted authoritative route. No client RNG. */
@@ -1139,14 +1161,25 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredL
   ctx.paths.set(key, path);
   return path;
 }
+/** References last only for this settlement context; structural changes rebuild it. */
+function civicContext(c:City){
+ const entries=Object.entries(c.b),pick=(keys:string[])=>entries.filter(([,b])=>keys.includes(b.k));
+ return {pending:entries.map(([,b])=>b).filter(b=>b.doneAt||b.tendUntil),
+  bonus:pick(['school','academy','university','hospital','apartment']),
+  power:entries.filter(([,b])=>def(b.k).supply||def(b.k).demand),
+  transport:pick(['transport','ironbridge']),cleaners:pick(['treatment','park']),
+  flooded:entries.map(([,b])=>b).filter(b=>b.floodUntil!==undefined),
+  docks:pick(['dock']).map(([i,b])=>[+i,b] as [number,Building])};
+}
 function haulingContext(c: City, D: Derived): HaulContext {
   const active = Object.values(c.b).filter(b => built(b) && !b.flooded);
-  return { medievalBonus:medievalBonus(c), trees: new BoundedCache<string,RouteTree>(32,884736,tree=>tree.prev.length+tree.rank.length+tree.queue.length), drops: new BoundedCache<string,DropRoute|null>(512,65536,drop=>drop?.route.length??1), paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: (1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length))*(1+medievalBonus(c)) };
+  const civic=civicContext(c);
+  return { civic,transport:transportNetwork(c,undefined,civic.transport),medievalBonus:medievalBonus(c,undefined,civic.bonus), trees: new BoundedCache<string,RouteTree>(32,884736,tree=>tree.prev.length+tree.rank.length+tree.queue.length), drops: new BoundedCache<string,DropRoute|null>(512,65536,drop=>drop?.route.length??1), paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: (1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length))*(1+medievalBonus(c)) };
 }
 export const SHIP_CAPACITY=10;
 export const shipCost=(era:number):Partial<Res>=>eraCost({wood:400,copper:100,gold:40,food:80},era,3);
 export const shipBuildMs=(b:Building)=>Math.ceil(90_000/Math.max(1,b.lvl));
-export const shipPlaces=(u:UKey)=>u==="elephant"?5:u==="wagon"?3:1;
+export const shipPlaces=(u:UKey)=>u==="wagon"?3:UNITS[u].space;
 export const shipsNeeded=(units:Troops)=>UKEYS.reduce((n,u)=>n+Math.ceil((units[u]??0)*shipPlaces(u)/SHIP_CAPACITY),0);
 export function shipCapacity(c:City){return buildings(c).reduce((n,[,b])=>n+(b.k==="dock"&&isBuildingActive(b)?3*b.lvl:0),0);}
 export function shipsFree(c:City,at=c.last){
@@ -1212,7 +1245,7 @@ export function homeSoldiers(c: City, now: number, staging = armyStagingTiles(c)
     let moving = false, face: 1 | -1 = -1;
     if (order) {
       x = order.x; y = order.y;
-      let distance = Math.max(0, now - order.at) / 1000 * 1.9;
+      let distance = Math.max(0, now - order.at) / 1000 * 1.9 * (UNITS[u].speed??1);
       for (const to of order.route.slice(1)) {
         const tx = to % W + .5, ty = Math.floor(to / W) + .5, length = Math.hypot(tx - x, ty - y);
         face = (tx - x) - (ty - y) >= 0 ? 1 : -1;
@@ -1229,9 +1262,9 @@ function orderHomeSoldier(c: City, id: string, to: number, now: number): boolean
   if (!actor || !c.seen[to] || !haulPassable(c, to, -1, false)) return false;
   const from = idx(Math.floor(actor.x), Math.floor(actor.y));
   if(c.t[from]===R)return false; // finish the crossing before changing orders
-  const plan=militaryPath(c,from,to,1),route=plan?.route;
+  const plan=militaryPath(c,from,to,Math.ceil(shipPlaces(actor.u)/SHIP_CAPACITY)),route=plan?.route;
   if(!route)return false;
-  if(plan!.ships){const duration=Math.max(1000,Math.ceil(routeLength(route)/1.9*1000));(c.ferryBookings??=[]).push({id,ships:plan!.ships,at:now,arrive:now+duration,back:now+duration*2,route});}
+  if(plan!.ships){const duration=Math.max(1000,Math.ceil(routeLength(route)/(1.9*(UNITS[actor.u].speed??1))*1000));(c.ferryBookings??=[]).push({id,ships:plan!.ships,at:now,arrive:now+duration,back:now+duration*2,route});}
   (c.homeOrders ??= {})[id] = { route, at: now, x: actor.x, y: actor.y };
   return true;
 }
@@ -1336,20 +1369,22 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   if (!built(b) || b.flooded || (isField(b.k) && (b.tendUntil || farmRemaining(b)<=0))) return null;
   const d = def(b.k), resource = RES.find(r => (d.prod?.[r] ?? 0) > 0);
   if (!resource || !d.jobs) return null;
+  if(d.demand&&!powerFraction(c,tk.at))return null;
   if(b.k==='artisan'&&(c.res.wood<20||c.res.stone<10))return null;
-  let rate = d.prod![resource]! * LVL_MULT[b.lvl] / d.jobs * ctx.mult * (b.k==='artisan'?1:GATHER_SPEED);
-  rate *= droughtFactor(c,tk.at,b.k,at);
+  if(d.input&&Object.entries(d.input).some(([r,n])=>c.res[r as ResKey]<(n??0)/d.prod![resource]!))return null;
+  let rate = d.prod![resource]! * LVL_MULT[b.lvl] / buildingJobs(b) * ctx.mult * (b.k==='artisan'||def(b.k).era>=5?1:GATHER_SPEED);
+  rate *= droughtFactor(c,tk.at,b.k,at)*(d.demand?powerFraction(c,tk.at):1);
   const crop = isField(b.k) || b.k === "gather";
-  if (crop && ctx.D.fert[tk.at]) rate *= isField(b.k) ? 2 : 1.5;
+  if (crop && ctx.D.fert[tk.at]) rate *= isField(b.k) ? (completedWonder(c,'dam')?1.5:2) : 1.5;
   if (crop && ctx.D.fert[tk.at] && at < c.boostUntil) rate *= 1.5;
   if (crop && seasonAt(c, at) === 3) rate *= 0.4;
   if (c.cropDamage?.tile===tk.at && at<c.cropDamage.until) rate *= .5;
   if (crop || b.k === "wood" || b.k === "quarry") rate *= ctx.tools;
-  if(resource==='food')rate*=foodEraScale(c,at);
+  if(resource==='food')rate*=foodEraScale(c,at)*pollutionFood(c);
   let source: HaulJob["source"] = { kind: "building", key: tk.at };
   let tile = tk.at;
-  if (b.k === "wood" || b.k === "quarry" || b.k === "smelter") {
-    const terrain = b.k === "wood" ? F : b.k === "quarry" ? HL : O;
+  if (b.k === "wood" || b.k === "quarry" || b.k === "smelter" || b.k === "coalmine") {
+    const terrain = b.k === "wood" ? F : b.k === "quarry" ? HL : b.k === "coalmine"?COAL:O;
     // Keep working after the nearest tree/rock is exhausted; select a reachable source.
     tile = nearestTile(c, tk.at, i => !!c.seen[i] && c.t[i] === terrain && (!c.b[i] || i === tk.at) && !!haulPath(c,p.pos ?? c.camp,i,ctx), 6);
     if (tile < 0) return null;
@@ -1392,7 +1427,7 @@ function returnCargo(c: City, p: Person, at: number, ctx: HaulContext) {
     if (!choice) { h.phase = "unload"; h.nextAt = at + HAUL_TILE_MS; delete h.drop; return false; }
     h.drop = choice.drop; h.route = choice.route; h.routeStart = at; h.at = at;
     h.phase = choice.route.length === 1 ? "unload" : "return";
-    h.nextAt = at + (choice.route.length === 1 ? HAUL_UNLOAD_MS : Math.max(HAUL_TILE_MS, Math.ceil(choice.length) * HAUL_TILE_MS));
+    h.nextAt = at + (choice.route.length === 1 ? HAUL_UNLOAD_MS : Math.max(HAUL_TILE_MS, Math.ceil(choice.length/transportSpeed(c,p.task.t==='work'?p.task.at:h.tile,ctx.transport)) * HAUL_TILE_MS));
     return true;
   }
 }
@@ -1422,7 +1457,7 @@ function beginHaul(c: City, p: Person, at: number, ctx: HaulContext) {
   }
   const from = p.pos ?? c.camp, path = haulPath(c, from, job.tile, ctx);
   if (!path) return;
-  const travel = Math.ceil(routeLength(path)) * HAUL_TILE_MS, capacity=job.resource==='diamond'?1:job.resource==='gold'?5:job.resource==='food'?HAUL_CAPACITY*foodEraScale(c,at):HAUL_CAPACITY;
+  const travel = Math.ceil(routeLength(path)/transportSpeed(c,p.task.t==='work'?p.task.at:job.tile,ctx.transport)) * HAUL_TILE_MS, capacity=job.resource==='diamond'?1:job.resource==='gold'?5:job.resource==='food'?HAUL_CAPACITY*foodEraScale(c,at):HAUL_CAPACITY;
   p.haul = { phase: travel ? "travel" : "work", at, nextAt: at + (travel || Math.ceil(capacity / job.rate * HOUR / HAUL_TILE_MS) * HAUL_TILE_MS), tile: from,
     route: path, routeStart: at, resource: job.resource, carried: 0, capacity, source: job.source, taskKey: taskKey(p), workRate: job.rate };
 }
@@ -1430,6 +1465,13 @@ function takeCargo(c: City, h: Haul, at: number): number {
   if (!h.source) return 0;
   if (h.source.kind === "building") {
     const b=c.b[h.source.key];if(!isBuildingActive(b))return 0;
+    const d=def(b.k);if(d.input&&d.prod){
+      const output=d.prod[h.resource!]??1;let amount=h.capacity;
+      for(const r of RES)if(d.input[r])amount=Math.min(amount,c.res[r]*output/d.input[r]!);
+      for(const r of RES)if(d.input[r]){const spent=amount*d.input[r]!/output;c.res[r]=Math.max(0,c.res[r]-spent);if(c.industry){const ledger=c.industry.inputsSpent??={};ledger[r]=(ledger[r]??0)+spent;}}
+      if(c.industry&&d.era>=5&&amount>0)c.industry.processed=true;
+      return amount;
+    }
     if(b.k==='artisan'){
       const amount=Math.min(h.capacity,c.res.wood/20,c.res.stone/10);
       c.res.wood=Math.max(0,c.res.wood-20*amount);c.res.stone=Math.max(0,c.res.stone-10*amount);
@@ -1530,6 +1572,7 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: Res, smelt:
       if (h.drop === undefined || !activeDrop(c, h.drop, h.resource!) || (h.tile !== h.drop && !(isRock(c.t[h.drop]) && cheb(h.tile,h.drop) === 1))) { returnCargo(c, p, at, ctx); continue; }
       const amount = Math.min(h.carried, Math.max(0, storage[h.resource!] - c.res[h.resource!]));
       c.res[h.resource!] += amount; h.carried -= amount;
+      if(c.industry){const ledger=c.industry.delivered??={};ledger[h.resource!]=(ledger[h.resource!]??0)+amount;if(h.resource==='coal')c.industry.coalDelivered=(c.industry.coalDelivered??0)+amount;}
       if (h.carried > 1e-9) { h.nextAt = at + HAUL_TILE_MS; continue; }
       p.pos = h.tile; delete p.haul;
       if (p.task.t === "explore") { p.task.from = p.pos; p.task.start = at; p.task.seenTo=0; p.task.route=haulPath(c,p.pos,p.task.to,ctx)??[p.pos]; }
@@ -1547,6 +1590,8 @@ export function wildernessKeep(c:City,at:number){
   const keep=new Uint8Array(W*H);
   const around=(tile:number,rad=1)=>{if(tile<0||tile>=W*H)return;const x=tile%W,y=Math.floor(tile/W);for(let dy=-rad;dy<=rad;dy++)for(let dx=-rad;dx<=rad;dx++)if(inb(x+dx,y+dy))keep[idx(x+dx,y+dy)]=1;};
   const route=(tiles:number[]|undefined)=>{for(const i of tiles??[])around(i);};
+  for(const tile of Object.keys(c.industry?.seedlings??{}))around(+tile);
+  for(let i=0;i<c.t.length;i++)if(c.t[i]===COAL)around(i,0);
   around(c.camp,START_SIGHT);
   for(const [i]of buildings(c))around(i,2);
   for(const p of c.people){
@@ -1654,8 +1699,9 @@ function flood(c: City, D: Derived, at: number, r: () => number, extra=false) {
   if (!extra && r() > 0.6) { log(c, at, "Mùa thu êm, sông không tràn bờ."); return; }
   const hit: string[] = [];
   for (const [i, b] of buildings(c)) {
-    if (!b.flooded && D.rd[i] === 1 && !isFloodproof(b.k) && !D.prot[i] && r() < 0.45) {
+    if (!floodProtection(c,i) && !b.flooded && D.rd[i] === 1 && !isFloodproof(b.k) && !D.prot[i] && r() < 0.45) {
       b.flooded = true;
+      if(c.era>=6)b.floodUntil=at+(retentionProtected(c,i)?.5:1)*6*HOUR*(!extra&&c.modern?.floodForecast?.at===at&&c.modern.floodForecast.major?1.5:1);
       hit.push(def(b.k).n);
     }
   }
@@ -1882,7 +1928,7 @@ const combatHealth=(units:Troops)=>Object.fromEntries(UKEYS.filter(u=>units[u]).
 const combatDamage=(units:Troops)=>UKEYS.reduce((n,u)=>n+(units[u]??0)*UNITS[u].atk,0);
 function combatHit(units:Troops,hp:Partial<Record<UKey,number>>,damage:number){
   // Front line shields ranged units and noncombatants, who never attack.
-  for(const u of ["elephant","sword","spear","club","bow","sling","wagon","medic"] as UKey[]){
+  for(const u of ["armor","cavalry","elephant","infantry","sword","spear","club","crossbow","musket","cannon","bow","sling","wagon","medic"] as UKey[]){
     if(!units[u] || damage<=0)continue;
     const health=hp[u]??units[u]!*UNITS[u].hp,hit=Math.min(health,damage);
     hp[u]=Math.max(0,health-hit);units[u]=Math.ceil(hp[u]!/UNITS[u].hp);damage-=hit;
@@ -1903,10 +1949,10 @@ function finishCampCombat(c:City,e:Expedition,camp:Camp|undefined,at:number){
   log(c,at,e.won ? `Quân ta phá trại man rợ!${troopCount(lost)?` Hy sinh: ${troopText(lost)}.`:""} Đang mang về ${costText(e.loot??{})}.` : `Quân ta phải rút khỏi trại man rợ.${troopCount(lost)?` Hy sinh: ${troopText(lost)}.`:""} Quân địch còn ${troopCount(e.combat!.defenders)} người.`,e.won?"good":"warn");
 }
 
-function stepArmy(c: City, nt: number) {
+function stepArmy(c: City, nt: number,docks=buildings(c).filter(([,b])=>b.k==="dock")) {
   if(c.merchantJourneys?.some(j=>j.back<=nt))c.merchantJourneys=c.merchantJourneys.filter(j=>j.back>nt);
   if(c.ferryBookings)c.ferryBookings=c.ferryBookings.filter(b=>b.back>nt);
-  for(const [,b]of buildings(c))if(b.k==="dock"){
+  for(const [,b]of docks){
     if(b.lvl<1||b.burned||b.flooded){if(b.shipQueue)b.shipQueue=b.shipQueue.map(done=>done+HAUL_TILE_MS);continue;}
     while(b.shipQueue?.length&&b.shipQueue[0]<=nt){const done=b.shipQueue.shift()!;c.transportShips=(c.transportShips??0)+1;log(c,done,"Đóng xong một thuyền vận tải (10 chỗ).","good");}
   }
@@ -2005,6 +2051,7 @@ function stepArmy(c: City, nt: number) {
 function onSeason(c: City, si: number) {
   const at = c.t0 + si * SEASON_MS;
   scheduleDrought(c,si);
+  scheduleModernFlood(c,si);
   const r = rng(c.seed ^ Math.imul(si + 1, 2654435761));
   if (si >= 4 && si % 4 === 0) scheduleRaid(c, at, rng(c.seed ^ Math.imul(si + 3, 3266489917)));
   const s = c.shift;
@@ -2028,6 +2075,7 @@ function completeBuilding(c:City,b:Building,at:number){
   }
   b.lvl++;b.doneAt=null;
   log(c,at,`${buildingName(c,b.k)} ${b.lvl===1?"xây xong":"đã nâng lên cấp "+b.lvl}.`,"good");
+  if((b.k==='dam'||b.k==='green')&&c.modern){c.modern.choice=b.k;c.modern.completedAt=at;log(c,at,`Khánh thành ${def(b.k).n}! Thành phố tiếp tục hoạt động và giao thương.`,"good");}
   if(b.k==='temple'&&!c.templeAt){c.templeAt=at;log(c,at,"Đền Sông Mẹ khánh thành. Thành phố đã đi từ lều cỏ tới kỳ quan.","good");}
 }
 
@@ -2035,6 +2083,8 @@ function completeBuilding(c:City,b:Building,at:number){
 export function settle(c: City, now: number) {
   normalizeResources(c);
   initializeMedieval(c,now);
+  initializeIndustry(c,now);
+  initializeModern(c,now);
   // Catch up legacy saves at their old upkeep before activating the new balance.
   c.upkeepStartsAt??=now;
   // Existing villages finish their offline catch-up before the new mill cost starts.
@@ -2049,6 +2099,7 @@ export function settle(c: City, now: number) {
   if (end - t > MAX_SETTLE_MS) {
     t = end - MAX_SETTLE_MS;
     c.seasonIdx = Math.max(c.seasonIdx, seasonIndexAt(c, t));
+    if(c.industry)c.industry.minuteAt=Math.max(c.industry.minuteAt,Math.floor(t/MIN)*MIN);
     if(c.medieval)c.medieval.minuteAt=Math.max(c.medieval.minuteAt,Math.floor(t/MIN)*MIN);
   }
   let D = derive(c), st = stats(c, D, t), dirty = false;
@@ -2058,7 +2109,7 @@ export function settle(c: City, now: number) {
   for (const p of c.people) if (!p.haul) beginHaul(c, p, t, hauling);
   while (t < end) {
     const nt = t + HAUL_TILE_MS; // fixed persisted ticks: polling never changes delivery or starvation timing
-    for (const b of Object.values(c.b)) {
+    for (const b of hauling.civic.pending) {
       if(isField(b.k) && b.tendUntil && b.tendUntil<=nt){
         b.fertility=farmCapacity(b);delete b.tendUntil;dirty=true;
         log(c,nt,"Ruộng đã cải tạo và gieo lại, nông dân tiếp tục làm việc.","good");
@@ -2074,13 +2125,18 @@ export function settle(c: City, now: number) {
     if(t<c.gatherFoodStartsAt&&c.gatherFoodStartsAt<=nt)dirty=true;
     const si = seasonIndexAt(c, nt);
     while (c.seasonIdx < si) { c.seasonIdx++; onSeason(c, c.seasonIdx); dirty = true; }
+    const services=c.medieval?staffCounts(c):undefined;
+    if(c.modern && recoverModernFloods(c,nt,hauling.civic.flooded))dirty=true;
+    if(c.modern && stepPower(c,t,nt,B,services,hauling.civic.power))dirty=true;
+    if(c.industry && stepIndustry(c,t,nt,B,services,hauling.civic.cleaners))dirty=true;
     if(c.medieval && stepMedieval(c,dirty?derive(c):D,t,nt))dirty=true;
     // Service bonuses change when their workers arrive or seek refuge.
-    if(c.medieval && medievalBonus(c)!==hauling.medievalBonus)dirty=true;
+    if(c.medieval && medievalBonus(c,services,hauling.civic.bonus)!==hauling.medievalBonus)dirty=true;
+    if(c.industry){const network=transportNetwork(c,services,hauling.civic.transport);if(network.bridge!==hauling.transport.bridge||network.stations.join(',')!==hauling.transport.stations.join(','))dirty=true;}
     if(stepFrontier(c,nt))dirty=true;
     if (updateRefuges(c,nt)) dirty=true;
     if (stepExplorers(c, nt)) dirty = true;
-    if (stepArmy(c, nt)) dirty = true;
+    if (stepArmy(c, nt,hauling.civic.docks)) dirty = true;
     if (stepEnvoys(c, nt)) dirty = true;
     if (stepWildlife(c, nt)) dirty = true;
     if (autoAssign(c, nt, dirty ? undefined : hauling)) dirty = true;
@@ -2134,7 +2190,7 @@ export function settle(c: City, now: number) {
       c.res.food = 0;
       c.popAcc -= h * 6;
     } else if (c.people.length < st.housing) {
-      c.popAcc += h * POP_GROWTH_PER_HOUR * (1 + st.fires*fireEff);
+      c.popAcc += h * POP_GROWTH_PER_HOUR * (1 + st.fires*fireEff)*pollutionBirth(c)*serviceBonus(c,services,hauling.civic.bonus).birth;
     } else c.popAcc = 0;
     while (c.popAcc >= 1 && c.people.length < st.housing) { addPerson(c); c.popAcc--; autoStaff(c, nt); }
     while (c.popAcc <= -1 && c.people.length > MIN_POP) {
@@ -2157,10 +2213,13 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rul
   if(d.era>rules.maxEra)return "Thời đại này sắp ra mắt.";
   if (!c.seen[i]) return "Vùng này chưa khám phá.";
   if (d.era > c.era) return "Chưa tới thời đại này.";
+  if(c.modern?.choice===k)return "Kỳ quan đã khánh thành, không thể xây lại hoặc đổi nhánh.";
   if (c.b[i]) return "Ô này đã có công trình.";
   if (t === R) return "Không xây được trên sông.";
   if(!["farm","estate","canal","levee","gate"].includes(k) && [...c.exps,...(c.raidEncounter && c.raidEncounter.end>c.last?[c.raidEncounter]:[]),...(c.merchantJourneys??[]).filter(j=>j.back>c.last).map(j=>({route:j.villageRoute})),...(Object.keys(c.homeOrders??{}).length?homeSoldiers(c,c.last):[]).flatMap(s=>{const o=c.homeOrders?.[s.id];return o?[{route:s.moving?o.route:[idx(Math.floor(s.x),Math.floor(s.y))]}]:[];}),...c.people.flatMap(p=>p.refuge?[p.refuge]:[])].some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân hoặc dân tránh địch đang dùng lối này. Chờ họ trở về hoặc chọn ô khác để không chặn đường.";
-  if (k === "quarry") { if (t !== HL) return "Bãi đá phải đặt trên đồi."; }
+  if(c.industry?.seedlings[i])return "Ô đang ươm cây; chờ cây lớn rồi chặt trước khi xây.";
+  if(k==="coalmine"){if(t!==COAL)return "Mỏ than phải đặt trên ô than.";}
+  else if (k === "quarry") { if (t !== HL) return "Bãi đá phải đặt trên đồi."; }
   else if (isRock(t)) return "Đồi đá chỉ đặt được bãi đá.";
   else if (t === F) return "Rừng rậm: cho người chặt hết cây trước, hoặc chọn ô cỏ.";
   const near = (dirs: readonly (readonly [number, number])[], fn: (j: number) => boolean) =>
@@ -2168,9 +2227,11 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rul
   if (d.need === "forest" && !near(N8, (j) => c.t[j] === F)) return "Trại đốn gỗ phải kề rừng.";
   if (d.need === "ore" && !near(N8, (j) => c.t[j] === O)) return "Lò đúc phải kề mỏ đồng (đốm cam trên đồi).";
   if(k==="reservoir"&&!hasWaterSource(c,D,i))return "Hồ chứa phải kề sông hoặc kênh đang có nước (không chéo).";
+  if((k==="retention")&&!hasWaterSource(c,D,i))return "Hồ điều hòa cần kề sông/kênh có nước.";
   if (d.need === "water" && !near(N4, (j) => c.t[j] === R || c.b[j]?.k === "canal")) return "Kênh phải nối thẳng (không chéo) vào sông hoặc kênh khác.";
   if (d.need === "river" && !near(N4, (j) => c.t[j] === R)) return "Cối nước phải sát sông (không chéo).";
   if (d.need === "bank" && D.rd[i] !== 1 && !near(N4,j=>c.b[j]?.k==="levee")) return "Đê phải sát bờ sông hoặc nối thẳng vào đoạn đê khác (không chéo).";
+  const finalError=finalWonderError(c,k,c.last);if(finalError)return finalError;
   if (d.max && count(c, k) >= d.max) return `Đã đủ số lượng tối đa (${d.max}).`;
   if (busyBuilders(c) >= builders(c)) return "Tất cả thợ đang bận.";
   return missing(c, buildingCost(k, c.era));
@@ -2194,7 +2255,7 @@ export const farmRemaining = (b: Building) => Math.max(0,b.fertility ?? farmCapa
 export const farmTendCost = (b: Building, era = 1): Partial<Res> => eraCost({ food: 20*Math.max(1,b.lvl)*(b.k==="estate"?4:1), wood: 5*Math.max(1,b.lvl)*(b.k==="estate"?4:1) }, era, 2);
 
 export type Action =
-  | { type: "build"; k: BKey; x: number; y: number }
+  | { type: "build"; k: BKey; x: number; y: number; confirmFinal?:boolean }
   | { type: "upgradeStorage"; resource: ResKey; x: number; y: number }
   | { type: "upgrade"; x: number; y: number }
   | { type: "repair"; x: number; y: number }
@@ -2204,6 +2265,9 @@ export type Action =
   | { type: "demolish"; x: number; y: number }
   | { type: "moveSoldier"; id: string; x: number; y: number }
   | { type: "setGuardPosts"; posts: { x: number; y: number }[] }
+  | { type:"setPowerPriority"; priority:PowerGroup[] }
+  | { type: "plantTree"; x:number;y:number }
+  | { type: "toggleBuilding"; x:number;y:number }
   | { type: "advance" }
   | { type: "assign"; ids: number[]; task: TaskInput; pos?: Record<string, number> }
   | { type: "assignN"; n: number; task: TaskInput; pos?: Record<string, number> } // pos: where each person stands on screen
@@ -2218,6 +2282,9 @@ export type Action =
 export function applyAction(c: City, a: Action, now: number, rules:EngineRules=RELEASE_RULES): string | null {
   if (!isActionInput(a)) return "Yêu cầu không hợp lệ.";
   settle(c, now);
+  if(a.type==="setPowerPriority"){if(!c.modern||rules.maxEra<6)return "Điện mở ở Hiện đại.";c.modern.priority=[...a.priority];stepPower(c,now,now,B);return null;}
+  if(a.type==="plantTree")return rules.maxEra>=5?plantTree(c,idx(a.x,a.y),now):"Sắp ra mắt.";
+  if(a.type==="toggleBuilding"){const b=c.b[idx(a.x,a.y)];if(!b||def(b.k).era>rules.maxEra||!canToggle(def(b.k)))return "Chỉ bật/tắt cơ sở công nghiệp và dịch vụ mới.";b.off=!b.off;if(c.modern)stepPower(c,now,now,B);return null;}
   if(a.type==="buildShip"){
     const b=c.b[idx(a.x,a.y)];if(b?.k!=="dock"||!isBuildingActive(b)||b.doneAt)return "Cần Bến cảng đã xây xong, không cháy/ngập.";
     const queued=buildings(c).reduce((n,[,b])=>n+(b.shipQueue?.length??0),0);
@@ -2270,6 +2337,8 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     pay(c, ERA_REQ[c.era + 1].cost);
     c.era++;
     initializeMedieval(c,now);
+  initializeIndustry(c,now);
+  initializeModern(c,now);
     log(c, now, ERA_UP[c.era], "good");
     if (c.era === 2) {
       let at = seasonIndexAt(c, now) + 4;
@@ -2331,7 +2400,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     autoAssign(c, now);
     return null;
   }
-  if(a.type === "setWorkforce")return setWorkforce(c,a.counts,a.scouts,now);
+  if(a.type === "setWorkforce")return setWorkforce(c,{...a.counts,coal:a.counts.coal??0},a.scouts,now);
   if (a.type === "attack") {
     const camp = campById(c, a.camp);
     if (!camp || !c.seen[camp.at]) return "Không thấy trại này.";
@@ -2384,6 +2453,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
   if (!Number.isInteger(a.x) || !Number.isInteger(a.y) || !inb(a.x, a.y)) return "Ô không hợp lệ.";
   const i = idx(a.x, a.y), b = c.b[i];
   if (a.type === "build") {
+    if((a.k==='dam'||a.k==='green')&&a.confirmFinal!==true)return "Cần xác nhận lợi ích và đánh đổi của kỳ quan cuối trước khi xây.";
     if (!(a.k in B)) return "Công trình không hợp lệ.";
     const err = canPlace(c, derive(c), a.k, a.x, a.y,rules);
     if (err) return err;
@@ -2393,6 +2463,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
   }
   if (!b) return "Ô này trống.";
   if (a.type === "demolish") {
+    const wonder=c.b[idx(a.x,a.y)];if(wonder&&(wonder.k==='dam'||wonder.k==='green')&&c.modern?.completedAt)return "Kỳ quan cuối đã khánh thành; có thể sửa chữa nhưng không phá hoặc đổi nhánh.";
     if(b.shipQueue?.length)return "Cảng đang đóng thuyền; chờ hoàn tất trước khi phá.";
     const refund = levelCost(b.k, Math.max(1, b.lvl));
     for (const r of RES) c.res[r] += Math.floor((refund[r] ?? 0) / 2);
@@ -2407,13 +2478,14 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     const err = missing(c, cost);
     if (err) return err;
     pay(c, cost);
-    b.flooded = false;
+    b.flooded = false;delete b.floodUntil;
     b.burned = false;
     delete b.damageCause;
     autoStaff(c, now);
     return null;
   }
   if (a.type === "upgradeStorage") {
+    if(a.resource==='coal'&&c.era<5)return 'Ngăn than mở từ Công nghiệp.';
     if(!isStorage(b.k) || b.lvl<1)return "Chọn Kho đã xây xong.";
     if(b.doneAt)return "Kho đang được nâng cấp.";
     if(b.flooded||b.burned)return "Phải sửa Kho trước khi nâng cấp.";

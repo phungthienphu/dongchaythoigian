@@ -11,8 +11,8 @@ const probe='\nexport function auditPaths(c:City,from:number,targets:number[],se
 try{
  for(const side of ['old','next']){
   mkdirSync(join(dir,side));
-  for(const file of ['engine.ts','action-input.ts','bounded-cache.ts']){
-   const source=side==='old'?execFileSync('git',['show',`${ref}:lib/${file}`],{encoding:'utf8'}):readFileSync(resolve('lib',file),'utf8');
+  for(const file of ['engine.ts','action-input.ts','bounded-cache.ts','eras.ts','medieval.ts','industry.ts','modern.ts','era-military.ts']){
+   let source;try{source=side==='old'?execFileSync('git',['show',`${ref}:lib/${file}`],{encoding:'utf8',stdio:['ignore','pipe','ignore']}):readFileSync(resolve('lib',file),'utf8');}catch{if(side==='old')continue;throw Error('Missing '+file);}
    writeFileSync(join(dir,side,file),source+(file==='engine.ts'?probe:''));
   }
  }

@@ -5,7 +5,7 @@ import HowToPlay from '@/components/HowToPlay';
 import {newCity,G,O,R,B,idx,MIN,SEASON_MS,settle,stats,derive,upkeepRates,ERA_NAMES,type City} from '@/lib/engine';
 type Mode='village'|'smelter'|'wheel'|'gather';
 function fixture(era:number,mode:Mode):City{
- const c=newCity(0,123);c.era=era;c.t.fill(G);c.seen.fill(1);c.b={[idx(20,20)]:{k:'storehouse',lvl:5,doneAt:null}};c.camp=idx(20,20);c.camps=[];c.herds=[];c.res={food:1000,wood:500,stone:500,copper:0,gold:0,diamond:0};
+ const c=newCity(0,123);c.era=era;c.t.fill(G);c.seen.fill(1);c.b={[idx(20,20)]:{k:'storehouse',lvl:5,doneAt:null}};c.camp=idx(20,20);c.camps=[];c.herds=[];c.res={food:1000,wood:500,stone:500,copper:0,gold:0,diamond:0,coal:0};
  if(mode==='wheel'||mode==='gather'){c.people=c.people.slice(0,2);c.b[idx(22,20)]={k:mode,lvl:1,doneAt:null};if(mode==='wheel')c.t[idx(23,20)]=R;for(const p of c.people){p.pos=idx(22,20);p.task={t:'work',at:idx(22,20)};}}
  else if(mode==='smelter'){c.people=c.people.slice(0,3);c.b[idx(22,20)]={k:'smelter',lvl:1,doneAt:null};c.t[idx(23,20)]=O;for(const p of c.people){p.pos=idx(22,20);p.task={t:'work',at:idx(22,20)};}}
  else{c.people.push({...structuredClone(c.people[0]),id:99,name:'Six'});c.army={club:1};c.t0=-3*SEASON_MS;c.seasonIdx=3;c.b[idx(19,20)]={k:'fire',lvl:1,doneAt:null};for(let n=0;n<2;n++)c.b[idx(32,20+n)]={k:'gather',lvl:1,doneAt:null};for(const [n,p]of c.people.entries()){p.pos=c.camp;p.task=n<4?{t:'work',at:idx(32,20+Math.floor(n/2))}:{t:'idle'};}}

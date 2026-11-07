@@ -3,7 +3,7 @@ import { BoundedCache } from "@/lib/bounded-cache";
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
 import {drawCaravanActor} from "./trade-actors";
-import { B, CAP, GOLD, DIAMOND, isRock, depositCapacity, F, G, H, HL, N4, N8, O, R, UKEYS, W, raidActors, returningFerries,shipsFree,wildlifePosition, homeSoldiers, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
+import { B, CAP, GOLD, DIAMOND, COAL, isRock, depositCapacity, F, G, H, HL, N4, N8, O, R, UKEYS, W, raidActors, returningFerries,shipsFree,wildlifePosition, homeSoldiers, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
 import { placementTiles } from "@/lib/build-placement";
 import {hungerSpeech,villagersHungry} from "@/lib/villager-mood";
 import type { Fx, Villager } from "./villagers";
@@ -275,12 +275,12 @@ function drawRock(r: RC, x: number, y: number, low: boolean) {
     box(r, x, y, 0.08, 0.08, 0.4, 0.4, 5, 9, "#cbbb9c", "#b0a083", "#938366");
     pyramid(r, x, y, 0.08, 0.08, 0.4, 0.4, 9, 5, "#c0af90", "#9d8d71");
   }
-  if ([O,GOLD,DIAMOND].includes(r.city.t[i])) {
+  if ([O,GOLD,DIAMOND,COAL].includes(r.city.t[i])) {
     const q = tp(r, x, y);
     for (const [u, v, z] of [[-0.12, 0.3, 8], [0.25, 0.12, 6], [0.05, 0.25, 14]]) {
       const [sx, sy] = q(u, v, z);
-      r.c.fillStyle = r.city.t[i]===GOLD?"#edc238":r.city.t[i]===DIAMOND?"#6ce3ed":"#d9813a"; r.c.beginPath(); r.c.arc(sx, sy, 2.6 * r.v.s, 0, Math.PI * 2); r.c.fill();
-      r.c.fillStyle = r.city.t[i]===DIAMOND?"#efffff":r.city.t[i]===GOLD?"#fff3a0":"#ffc27a"; r.c.beginPath(); r.c.arc(sx - 0.8 * r.v.s, sy - 0.8 * r.v.s, 1 * r.v.s, 0, Math.PI * 2); r.c.fill();
+      r.c.fillStyle = r.city.t[i]===COAL?"#313b41":r.city.t[i]===GOLD?"#edc238":r.city.t[i]===DIAMOND?"#6ce3ed":"#d9813a"; r.c.beginPath(); r.c.arc(sx, sy, 2.6 * r.v.s, 0, Math.PI * 2); r.c.fill();
+      r.c.fillStyle = r.city.t[i]===COAL?"#82939a":r.city.t[i]===DIAMOND?"#efffff":r.city.t[i]===GOLD?"#fff3a0":"#ffc27a"; r.c.beginPath(); r.c.arc(sx - 0.8 * r.v.s, sy - 0.8 * r.v.s, 1 * r.v.s, 0, Math.PI * 2); r.c.fill();
     }
   }
 }
@@ -452,8 +452,37 @@ function frontExtras(r: RC, k: BKey, x: number, y: number, lvl: number, i: numbe
 
 export function drawBuilding(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) {
   if (lvl >= 2) backExtras(r, k, x, y, lvl, i);
-  if(!drawSupportBuilding(r,k,x,y,lvl,i))drawBase(r, k, x, y, lvl, i);
+  if(!drawFutureDefense(r,k,x,y,lvl,i)&&!drawSupportBuilding(r,k,x,y,lvl,i))drawBase(r, k, x, y, lvl, i);
+  if(r.city.era>=4&&B[k].era<4&&!['wall','gate','watchtower','farm','canal','levee','temple'].includes(k)){
+    const q=tp(r,x,y),era=r.city.era;
+    // Small additions keep old investments recognizable in a mixed-era town.
+    if(era===4){box(r,x,y,-.45,.3,-.37,.4,0,14,'#c79067','#a97550','#835137');lantern(r,x,y,-.4,.36,13,i);}
+    if(era===5){box(r,x,y,.31,-.28,.41,-.17,0,23,'#85928d','#657972','#4c6059');line(r,q(.36,-.23,23),q(.36,-.23,30),'#3c4947',2);}
+    if(era>=6){poly(r.c,[q(-.3,-.35,20),q(.1,-.35,20),q(.1,-.13,25),q(-.3,-.13,25)],'#487b94');line(r,q(-.3,-.25,22),q(.1,-.25,22),'#b3d2d6',.8);}
+  }
   if (lvl >= 2) frontExtras(r, k, x, y, lvl, i);
+}
+
+/** New fortifications retain their footprint; the opening under the gate stays visible. */
+function drawFutureDefense(r:RC,k:BKey,x:number,y:number,lvl:number,i:number){
+ if(r.city.era<4||!['wall','gate','watchtower'].includes(k))return false;
+ const era=r.city.era,q=tp(r,x,y),top=era===4?'#c1b5a0':'#b9cac3',left=era===4?'#9e907e':'#8fa69d',right=era===4?'#7f786e':'#6c887d';
+ const masonry=(u0:number,v0:number,u1:number,v1:number,z:number,h:number)=>box(r,x,y,u0,v0,u1,v1,z,h,top,left,right);
+ const h=(k==='wall'?16:k==='gate'?25:30)+lvl*2;shadow(r,x,y,.48);
+ if(k==='wall'){
+  masonry(-.5,-.12,.5,.12,0,h);
+  for(let n=0;n<4;n++)masonry(-.48+n*.25,-.13,-.36+n*.25,.13,h,h+4);
+  for(let row=1;row<4;row++)line(r,q(-.5,.13,row*h/4),q(.5,.13,row*h/4),'#5e7068',.8);
+ }else if(k==='gate'){
+  masonry(-.46,-.16,-.27,.16,0,h);masonry(.27,-.16,.46,.16,0,h);masonry(-.46,-.16,.46,.16,h-7,h);
+  if(era===4)gable(r,x,y,-.49,-.22,.49,.22,h,8,'#b4583b','#95432d','#783725');
+  else{for(const u of [-.2,0,.2])line(r,q(u,-.14,h-8),q(u,-.14,1),'#465a55',1.5);flag(r,x,y,.4,.1,h,h+10,'#c09e47',i);}
+ }else{
+  masonry(-.27,-.23,.27,.23,0,h-4);masonry(-.35,-.3,.35,.3,h-4,h);
+  if(era===4){gable(r,x,y,-.41,-.36,.41,.36,h+6,9,'#b4583b','#95432d','#783725');line(r,q(-.2,0,h+2),q(.35,0,h+2),'#533d2b',2);line(r,q(.16,-.2,h+2),q(.16,.2,h+2),'#533d2b',2);}
+  else{masonry(-.32,-.27,.32,.27,h,h+6);line(r,q(.05,.05,h+4),q(.4,.08,h+4),'#31423b',era===6?3:2);if(era>=6){line(r,q(-.2,-.1,h+5),q(-.2,-.1,h+18),'#7a9b97',1);const [sx,sy]=q(-.2,-.1,h+16);r.c.strokeStyle='#aacaca';r.c.lineWidth=r.v.s;r.c.beginPath();r.c.arc(sx,sy,4*r.v.s,Math.PI*.1,Math.PI*1.3);r.c.stroke();}}
+ }
+ return true;
 }
 
 function drawSupportBuilding(r:RC,k:BKey,x:number,y:number,lvl:number,i:number){
@@ -486,8 +515,8 @@ function drawEvolvingWorkshop(r: RC, k: BKey, x: number, y: number, lvl: number,
   const u0 = small ? -.32 : -.34, v0 = small ? -.32 : -.28;
   const u1 = small ? .02 : .32, v1 = small ? .08 : .26;
   const height = (small ? 9 : k === "forge" ? 16 : 13) * hs;
-  const wall = era === 1 ? ["#bf9967","#a27b4c","#805b35"] : era === 2 ? ["#c18b51","#a77240","#83562f"] : ["#c6c8bc","#a3aea1","#788e85"];
-  const roof = era === 1 ? ["#e1bf6a","#c8a44d","#ac873a"] : era === 2 ? ["#b65e42","#98472f","#7f3b29"] : ["#577d8d","#426371","#314e60"];
+  const wall = era >=6 ? ["#d2e0d9","#a4beb4","#7c9d92"] : era===5 ? ["#b6927d","#9c7561","#765b50"] : era === 1 ? ["#bf9967","#a27b4c","#805b35"] : era === 2 ? ["#c18b51","#a77240","#83562f"] : ["#c6c8bc","#a3aea1","#788e85"];
+  const roof = era===4 ? ["#b75c40","#94442e","#753827"] : era>=5 ? ["#879a96","#657d76","#4b655e"] : era === 1 ? ["#e1bf6a","#c8a44d","#ac873a"] : era === 2 ? ["#b65e42","#98472f","#7f3b29"] : ["#577d8d","#426371","#314e60"];
   shadow(r,x,y,.42);
   if (era > 1) box(r,x,y,u0-.04,v0-.04,u1+.04,v1+.04,0,3,"#c8bfa7","#a99f89","#88816f");
   if (era === 1 && military) {
@@ -496,8 +525,12 @@ function drawEvolvingWorkshop(r: RC, k: BKey, x: number, y: number, lvl: number,
     poly(c,[q(u0,v1,0),q(u1,v1,0),q(u1,v1,height),q(u0,v1,height)],"#9b7850");
   } else box(r,x,y,u0,v0,u1,v1,era>1?3:0,height,...wall as [string,string,string]);
   if (era === 1 && military) pyramid(r,x,y,u0-.05,v0-.05,u1+.05,v1+.05,height,9,roof[0],roof[1]);
-  else gable(r,x,y,u0-.05,v0-.05,u1+.05,v1+.05,height,small?7:9,...roof as [string,string,string]);
-  if (era > 1) tileRows(r,x,y,u0-.05,u1+.05,v0-.05,v1+.05,height,small?7:9,"rgba(35,30,25,.35)");
+  else if(era>=5){
+    box(r,x,y,u0-.05,v0-.05,u1+.05,v1+.05,height,height+3,...roof as [string,string,string]);
+    if(era===5){for(const u of [u0+.08,u1-.1])box(r,x,y,u,v0+.04,u+.07,v0+.11,height+3,height+9,"#78857f","#526962","#3d534d");}
+    else {poly(c,[q(u0+.03,v0+.02,height+5),q(u1-.02,v0+.02,height+5),q(u1-.02,v1-.05,height+8),q(u0+.03,v1-.05,height+8)],"#426c83");line(r,q(u0+.03,(v0+v1)/2,height+6),q(u1-.02,(v0+v1)/2,height+6),"#96bec7",.8);}
+  }else gable(r,x,y,u0-.05,v0-.05,u1+.05,v1+.05,height,small?7:9,...roof as [string,string,string]);
+  if (era > 1&&era<5) tileRows(r,x,y,u0-.05,u1+.05,v0-.05,v1+.05,height,small?7:9,"rgba(35,30,25,.35)");
   if (era === 3) {
     for(let row=1;row<4;row++)line(r,q(u0,v1,row*height/4),q(u1,v1,row*height/4),"#6e8075",.8);
     for(const u of [u0,u1-.06])box(r,x,y,u,v0,u+.06,v0+.07,height,height+4,"#bdc4b5","#9ca995","#768a7d");
@@ -583,8 +616,92 @@ function drawMedieval(r:RC,k:BKey,x:number,y:number,lvl:number,i:number){
   return true;
 }
 
+/** Era 5–6: concrete, steel and glass; machinery only animates while working. */
+function drawFutureBuilding(r:RC,k:BKey,x:number,y:number,lvl:number,i:number){
+  if(B[k].era<5)return false;
+  if(k==='retention'){drawMedieval(r,'reservoir',x,y,lvl,i);return true;}
+  const q=tp(r,x,y),c=r.c,hs=1+.15*Math.max(0,lvl-1),modern=B[k].era===6;
+  const working=i<0||r.city.people.some(p=>!p.refuge&&p.task.t==='work'&&p.task.at===i&&p.haul?.phase==='work');
+  const running=(k==='thermal'?(r.city.modern?.generation[i]??0)>0:working)&&!r.city.b[i]?.off&&!r.city.b[i]?.burned&&!r.city.b[i]?.flooded;
+  const concrete=(u0:number,v0:number,u1:number,v1:number,z:number,h:number)=>box(r,x,y,u0,v0,u1,v1,z,h,modern?'#d4ded7':'#c5b7a0',modern?'#a7bbb5':'#9e8c78',modern?'#819c97':'#7c7267');
+  const pane=(u:number,v:number,z:number,w=.09,h=5)=>poly(c,[q(u,v,z),q(u+w,v,z),q(u+w,v,z+h),q(u,v,z+h)],'#5d96a4');
+  const roof=(z:number)=>gable(r,x,y,-.44,-.38,.44,.34,z,8,'#63777c','#4d6065','#354d55');
+  shadow(r,x,y,.48);concrete(-.46,-.44,.46,.44,0,3);
+  if(k==='solar'){
+    for(const v of [-.25,.12])for(const u of [-.28,0,.28]){
+      line(r,q(u,v,3),q(u,v,12),'#89978b',1.5);
+      poly(c,[q(u-.12,v-.13,16),q(u+.12,v-.13,16),q(u+.12,v+.13,9),q(u-.12,v+.13,9)],'#2f6086');
+      line(r,q(u,v-.13,16),q(u,v+.13,9),'#87b6ce',.6);
+    }return true;
+  }
+  if(k==='park'||k==='nursery'){
+    poly(c,[q(-.43,-.41,3),q(.43,-.41,3),q(.43,.41,3),q(-.43,.41,3)],k==='park'?'#76a05a':'#8e7950');
+    for(const [u,v]of [[-.28,-.24],[.24,-.24],[-.24,.25],[.26,.24]]){
+      const h=k==='park'?18:10;line(r,q(u,v,3),q(u,v,h),'#7c5d3b',2);
+      for(const [du,dv,z]of [[0,0,h],[-.08,.02,h-3],[.08,-.02,h-2]]){const [a,b]=q(u+du,v+dv,z);c.fillStyle=k==='park'?'#3f8051':'#5a9c56';c.beginPath();c.ellipse(a,b,6*r.v.s,5*r.v.s,0,0,Math.PI*2);c.fill();}
+    }
+    if(k==='park'){concrete(-.08,-.4,.08,.4,3,4);box(r,x,y,.16,.14,.38,.2,4,7,'#b99a68','#806646','#654d35');}
+    else {gable(r,x,y,-.2,-.18,.2,.16,10,8,'#8bb6a9','#68958c','#4b736e');line(r,q(-.2,-.18,10),q(-.2,-.18,3),'#9dbaa1',1);}
+    return true;
+  }
+  if(k==='coalmine'){
+    concrete(-.31,-.3,.31,.08,3,16);poly(c,[q(-.21,.09,3),q(.21,.09,3),q(.21,.09,14),q(-.21,.09,14)],'#243537');
+    for(const u of [-.26,.26])line(r,q(u,.12,3),q(u,.12,25),'#927854',2);
+    line(r,q(-.26,.12,25),q(.26,.12,25),'#b2a189',3);
+    for(const u of [-.1,.1])line(r,q(u,.1,3),q(u,.45,3),'#9eacac',1.5);
+    box(r,x,y,-.13,.24,.13,.43,4,10,'#5e7377','#3c555b','#2c4248');
+    for(const u of [-.08,.03,.11])box(r,x,y,u-.04,.27,u+.04,.36,10,14,'#586564','#3d4848','#293638');return true;
+  }
+  if(k==='ironbridge'||k==='dam'){
+    const dam=k==='dam';concrete(-.43,-.33,.43,.33,3,dam?29:14);
+    for(const u of [-.28,0,.28]){concrete(u-.04,-.36,u+.04,.36,3,dam?35:24);line(r,q(u-.12,.35,dam?26:14),q(u+.12,.35,dam?26:14),dam?'#5e9eb1':'#334e5d',3);}
+    if(dam){for(const u of [-.14,.14])poly(c,[q(u-.05,.35,26),q(u+.05,.35,26),q(u+.05,.48,4),q(u-.05,.48,4)],'#75b8c7');concrete(-.16,-.2,.16,.13,29,42);pane(-.12,.14,32,.24,5);}
+    else{for(const side of [-.32,.32]){line(r,q(-.42,side,14),q(.42,side,14),'#507282',2);for(let n=0;n<4;n++){const u=-.4+n*.2;line(r,q(u,side,14),q(u+.1,side,27),'#668894',2);line(r,q(u+.1,side,27),q(u+.2,side,14),'#668894',2);}}}
+    flag(r,x,y,-.36,-.27,dam?30:15,20,'#d7b34e',i);return true;
+  }
+  if(k==='treatment'||k==='hydro'){
+    for(const u of [-.21,.21]){concrete(u-.18,-.34,u+.18,.12,3,k==='hydro'?20:9);poly(c,[q(u-.14,-.3,10),q(u+.14,-.3,10),q(u+.14,.08,10),q(u-.14,.08,10)],'#599da9');line(r,q(u-.12,-.05,11),q(u+.12,-.05,11),'#b2dfd4',1);}
+    box(r,x,y,-.34,.2,.34,.36,3,12,'#899d90','#617c73','#466157');
+    for(const u of [-.2,.2]){const [a,b]=q(u,.37,10);c.strokeStyle='#c9d3bf';c.lineWidth=1.5;c.beginPath();c.arc(a,b,4*r.v.s,0,Math.PI*2);c.stroke();}
+    if(k==='hydro')flag(r,x,y,-.3,-.2,20,16,'#69b2bb',i);return true;
+  }
+  if(k==='tenement'||k==='apartment'){
+    const floors=(k==='apartment'?4:2)+lvl,h=8+floors*6;concrete(-.37,-.32,.37,.28,3,h);concrete(-.41,-.36,.41,.32,h,h+3);
+    for(let n=0;n<floors;n++)for(const u of [-.28,-.08,.14]){pane(u,.29,8+n*6,.12,3);line(r,q(u,.29,7+n*6),q(u+.12,.29,7+n*6),'#d7ceac',1);}
+    poly(c,[q(-.05,.3,3),q(.07,.3,3),q(.07,.3,11),q(-.05,.3,11)],'#526a67');
+    if(k==='apartment'){concrete(.13,-.23,.34,-.05,h+3,h+9);pane(-.27,-.05,h+4,.22,2);}return true;
+  }
+  if(k==='hospital'||k==='university'||k==='green'){
+    const green=k==='green',h=(green?30:22)*hs;concrete(-.4,-.32,.4,.27,3,h);concrete(-.44,-.36,.44,.31,h,h+3);
+    for(const u of [-.3,-.1,.1,.27])for(const z of [9,17])pane(u,.28,z,.1,5);
+    concrete(-.09,.18,.09,.41,3,9);poly(c,[q(-.08,.27,5),q(.08,.27,5),q(.08,.27,16),q(-.08,.27,16)],'#3f7585');
+    if(k==='hospital'){const [a,b]=q(0,.29,h-3);c.strokeStyle='#4d997d';c.lineWidth=3*r.v.s;c.beginPath();c.moveTo(a-4*r.v.s,b);c.lineTo(a+4*r.v.s,b);c.moveTo(a,b-4*r.v.s);c.lineTo(a,b+4*r.v.s);c.stroke();}
+    else if(green){for(const u of [-.32,.3]){line(r,q(u,-.1,h+3),q(u,-.1,h+15),'#846d47',2);const [a,b]=q(u,-.1,h+14);c.fillStyle='#5d9a61';c.beginPath();c.arc(a,b,8*r.v.s,0,Math.PI*2);c.fill();}flag(r,x,y,.34,-.27,h,20,'#62b68b',i);}
+    else{gable(r,x,y,-.18,-.24,.18,.14,h+3,12,'#50868f','#386b77','#325766');flag(r,x,y,-.35,-.27,h,20,'#d4b65a',i);}
+    return true;
+  }
+  const h=(k==='thermal'?23:k==='transport'?15:k==='charcoal'?13:20)*hs;
+  concrete(-.37,-.32,.37,.24,3,h);roof(h);
+  for(const u of [-.25,-.05,.17])pane(u,.25,8,.12,5);
+  if(k==='transport'){
+    for(const u of [-.32,.32])line(r,q(u,.44,3),q(u,.44,17),'#687a73',2);
+    gable(r,x,y,-.39,.23,.39,.48,17,5,'#a58650','#7f653c','#6b5534');
+    for(const u of [-.22,0,.22])box(r,x,y,u-.07,.31,u+.07,.44,3,9,'#c5a46c','#9d7a4c','#7e5d3a');
+  }else{
+    const tower=k==='thermal'?44:k==='charcoal'?29:35;
+    for(const u of (k==='factory'||k==='thermal'?[-.2,.2]:[-.24])){
+      concrete(u-.06,-.25,u+.06,-.12,h,tower);concrete(u-.08,-.27,u+.08,-.1,tower,tower+2);
+      if(running&&(k!=='thermal'||(r.city.modern?.generation[i]??0)>0))smoke(r,x,y,u,-.18,tower+5,i);
+    }
+    const [a,b]=q(.18,.27,13),angle=running?r.anim/600:0;c.strokeStyle='#cad1bc';c.lineWidth=1.4*r.v.s;c.beginPath();c.arc(a,b,5*r.v.s,0,Math.PI*2);c.stroke();
+    for(let n=0;n<6;n++){const ph=angle+n*Math.PI/3;line(r,[a,b],[a+Math.cos(ph)*6*r.v.s,b+Math.sin(ph)*4*r.v.s],'#d5c7a6',1);}
+    if(k==='charcoal')for(const u of [-.3,-.15,0])box(r,x,y,u,.32,u+.1,.43,3,7,'#927456','#6c5138','#4a392b');
+  }
+  return true;
+}
+
 function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) {
-  if(drawMedieval(r,k,x,y,lvl,i))return;
+  if(drawFutureBuilding(r,k,x,y,lvl,i)||drawMedieval(r,k,x,y,lvl,i))return;
   if (k === "hut" && r.city.era > 1) { drawBase(r,r.city.era === 2 ? "house" : "stonehouse",x,y,lvl,i); return; }
   if (k === "house" && r.city.era >= 3) { drawBase(r,"stonehouse",x,y,lvl,i); return; }
   if(k==="dock"){
@@ -1107,8 +1224,10 @@ function drawVillager(r: RC, vl: Villager) {
   if (vl.job === "farm" || vl.job === "gather" || vl.job === "explore") {
     c.fillStyle = "#e8d39a"; c.beginPath(); c.moveTo(headX, headY - 5 * s); c.lineTo(headX - 4.6 * s, headY - 0.6 * s); c.lineTo(headX + 4.6 * s, headY - 0.6 * s); c.closePath(); c.fill();
     c.fillStyle = "#c9b278"; c.beginPath(); c.moveTo(headX, headY - 5 * s); c.lineTo(headX + 4.6 * s, headY - 0.6 * s); c.lineTo(headX + 1 * s, headY - 0.6 * s); c.closePath(); c.fill();
-  } else if (vl.job === "build") {
+  } else if (vl.job === "build" || r.city.era>=5&&(vl.job==='smith'||vl.job==='quarry'||vl.job==='wood')) {
     c.fillStyle = "#e2b240"; c.beginPath(); c.arc(headX, headY - 0.6 * s, 2.6 * s, Math.PI, 0); c.fill(); c.fillRect(headX - 3.2 * s, headY - 0.8 * s, 6.4 * s, 0.9 * s);
+  } else if(r.city.era>=4){
+    c.fillStyle=r.city.era>=6?'#426b82':r.city.era===5?'#4d5c68':vl.band;c.beginPath();c.arc(headX,headY-1.2*s,2.5*s,Math.PI,0);c.fill();c.fillRect(headX-3*s,headY-1.1*s,6*s,s);
   } else {
     c.fillStyle = "#2b1e14"; c.beginPath(); c.arc(headX, headY - 0.7 * s, 2.3 * s, Math.PI, 0); c.fill();
     c.fillStyle = vl.band; c.fillRect(headX - 2.3 * s, headY - 1.2 * s, 4.6 * s, 0.9 * s);
@@ -1171,16 +1290,17 @@ export function drawEnvoyActor(c: CanvasRenderingContext2D, era: number, x: numb
   c.save();c.translate(x,y-bob);c.scale(face,1);
   c.fillStyle="rgba(10,25,25,.25)";c.beginPath();c.ellipse(0,0,5*s,2*s,0,0,Math.PI*2);c.fill();
   c.strokeStyle="#4e3528";c.lineWidth=2*s;c.beginPath();c.moveTo(-2*s,-5*s);c.lineTo(-2*s+step,0);c.moveTo(2*s,-5*s);c.lineTo(2*s-step,0);c.stroke();
-  c.fillStyle=era>=3?"#216d78":era===2?"#2d898b":"#3a9388";c.beginPath();c.moveTo(-3*s,-13*s);c.lineTo(3*s,-13*s);c.lineTo(5*s,-4*s);c.lineTo(-5*s,-4*s);c.closePath();c.fill();
+  c.fillStyle=era>=6?"#354a62":era===5?"#4a6471":era>=3?"#216d78":era===2?"#2d898b":"#3a9388";c.beginPath();c.moveTo(-3*s,-13*s);c.lineTo(3*s,-13*s);c.lineTo(5*s,-4*s);c.lineTo(-5*s,-4*s);c.closePath();c.fill();
   c.fillStyle="#dbb28c";c.beginPath();c.arc(0,-16*s,2.5*s,0,Math.PI*2);c.fill();
-  c.fillStyle=era>=3?"#deb856":"#426660";c.fillRect(-3*s,-20*s,6*s,2*s);
-  if(era>=2){c.strokeStyle="#e4c774";c.lineWidth=s;c.beginPath();c.moveTo(0,-20*s);c.lineTo(3*s,-24*s);c.stroke();}
+  c.fillStyle=era>=5?"#263f53":era>=3?"#deb856":"#426660";c.fillRect(-3*s,-20*s,6*s,2*s);
+  if(era>=2&&era<5){c.strokeStyle="#e4c774";c.lineWidth=s;c.beginPath();c.moveTo(0,-20*s);c.lineTo(3*s,-24*s);c.stroke();}
   c.fillStyle="#efe0b3";c.fillRect(-5*s,-12*s,3*s,6*s);
   c.strokeStyle="#956d41";c.lineWidth=s;c.beginPath();c.moveTo(6*s,0);c.lineTo(6*s,-29*s);c.stroke();
   c.fillStyle="#5cbed0";c.beginPath();c.moveTo(6*s,-28*s);c.lineTo(15*s,-26*s+Math.sin(anim/220)*s);c.lineTo(11*s,-23*s);c.lineTo(6*s,-23*s);c.closePath();c.fill();c.restore();
 }
 
-const UNIT_LOOK: Record<UKey, { shirt: string; weapon: "club" | "sling" | "spear" | "bow" | "sword" | "supplies" | "medicine" }> = {
+const UNIT_LOOK: Record<UKey, { shirt: string; weapon: "gun"|"crossbow"|"club" | "sling" | "spear" | "bow" | "sword" | "supplies" | "medicine" }> = {
+  crossbow:{shirt:'#617a71',weapon:'crossbow'},cavalry:{shirt:'#a24e40',weapon:'spear'},musket:{shirt:'#687b68',weapon:'gun'},cannon:{shirt:'#5c6759',weapon:'gun'},infantry:{shirt:'#4e6d51',weapon:'gun'},armor:{shirt:'#516957',weapon:'gun'},
   wagon: {shirt:"#a67d43",weapon:"supplies"}, medic: {shirt:"#dbdcc6",weapon:"medicine"},
   club: { shirt: "#8a5a2b", weapon: "club" }, sling: { shirt: "#a37a4a", weapon: "sling" },
   spear: { shirt: "#b07a2e", weapon: "spear" }, bow: { shirt: "#4f7a3a", weapon: "bow" },
@@ -1203,8 +1323,27 @@ export function drawTransportBoat(c:CanvasRenderingContext2D,x:number,y:number,s
 
 export function drawSoldier(r: Pick<RC, "c" | "v" | "anim">, u: UKey, fx: number, fy: number, face: 1 | -1, walking: boolean, seed: number, fighting = false, barbarian = false) {
   const c = r.c, s = Math.max(r.v.s * 1.45, 0.7);
-  const [sx, sy] = P(r.v, fx, fy);
+  const [sx, groundY] = P(r.v, fx, fy);
+  let sy=groundY;
   const ph = r.anim / 140 + seed * 10;
+  if(u==='armor'||u==='cannon'){
+    const tank=u==='armor',kick=fighting?Math.max(0,Math.sin(r.anim/130))*2:0;
+    c.save();c.translate(sx,sy);c.scale(s*face,s);
+    c.fillStyle='rgba(0,0,0,.25)';c.beginPath();c.ellipse(0,1,17,5,0,0,Math.PI*2);c.fill();
+    c.fillStyle=tank?'#34463b':'#665344';c.fillRect(-15,-7,28,7);
+    for(const offset of [-11,-3,6,12]){c.fillStyle='#2c3530';c.beginPath();c.arc(offset,-1,tank?3:4,0,Math.PI*2);c.fill();c.strokeStyle='#b2ad87';c.beginPath();c.arc(offset,-1,1.5,0,Math.PI*2);c.stroke();}
+    c.fillStyle=tank?'#6c8060':'#7d885e';c.fillRect(-12,-12,24,6);c.fillStyle=tank?'#829472':'#9ba27d';c.fillRect(-6,-19,14,8);
+    c.strokeStyle='#515b4b';c.lineWidth=tank?4:5;c.beginPath();c.moveTo(4-kick,-17);c.lineTo(24-kick,-20);c.stroke();
+    if(fighting&&Math.sin(r.anim/130)>.8){c.fillStyle='#ffe29b';c.beginPath();c.moveTo(24,-23);c.lineTo(31,-20);c.lineTo(24,-17);c.fill();}
+    c.fillStyle='#d0c995';c.fillRect(-4,-17,3,3);c.restore();return;
+  }
+  if(u==='cavalry'){
+    c.save();c.translate(sx,sy);c.scale(s*face,s);const step=walking?Math.sin(ph)*3:0;
+    c.fillStyle='#6e4933';c.beginPath();c.ellipse(0,-7,10,5,0,0,Math.PI*2);c.fill();
+    c.strokeStyle='#503322';c.lineWidth=2;for(const [x,n]of [[-7,1],[-4,-1],[5,-1],[8,1]]){c.beginPath();c.moveTo(x,-6);c.lineTo(x+step*n,2);c.stroke();}
+    c.fillStyle='#8e6546';c.beginPath();c.moveTo(6,-8);c.lineTo(8,-19);c.lineTo(14,-18);c.lineTo(15,-13);c.lineTo(10,-11);c.closePath();c.fill();
+    c.strokeStyle='#d4b87f';c.lineWidth=1;c.beginPath();c.moveTo(13,-14);c.lineTo(2,-11);c.stroke();c.fillStyle='#b14e3d';c.fillRect(-4,-11,10,3);c.restore();sy-=8*s;
+  }
   if (u === "elephant") {
     const e = s * 1.6, step = walking ? Math.sin(ph * 0.6) * 1.5 * e : 0;
     c.fillStyle = "rgba(20,30,10,.3)"; c.beginPath(); c.ellipse(sx, sy, 9 * e, 3 * e, 0, 0, Math.PI * 2); c.fill();
@@ -1244,6 +1383,11 @@ export function drawSoldier(r: Pick<RC, "c" | "v" | "anim">, u: UKey, fx: number
     c.strokeStyle="#e6e3c8";c.beginPath();c.moveTo(shX,shY+2*s);c.lineTo(shX,shY+6*s);c.moveTo(shX-2*s,shY+4*s);c.lineTo(shX+2*s,shY+4*s);c.stroke();
     c.fillStyle="#dddcc6";c.fillRect(sx-2*s,hy-2*s,4*s,s);
     if(fighting){c.strokeStyle="#9bdc8b";c.beginPath();c.arc(shX+4*s,shY-2*s,3*s+Math.sin(r.anim/180)*s,0,Math.PI*2);c.stroke();}
+  } else if(look.weapon==='gun'||look.weapon==='crossbow'){
+    c.strokeStyle='#765b3e';c.lineWidth=3*s;c.beginPath();c.moveTo(shX-face*4*s,shY+2*s);c.lineTo(shX+face*8*s,shY-s);c.stroke();
+    c.strokeStyle='#b1b7a9';c.lineWidth=1.3*s;c.beginPath();c.moveTo(shX,shY+s);c.lineTo(shX+face*11*s,shY-1.7*s);c.stroke();
+    if(look.weapon==='crossbow'){c.strokeStyle='#bea16d';c.beginPath();c.moveTo(shX+face*5*s,shY-6*s);c.quadraticCurveTo(shX+face*9*s,shY,shX+face*5*s,shY+5*s);c.stroke();}
+    else if(fighting&&Math.sin(r.anim/130+seed)>.8){c.fillStyle='#ffdf88';c.beginPath();c.arc(shX+face*12*s,shY-2*s,2.5*s,0,Math.PI*2);c.fill();}
   } else if (look.weapon === "spear") {
     c.strokeStyle = "#6b4526"; const tx = shX + face * (3 + swing * 3) * s;
     c.beginPath(); c.moveTo(shX - face * 2 * s, shY + 6 * s); c.lineTo(tx, shY - 10 * s); c.stroke();
@@ -1365,6 +1509,11 @@ function buildingHitShapes(k: BKey, lvl: number, era: number): HitShape[] {
   if (k === "hut" && era > 1) return buildingHitShapes(era === 2 ? "house" : "stonehouse",lvl,era);
   if (k === "house" && era === 3) return buildingHitShapes("stonehouse",lvl,era);
   switch (k) {
+    case "apartment": return [shape(-.41,-.36,.41,.32,11+(4+lvl)*6+9)];
+    case "tenement": return [shape(-.41,-.36,.41,.32,11+(2+lvl)*6)];
+    case "thermal": case "factory": case "machine": case "complex": case "charcoal": return [shape(-.44,-.38,.44,.34,23*hs,8),shape(-.29,-.25,.29,-.1,46)];
+    case "dam": case "green": return [shape(-.44,-.36,.44,.35,44,8)];
+    case "retention": case "solar": case "park": case "nursery": return [shape(-.46,-.44,.46,.44,18)];
     case "hut": return [lvl >= 3 ? shape(-.4, -.36, .4, .36, 22, 14) : lvl === 2 ? shape(-.36, -.32, .36, .32, 11, 12) : shape(-.32, -.32, .32, .32, 9, 16, true)];
     case "house": return [shape(-.38, -.34, .38, .34, 15 * hs, 12), { ...shape(.15, -.2, .25, -.1, 14), z: 15 * hs }];
     case "stonehouse": return [shape(-.4, -.36, .4, .36, 20 * hs, 13), ...(lvl >= 3 ? [shape(-.45, -.45, -.13, -.13, 20 * hs + 34, 12, true)] : [])];
@@ -1395,6 +1544,7 @@ function buildingHitShapes(k: BKey, lvl: number, era: number): HitShape[] {
     case "gate": return [shape(-.46, -.16, .46, .16, 22 * hs, era > 1 ? 8 : 0)];
     case "watchtower": return [shape(-.4, -.4, .4, .4, (era === 1 ? 25 : 32) * hs, 10, era === 1)];
   }
+  return [shape(-.44,-.38,.44,.38,24*hs,8)];
 }
 
 function pointInPolygon(x: number, y: number, points: Pt[]) {
@@ -1562,9 +1712,18 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     c.beginPath(); pts.forEach((p, k) => (k ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]))); c.closePath(); c.stroke();
   };
   if (o.tool) {
-    const allowed = placementTiles(city,D,o.tool);
+    const allowed = placementTiles(city,D,o.tool,o.rules);
     for (const i of visible) if (seen[i] && allowed(i)) {
       outline({x:i%W,y:Math.floor(i/W)}, "rgba(170,245,130,.75)", "rgba(120,220,90,.25)");
+    }
+  }
+  const serviceCell=o.tool?o.hover:o.selected,serviceKey=o.tool??(o.selected?city.b[idx(o.selected.x,o.selected.y)]?.k:undefined);
+  const radius=serviceKey==='well'?4:serviceKey==='reservoir'||serviceKey==='retention'||serviceKey==='nursery'?6:serviceKey==='transport'?8:0;
+  if(radius&&serviceCell){
+    const range=radius;
+    for(const i of visible)if(seen[i]&&Math.max(Math.abs(i%W-serviceCell.x),Math.abs(Math.floor(i/W)-serviceCell.y))<=range){
+      poly(c,diamond(i%W,Math.floor(i/W),.04),serviceKey==='transport'?'rgba(238,198,105,.15)':'rgba(87,203,213,.18)');
+      if(Math.max(Math.abs(i%W-serviceCell.x),Math.abs(Math.floor(i/W)-serviceCell.y))===range)outline({x:i%W,y:Math.floor(i/W)},'rgba(119,217,221,.65)');
     }
   }
   let ghostOk = false;
@@ -1582,6 +1741,10 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     outline({ x: to % W, y: Math.floor(to / W) }, "rgba(127,224,255,.8)");
   }
 
+  for(const [tile,seedling]of Object.entries(city.industry?.seedlings??{}))if(vis[+tile]&&seen[+tile]){
+    const q=tp(r,+tile%W,Math.floor(+tile/W)),growth=Math.max(.15,1-(seedling.readyAt-o.now)/(30*60000));
+    line(r,q(0,0,0),q(0,0,4+growth*7),'#6a7744',1.5);poly(c,[q(0,0,3),q(-.15,0,6+growth*5),q(0,0,7+growth*6),q(.15,0,6+growth*5)],'#7fba56');
+  }
   // 3. objects sorted by depth
   type Item = { d: number; f: () => void };
   const items: Item[] = [];
@@ -1615,6 +1778,9 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
             const [wx, wy] = q(0, 0, 40);
             c.fillStyle = "#e85d4a"; c.beginPath(); c.arc(wx, wy, 7 * v.s, 0, Math.PI * 2); c.fill();
             c.fillStyle = "#fff"; c.font = `bold ${Math.round(10 * v.s)}px sans-serif`; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText("!", wx, wy + 0.5);
+          }
+          if(B[b.k].demand&&b.lvl>0&&!b.burned&&!b.flooded&&(b.off||(city.modern?.allocation[i]??0)<1)){
+            const [px,py]=tp(r,x,y)(0,0,48);c.fillStyle='#263f45';c.beginPath();c.arc(px,py,7*v.s,0,Math.PI*2);c.fill();c.fillStyle='#ffe18b';c.font=`bold ${Math.max(10,Math.round(12*v.s))}px sans-serif`;c.textAlign='center';c.fillText(b.off?'⏸':'ϟ',px,py+4*v.s);
           }
           if (b.doneAt) {
             const total = B[b.k].sec * 1000 * 3 ** b.lvl;

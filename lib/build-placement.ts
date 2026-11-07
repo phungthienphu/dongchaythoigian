@@ -1,9 +1,10 @@
+import {RELEASE_RULES,type EngineRules} from './eras';
 import { B, RES, W, canPlace, type BKey, type City, type Derived } from './engine';
 
 // Reuse tile checks across animation frames; simulation/actions invalidate them.
 const cache = new WeakMap<Derived, { city: City; key: string; tools: Map<BKey, Int8Array> }>();
-export function placementTiles(c: City, d: Derived, tool: BKey) {
-  const key = `${c.last}:${c.era}:${RES.map(r => c.res[r]).join(',')}:${Object.entries(c.b).map(([i,b])=>`${i}/${b.k}/${b.lvl}/${b.doneAt}/${b.burned}/${b.flooded}`).join('|')}`;
+export function placementTiles(c: City, d: Derived, tool: BKey,rules:EngineRules=RELEASE_RULES) {
+  const key = `${rules.maxEra}:${c.last}:${c.era}:${RES.map(r => c.res[r]).join(',')}:${Object.entries(c.b).map(([i,b])=>`${i}/${b.k}/${b.lvl}/${b.doneAt}/${b.burned}/${b.flooded}`).join('|')}`;
   let entry = cache.get(d);
   if (!entry || entry.city !== c || entry.key !== key) {
     entry = { city: c, key, tools: new Map() }; cache.set(d, entry);
@@ -11,11 +12,12 @@ export function placementTiles(c: City, d: Derived, tool: BKey) {
   let tiles = entry.tools.get(tool);
   if (!tiles) { tiles = new Int8Array(W * W).fill(-1); entry.tools.set(tool, tiles); }
   return (i: number) => {
-    if (tiles[i] < 0) tiles[i] = canPlace(c,d,tool,i%W,Math.floor(i/W)) ? 0 : 1;
+    if (tiles[i] < 0) tiles[i] = canPlace(c,d,tool,i%W,Math.floor(i/W),rules) ? 0 : 1;
     return tiles[i] === 1;
   };
 }
 export function placementHint(k: BKey) {
+  if (k === 'coalmine')return 'Đặt trên ô mỏ than có vân đen, đã khám phá.';
   if (k === 'quarry') return 'Đặt trên ô đồi đá đã khám phá.';
   const need = B[k].need;
   if (need === 'forest') return 'Đặt trên ô cỏ kề rừng, kể cả kề chéo.';

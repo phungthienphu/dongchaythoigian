@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyAction, CAP, F, G, HL, O, R, HAUL_CAPACITY, HOUR, idx, newCity, settle, explorerPos, type City } from './engine';
 function fixture():City {
- const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.camp=idx(20,20);c.b={};c.herds=[];c.camps=[];c.exps=[];c.res={food:100000,wood:0,stone:0,copper:0, gold: 0, diamond: 0};c.people=c.people.slice(0,3);c.pop=3;c.popAcc=0;for(const p of c.people){p.task={t:'idle'};p.pos=c.camp;}return c;
+ const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.camp=idx(20,20);c.b={};c.herds=[];c.camps=[];c.exps=[];c.res={food:100000,wood:0,stone:0,copper:0, gold: 0, diamond:0,coal:0};c.people=c.people.slice(0,3);c.pop=3;c.popAcc=0;for(const p of c.people){p.task={t:'idle'};p.pos=c.camp;}return c;
 }
 const close=(a:number,b:number)=>assert.ok(Math.abs(a-b)<1e-8,`${a} != ${b}`);
 function assign(c:City,tile=idx(30,20)){c.t[tile]=F;assert.equal(applyAction(c,{type:'assign',ids:[c.people[0].id],task:{t:'chop',at:tile}},0),null);return tile;}

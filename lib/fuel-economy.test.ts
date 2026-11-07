@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {newCity,G,O,idx,MIN,HOUR,SEASON_MS,stats,derive,settle,type City} from './engine';
 const close=(a:number,b:number)=>assert.ok(Math.abs(a-b)<1e-7,`${a} != ${b}`);
 function fixture():City{
- const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.b={};c.camps=[];c.herds=[];c.camp=idx(20,20);c.people=c.people.slice(0,3);c.era=2;c.army={};c.res={food:5000,wood:100,stone:500,copper:0,gold:0,diamond:0};
+ const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.b={};c.camps=[];c.herds=[];c.camp=idx(20,20);c.people=c.people.slice(0,3);c.era=2;c.army={};c.res={food:5000,wood:100,stone:500,copper:0,gold:0,diamond:0,coal:0};
  c.b[idx(19,20)]={k:'storehouse',lvl:5,doneAt:null};for(const p of c.people){p.task={t:'idle'};p.pos=c.camp;}return c;
 }
 function smelter(c:City){const tile=idx(22,20);c.b[tile]={k:'smelter',lvl:1,doneAt:null};c.t[idx(23,20)]=O;for(const p of c.people){p.task={t:'work',at:tile};p.pos=tile;}return tile;}

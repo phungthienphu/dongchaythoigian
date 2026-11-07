@@ -1,6 +1,6 @@
 /** Production rules stay closed even if an action contains preview metadata. */
 export const RELEASED_ERA = 3;
-export const LOCAL_ERA = 4;
+export const LOCAL_ERA = 6;
 export type EngineRules = Readonly<{ maxEra: number }>;
 export const RELEASE_RULES: EngineRules = Object.freeze({ maxEra: RELEASED_ERA });
 export const LOCAL_RULES: EngineRules = Object.freeze({ maxEra: LOCAL_ERA });

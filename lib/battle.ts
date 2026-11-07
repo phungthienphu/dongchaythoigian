@@ -1,3 +1,4 @@
+import {unitCounter} from './era-military';
 /** Serializable, deterministic battle simulation. All time advances in 100 ms ticks.
  * Balance defaults: loot cap is 25% of each starting resource; civilian loss is
  * capped at floor(pop/2). Retreating armies can be pursued until they leave. */
@@ -6,17 +7,17 @@ export const BATTLE_TICK_MS = 100;
 export const BATTLE_TIMEOUT_MS = 180_000;
 export type BattleSide = 'attacker' | 'defender';
 export type BattleOrder = { type: 'move'; x: number; y: number } | { type: 'attack'; targetId: string } | { type: 'guard'; x: number; y: number } | { type: 'retreat' };
-export type BattleGroup = { naval?: boolean; id: string; side: BattleSide; u: UKey; count: number; initial: number; hp: number; x: number; y: number; order: BattleOrder; moving?: boolean; blocked?: boolean; entry?: {x:number;y:number}; resumeOrder?: BattleOrder; breachRetryAt?: number; retreatExit?: {x:number;y:number}; escaped?: boolean; path?: number[] | null; pathGoal?: number; pathVersion?: number };
+export type BattleGroup = {nextAttackAt?:number; naval?: boolean; id: string; side: BattleSide; u: UKey; count: number; initial: number; hp: number; x: number; y: number; order: BattleOrder; moving?: boolean; blocked?: boolean; entry?: {x:number;y:number}; resumeOrder?: BattleOrder; breachRetryAt?: number; retreatExit?: {x:number;y:number}; escaped?: boolean; path?: number[] | null; pathGoal?: number; pathVersion?: number };
 export type BattleBuilding = { id: string; tile: number; k: string; lvl: number; hp: number; maxHp: number; inactive?: boolean; burned: boolean; initiallyBurned: boolean; value: number };
 export type BattleCommand = { type: 'move'; groupId: string; x: number; y: number } | { type: 'attack'; groupId: string; targetId: string } | { type: 'retreat' } | { type: 'presence'; online: boolean };
-export type BattleStrike = { id: string; at: number; source: string; kind: 'arrow' | 'stone' | 'melee'; from: {x:number;y:number}; to: {x:number;y:number} };
-export type BattleState = { strikes?: BattleStrike[]; id: string; attackerId: string; defenderId: string; startedAt: number; lastTick: number; terrain: number[]; groups: BattleGroup[]; buildings: BattleBuilding[]; status: 'fighting' | 'retreating' | 'finished'; winner?: BattleSide; defenderOnline: boolean; initialPopulation: number; populationLoss: number; startingResources: Res; loot: Res; devastation: number };
+export type BattleStrike = { id: string; at: number; source: string; kind: 'arrow' | 'stone' | 'melee'|'bullet'|'shell'; from: {x:number;y:number}; to: {x:number;y:number} };
+export type BattleState = { strikes?: BattleStrike[]; defenderEra?:number; id: string; attackerId: string; defenderId: string; startedAt: number; lastTick: number; terrain: number[]; groups: BattleGroup[]; buildings: BattleBuilding[]; status: 'fighting' | 'retreating' | 'finished'; winner?: BattleSide; defenderOnline: boolean; initialPopulation: number; populationLoss: number; startingResources: Res; loot: Res; devastation: number };
 export type BattleResult = { winner: BattleSide; attackerSurvivors: Troops; defenderSurvivors: Troops; attackerCasualties: number; defenderCasualties: number; populationLoss: number; burnedTiles: number[]; loot: Res; devastation: number };
-const emptyRes = (): Res => ({ food: 0, wood: 0, stone: 0, copper: 0 , gold: 0, diamond: 0});
+const emptyRes = (): Res => ({ food: 0, wood: 0, stone: 0, copper: 0 , gold: 0, diamond:0,coal:0});
 const dist = (a: {x:number;y:number}, b: {x:number;y:number}) => Math.hypot(a.x-b.x,a.y-b.y);
 const xy = (tile:number) => ({ x: tile % W + .5, y: Math.floor(tile / W) + .5 });
 const living = (g:BattleGroup) => g.count > 0 && !g.escaped;
-const range = (u:UKey) => u === 'bow' ? 6 : u === 'sling' ? 4 : 1.4;
+const range = (u:UKey) => UNITS[u].range??(u === 'bow' ? 6 : u === 'sling' ? 4 : 1.4);
 const flatBuilding=(k:string)=>['farm','estate','canal','levee'].includes(k);
 const blockingBuilding=(b:BattleBuilding,side:BattleSide)=>!b.burned&&!flatBuilding(b.k)&&!(b.k==='gate'&&side==='defender');
 const blockedTerrain=(terrain:number,naval=false)=>(terrain===R&&!naval)||isRock(terrain);
@@ -79,7 +80,7 @@ export function createBattle(o: { id: string; attackerId: string; defenderId: st
     }
     if(total<count)add('defender',u,count-total,center,defenderNaval,total?':reserve':'');
   }
-  const s:BattleState={id:o.id,attackerId:o.attackerId,defenderId:o.defenderId,startedAt:o.now,lastTick:o.now,terrain:[...o.defender.t],groups,buildings,status:'fighting',defenderOnline:!!o.defenderOnline,initialPopulation:o.defender.pop,populationLoss:0,startingResources:{...o.defender.res},loot:emptyRes(),devastation:0};
+  const s:BattleState={defenderEra:o.defender.era,id:o.id,attackerId:o.attackerId,defenderId:o.defenderId,startedAt:o.now,lastTick:o.now,terrain:[...o.defender.t],groups,buildings,status:'fighting',defenderOnline:!!o.defenderOnline,initialPopulation:o.defender.pop,populationLoss:0,startingResources:{...o.defender.res},loot:emptyRes(),devastation:0};
   for(const g of groups) if(g.side==='attacker') { const target=buildings.find(b=>b.k==='hall'&&!b.burned)??buildings.find(b=>!b.burned); if(target)g.order={type:'attack',targetId:target.id}; }
   return s;
 }
@@ -119,7 +120,7 @@ function move(s:BattleState,g:BattleGroup,target:{x:number;y:number}):boolean {
   if(g.path===null){g.blocked=true;return false;}
   while(g.path.length&&dist(g,xy(g.path[0]))<.01)g.path.shift();
   const p=g.path.length?xy(g.path[0]):impassable(goal)?xy(start):target,d=dist(g,p);if(d===0)return true;
-  g.moving=true;const speed=g.u==='elephant'?.15:.25;g.x+=(p.x-g.x)/d*Math.min(speed,d);g.y+=(p.y-g.y)/d*Math.min(speed,d);return true;
+  g.moving=true;const speed=UNITS[g.u].speed!==undefined?UNITS[g.u].speed!*.25:g.u==='elephant'?.15:.25;g.x+=(p.x-g.x)/d*Math.min(speed,d);g.y+=(p.y-g.y)/d*Math.min(speed,d);return true;
 }
 /** Validate a defender move before replacing its current order. Own houses are
  * never demolished automatically; a river still requires transport capacity. */
@@ -168,8 +169,17 @@ function retreatExit(s:BattleState,g:BattleGroup){
 function damage(g:BattleGroup,amount:number){g.hp=Math.max(0,g.hp-amount);g.count=Math.ceil(g.hp/UNITS[g.u].hp);}
 function strike(s:BattleState,source:string,kind:BattleStrike['kind'],from:{x:number;y:number},to:{x:number;y:number}) {
   // One visual volley per second; damage remains on the authoritative 100 ms clock.
-  if ((s.lastTick-s.startedAt-BATTLE_TICK_MS)%1000!==0) return;
+  if (!s.groups.some(g=>g.id===source&&UNITS[g.u].attackMs)&& (s.lastTick-s.startedAt-BATTLE_TICK_MS)%1000!==0) return;
   (s.strikes ??= []).push({id:`${source}:${s.lastTick}`,at:s.lastTick,source,kind,from:{x:from.x,y:from.y},to:{x:to.x,y:to.y}});
+}
+function volley(s:BattleState,g:BattleGroup,target:BattleGroup|BattleBuilding){
+  const unit=UNITS[g.u];if(unit.attackMs&&(g.nextAttackAt??0)>s.lastTick)return;
+  const position='tile'in target?xy(target.tile):target;
+  if(unit.attackMs)g.nextAttackAt=s.lastTick+unit.attackMs;
+  const close=(g.u==='crossbow'&&dist(g,position)<1.5)?.6:(g.u==='cannon'&&dist(g,position)<1.5)?.45:1;
+  const hit=unit.atk*g.count*(unit.attackMs?unit.attackMs/1000:.1)*close*('tile'in target?(unit.buildingAtk??1):unitCounter(g.u,target.u));
+  strike(s,g.id,unit.shot??(g.u==='bow'?'arrow':g.u==='sling'?'stone':'melee'),g,position);
+  if('tile'in target){target.hp=Math.max(0,target.hp-hit);if(!target.hp)target.burned=true;}else damage(target,hit);
 }
 function tick(s:BattleState){
   s.strikes=(s.strikes??[]).filter(e=>s.lastTick-e.at<1200);
@@ -195,7 +205,7 @@ function tick(s:BattleState){
       continue;
     }
     const aboard=s.terrain[Math.floor(g.y)*W+Math.floor(g.x)]===R;
-    if(!aboard&&enemy&&dist(g,enemy)<=range(g.u)){strike(s,g.id,g.u==='bow'?'arrow':g.u==='sling'?'stone':'melee',g,enemy);damage(enemy,UNITS[g.u].atk*g.count/10);continue;}
+    if(!aboard&&enemy&&dist(g,enemy)<=range(g.u)){volley(s,g,enemy);continue;}
     if(g.side==='defender'){
       if(enemy&&!s.defenderOnline&&(s.status==='retreating'||dist(g,enemy)<10)){move(s,g,enemy);continue;}
       if(!s.defenderOnline&&g.order.type!=='guard'){g.order={type:'guard',x:g.x,y:g.y};}
@@ -203,12 +213,12 @@ function tick(s:BattleState){
     if(g.order.type==='move'||g.order.type==='guard'){if(!move(s,g,g.order))breach(s,g,g.order);}
     else if(g.order.type==='attack'){
       const target=s.groups.find(e=>e.id===(g.order as {targetId:string}).targetId&&living(e))??s.buildings.find(b=>b.id===(g.order as {targetId:string}).targetId&&!b.burned);
-      if(target){const p='tile'in target?xy(target.tile):target;if(!aboard&&dist(g,p)<=range(g.u)){strike(s,g.id,g.u==='bow'?'arrow':g.u==='sling'?'stone':'melee',g,p);if('tile'in target){target.hp=Math.max(0,target.hp-UNITS[g.u].atk*g.count/10);if(!target.hp)target.burned=true;}else damage(target,UNITS[g.u].atk*g.count/10);}else if(!move(s,g,p))breach(s,g,p);}
+      if(target){const p='tile'in target?xy(target.tile):target;if(!aboard&&dist(g,p)<=range(g.u)){volley(s,g,target);}else if(!move(s,g,p))breach(s,g,p);}
       else if(g.resumeOrder){g.order=g.resumeOrder;delete g.resumeOrder;delete g.path;}
       else if(g.side==='attacker'){const next=s.buildings.filter(b=>!b.burned).sort((a,b)=>dist(g,xy(a.tile))-dist(g,xy(b.tile)))[0];if(next)g.order={type:'attack',targetId:next.id};else if(enemy)g.order={type:'attack',targetId:enemy.id};}
     }
   }
-  for(const b of s.buildings)if(b.k==='watchtower'&&!b.burned&&!b.inactive){const target=s.groups.find(g=>g.side==='attacker'&&living(g)&&dist(g,xy(b.tile))<=7);if(target){strike(s,b.id,'arrow',xy(b.tile),target);damage(target,2*b.lvl);}}
+  for(const b of s.buildings)if(b.k==='watchtower'&&!b.burned&&!b.inactive){const target=s.groups.find(g=>g.side==='attacker'&&living(g)&&dist(g,xy(b.tile))<=7);if(target){strike(s,b.id,(s.defenderEra??3)>=5?'bullet':'arrow',xy(b.tile),target);damage(target,2*b.lvl);}}
   const total=s.buildings.reduce((n,b)=>n+(b.initiallyBurned?0:b.value),0),burned=s.buildings.reduce((n,b)=>n+(b.burned&&!b.initiallyBurned?b.value:0),0),fraction=total?burned/total:0;
   s.populationLoss=Math.min(Math.floor(s.initialPopulation/2),Math.floor(fraction*s.initialPopulation/2));
   if(s.status==='fighting')for(const r of RES)s.loot[r]=Math.floor((s.startingResources[r]??0)*.25*fraction);
