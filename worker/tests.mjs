@@ -20,15 +20,16 @@ const realInterval = globalThis.setInterval;
 globalThis.setInterval = () => ({ fake: true });
 process.on('exit', () => { globalThis.setInterval = realInterval; rmSync(out, { recursive: true, force: true }); });
 const secret = 'test-shared-secret';
-function harness(initial = {}) {
+function harness(initial = {}, sessions = new Map()) {
   const data = new Map(Object.entries(initial)); const sockets = []; let alarm = null; let ready;
   const ctx = { storage: { get: async k => data.get(k), put: async (k, v) => { if (typeof k === 'object') for (const [a,b] of Object.entries(k)) data.set(a,b); else data.set(k,v); }, delete: async k => data.delete(k), setAlarm: async n => { alarm = n; }, deleteAlarm: async () => { alarm = null; } }, blockConcurrencyWhile: fn => ready = fn(), waitUntil: () => {}, getWebSockets: () => sockets, acceptWebSocket: s => sockets.push(s) };
-  const room = new BattleRoom(ctx, { BATTLE_SERVER_SECRET: secret, APP_URL: 'https://app.example' });
+  const BATTLES = { idFromName: name => name, get: name => ({ fetch: async req => { const body = await req.json(); const version = sessions.get(name) ?? 1; return Response.json({}, {status:body.version === version ? 200 : 401}); } }) };
+  const room = new BattleRoom(ctx, { BATTLE_SERVER_SECRET: secret, APP_URL: 'https://app.example', BATTLES });
   return { room, ready, data, sockets, get alarm() { return alarm; } };
 }
 const request = (path, body, auth = true) => new Request(`https://worker.example/rooms/${path}`, { method: body ? 'POST' : 'GET', headers: { ...(auth ? { Authorization: `Bearer ${secret}` } : {}), 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
 function battle() { return createBattle({ id: 'one', attackerId: 'a', defenderId: 'd', attacker: newCity(Date.now(), 1), defender: newCity(Date.now(), 2), troops: { club: 3 }, now: Date.now() }); }
-function socket(user) { return { frames: [], closed: false, deserializeAttachment: () => user, serializeAttachment(value) { user = value; }, send(x) { this.frames.push(JSON.parse(x)); }, close() { this.closed = true; } }; }
+function socket(user) { user = {sessionVersion:1,...user}; return { frames: [], closed: false, deserializeAttachment: () => user, serializeAttachment(value) { user = value; }, send(x) { this.frames.push(JSON.parse(x)); }, close() { this.closed = true; } }; }
 test('server auth and personal hubs are read-only', async () => { const h = harness(); await h.ready; assert.equal((await h.room.fetch(request('one', null, false))).status, 401); assert.equal((await h.room.fetch(request('player-a', { battle: battle() }))).status, 403); assert.equal((await h.room.fetch(request('player-a/command', { side: 'defender', command: { type: 'retreat' } }))).status, 403); });
 test('personal notifications reject expired sockets', async () => { const h = harness(); await h.ready; const s = socket({ playerId: 'a', side: 'defender', exp: 1 }); h.sockets.push(s); await h.room.fetch(request('player-a/notify', { type: 'update' })); assert.ok(s.closed); assert.equal(s.frames.length, 0); });
 test('new battle alarm survives reentrant start callback even lost response', async () => { const h = harness({ roomId: 'one', scheduled: Date.now() - 1 }); await h.ready; const original = globalThis.fetch; globalThis.fetch = async (_url, init) => { assert.equal(init.headers.Authorization, `Bearer ${secret}`); await h.room.fetch(request('one', { battle: battle() })); return new Response('', { status: 503 }); }; try { await h.room.alarm(); assert.ok(h.data.get('battle')); assert.ok(h.alarm <= Date.now() + 1100); } finally { globalThis.fetch = original; } });
@@ -114,4 +115,36 @@ test('defender socket reports unreachable moves and applies valid moves during c
  assert.equal(ws.frames.filter(f=>f.type==='ack').at(-1).accepted,true);
  const {advanceBattle}=await import(pathToFileURL(join(out,'lib/battle.js')));advanceBattle(b,b.lastTick+2000);
  assert.equal(b.groups[1].x,3.5);assert.equal(b.groups[1].order.type,'guard');
+});
+
+test('session rotation persists its fence, closes old hub sockets and rejects reordered logins',async()=>{
+ const h=harness();await h.ready;
+ const old=socket({roomId:'player-a',playerId:'a',side:'defender',sessionVersion:1,exp:Date.now()/1000+60});h.sockets.push(old);
+ assert.equal((await h.room.fetch(request('player-a/session',{version:2}))).status,200);
+ assert.equal(h.data.get('sessionVersion'),2);assert.ok(old.closed);assert.deepEqual(old.frames,[{type:'session-ended'}]);
+ assert.equal((await h.room.fetch(request('player-a/session',{version:1}))).status,409);
+ assert.equal((await h.room.fetch(request('player-a/session',{version:1,check:true}))).status,401);
+ assert.equal((await h.room.fetch(request('player-a/session',{version:2,check:true}))).status,200);
+ const restarted=harness(Object.fromEntries(h.data));await restarted.ready;
+ assert.equal((await restarted.room.fetch(request('player-a/session',{version:1,check:true}))).status,401);
+ assert.equal((await h.room.fetch(request('player-a/session',{version:3},false))).status,401);
+});
+
+test('old battle socket cannot command after login on another device, even without its hub connection',async()=>{
+ const sessions=new Map([['player-a',2]]);
+ const b=battle();const h=harness({battle:b,roomId:'one'},sessions);await h.ready;
+ const old=socket({roomId:'one',playerId:'a',side:'attacker',sessionVersion:1,exp:Date.now()/1000+60});h.sockets.push(old);
+ await h.room.webSocketMessage(old,JSON.stringify({type:'retreat'}));
+ assert.ok(old.closed);assert.equal(b.status,'fighting');assert.deepEqual(old.frames,[{type:'session-ended'}]);
+ const current=socket({roomId:'one',playerId:'a',side:'attacker',sessionVersion:2,exp:Date.now()/1000+60});h.sockets.push(current);
+ await h.room.webSocketMessage(current,JSON.stringify({type:'retreat'}));
+ assert.equal(current.closed,false);assert.equal(current.frames.find(f=>f.type==='ack')?.accepted,true);
+});
+
+test('a closed or legacy socket cannot send further combat commands',async()=>{
+ const b=battle();const h=harness({battle:b,roomId:'one'});await h.ready;
+ for(const extra of [{closed:true},{sessionVersion:undefined}]){
+  const ws=socket({roomId:'one',playerId:'a',side:'attacker',exp:Date.now()/1000+60,...extra});
+  await h.room.webSocketMessage(ws,JSON.stringify({type:'retreat'}));assert.equal(b.status,'fighting');
+ }
 });

@@ -1,4 +1,5 @@
 "use client";
+import { sessionEnded } from '@/lib/session-client';
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { advanceBattle, battleCommandError, commandBattle, type BattleCommand, type BattleSide, type BattleState } from "@/lib/battle";
@@ -108,6 +109,7 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
           if (disposed || token !== generation) return;
           try {
             const frame = JSON.parse(event.data);
+            if (frame.type === 'session-ended') { sessionEnded(); return; }
             if (frame.type === "state" && frame.battle) {
               setBattle((previous) => {
                 const next = { ...previous, ...frame.battle, terrain: frame.battle.terrain ?? previous?.terrain ?? p.village?.t ?? [] } as BattleState;

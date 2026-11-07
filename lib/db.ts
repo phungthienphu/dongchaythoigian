@@ -31,6 +31,8 @@ export type UserDoc = {
   friends: string[]; // user ids
   createdAt: Date;
   lastSeen: Date;
+  sessionVersion?: number; // Incremented on sign-in/logout; only the latest session may play.
+  sessionRevokedFrom?: number; // Allows retrying a failed Worker logout without revoking a newer login.
 };
 
 const g = globalThis as unknown as { _mongo?: Promise<MongoClient> };

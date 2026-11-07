@@ -2,7 +2,7 @@ import { advanceBattle, commandBattle, battleResult, battleCommandError } from '
 
 type Battle = Parameters<typeof advanceBattle>[0];
 type Command = Parameters<typeof commandBattle>[2];
-type Identity = { roomId: string; playerId: string; side: 'attacker' | 'defender'; exp: number; active?: boolean; closed?: boolean };
+type Identity = { roomId: string; playerId: string; side: 'attacker' | 'defender'; sessionVersion: number; exp: number; active?: boolean; closed?: boolean };
 interface Env { BATTLES: DurableObjectNamespace; BATTLE_SERVER_SECRET: string; APP_URL: string }
 const json = (value: unknown, status = 200) => Response.json(value, { status });
 const authorized = (request: Request, env: Env) => !!env.BATTLE_SERVER_SECRET && request.headers.get('Authorization') === `Bearer ${env.BATTLE_SERVER_SECRET}`;
@@ -27,7 +27,7 @@ async function identity(ticket: string, roomId: string, secret: string): Promise
     const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
     if (!await crypto.subtle.verify('HMAC', key, decode64(signature), new TextEncoder().encode(payload))) return null;
     const data = JSON.parse(new TextDecoder().decode(decode64(payload))) as Identity;
-    return data.roomId === roomId && typeof data.playerId === 'string' && (data.side === 'attacker' || data.side === 'defender') && Number.isFinite(data.exp) && data.exp > Date.now() / 1000 ? data : null;
+    return data.roomId === roomId && typeof data.playerId === 'string' && /^[a-zA-Z0-9_-]{1,90}$/.test(data.playerId) && Number.isSafeInteger(data.sessionVersion) && data.sessionVersion > 0 && (data.side === 'attacker' || data.side === 'defender') && Number.isFinite(data.exp) && data.exp > Date.now() / 1000 ? data : null;
   } catch { return null; }
 }
 export default {
@@ -41,7 +41,7 @@ export default {
   },
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const match = /^\/rooms\/([a-zA-Z0-9_-]{1,100})(?:\/(socket|command|schedule|notify))?$/.exec(url.pathname);
+    const match = /^\/rooms\/([a-zA-Z0-9_-]{1,100})(?:\/(socket|command|schedule|notify|session))?$/.exec(url.pathname);
     if (!match) return json({ error: 'Not found' }, 404);
     if (match[2] !== 'socket' && !authorized(request, env)) return json({ error: 'Unauthorized' }, 401);
     return env.BATTLES.get(env.BATTLES.idFromName(match[1])).fetch(request);
@@ -56,12 +56,14 @@ export class BattleRoom {
   private timer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
   private lastPersist = 0;
+  private sessionVersion = 0;
   constructor(private ctx: DurableObjectState, private env: Env) {
     ctx.blockConcurrencyWhile(async () => {
       this.battle = await ctx.storage.get<Battle>('battle') ?? null;
       this.roomId = await ctx.storage.get<string>('roomId') ?? '';
       this.scheduled = await ctx.storage.get<number>('scheduled') ?? null;
       this.delivered = await ctx.storage.get<boolean>('delivered') ?? false;
+      this.sessionVersion = await ctx.storage.get<number>('sessionVersion') ?? 0;
       if (this.battle && !battleResult(this.battle)) this.start();
     });
   }
@@ -71,12 +73,28 @@ export class BattleRoom {
   private validSocket(socket: WebSocket): boolean {
     const user = socket.deserializeAttachment() as Identity | null;
     if (user?.closed) return false;
-    if (!user || user.exp <= Date.now() / 1000) {
+    if (!user || !Number.isSafeInteger(user.sessionVersion) || user.sessionVersion <= 0 || user.exp <= Date.now() / 1000) {
       if (user) socket.serializeAttachment({ ...user, closed: true, active: false });
       socket.close(1008, 'Ticket expired'); return false;
     }
     if (this.battle && user.playerId !== (user.side === 'attacker' ? this.battle.attackerId : this.battle.defenderId)) { socket.close(1008, 'Forbidden'); return false; }
     return true;
+  }
+  private async sessionValid(user: Identity): Promise<boolean> {
+    const room = `player-${user.playerId}`;
+    if (user.roomId === room) return user.sessionVersion === this.sessionVersion;
+    // One small DO lookup per combat command, never a call to Vercel/MongoDB.
+    const response = await this.env.BATTLES.get(this.env.BATTLES.idFromName(room)).fetch(new Request(`https://session.internal/rooms/${room}/session`, {
+      method: 'POST', headers: { Authorization: `Bearer ${this.env.BATTLE_SERVER_SECRET}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version: user.sessionVersion, check: true }),
+    }));
+    return response.ok;
+  }
+  private revokeSocket(socket: WebSocket) {
+    const user = socket.deserializeAttachment() as Identity | null;
+    if (user) socket.serializeAttachment({ ...user, active: false, closed: true });
+    try { socket.send(JSON.stringify({ type: 'session-ended' })); } catch {}
+    socket.close(1008, 'Session replaced');
   }
   private refreshPresence() {
     if (!this.battle) return;
@@ -158,6 +176,7 @@ export class BattleRoom {
       if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return json({ error: 'WebSocket required' }, 426);
       const user = await identity(url.searchParams.get('ticket') ?? '', roomId, this.env.BATTLE_SERVER_SECRET);
       if (!user) return json({ error: 'Invalid or expired ticket' }, 401);
+      if (!await this.sessionValid(user)) return json({ error: 'Session replaced' }, 401);
       const personal = roomId === `player-${user.playerId}` && user.side === 'defender';
       if (roomId.startsWith('player-') && !personal) return json({ error: 'Forbidden' }, 403);
       const b = this.battle as unknown as Record<string, unknown>;
@@ -175,6 +194,25 @@ export class BattleRoom {
     let body: Record<string, unknown>;
     try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     if (!body || typeof body !== 'object') return json({ error: 'Invalid body' }, 400);
+    if (action === 'session' && roomId.startsWith('player-')) {
+      const version = body.version;
+      if (!Number.isSafeInteger(version) || (version as number) <= 0) return json({ error: 'Invalid session' }, 400);
+      if (body.check === true) return json({ ok: version === this.sessionVersion }, version === this.sessionVersion ? 200 : 401);
+      // Persist under the DO input gate so reordered concurrent logins cannot
+      // regress the session fence after an awaited storage write.
+      return this.ctx.blockConcurrencyWhile(async () => {
+        if ((version as number) < this.sessionVersion) return json({ error: 'Session replaced' }, 409);
+        if (version !== this.sessionVersion) {
+          await this.ctx.storage.put('sessionVersion', version);
+          this.sessionVersion = version as number;
+          for (const socket of this.ctx.getWebSockets()) {
+            const user = socket.deserializeAttachment() as Identity | null;
+            if (user && user.sessionVersion !== version) this.revokeSocket(socket);
+          }
+        }
+        return json({ ok: true });
+      });
+    }
     if (roomId.startsWith('player-') || roomId === 'market-feed') {
       if (action !== 'notify') return json({ error: 'Personal hub is read only' }, 403);
       for (const socket of this.ctx.getWebSockets()) { if (!this.validSocket(socket)) continue; try { socket.send(JSON.stringify({ type: 'update' })); } catch {} }
@@ -209,12 +247,13 @@ export class BattleRoom {
   }
   async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
     const user = socket.deserializeAttachment() as Identity | null;
-    if (!user || user.exp <= Date.now() / 1000) { socket.close(1008, 'Ticket expired'); return; }
+    if (!this.validSocket(socket) || !user) return;
     if (user.roomId.startsWith('player-') || user.roomId === 'market-feed') return;
     if (typeof message !== 'string' || message.length > 4096 || !this.battle) return;
     const participantId = user.side === 'attacker' ? this.battle.attackerId : this.battle.defenderId;
     if (participantId !== user.playerId) { socket.close(1008, 'Forbidden'); return; }
     try {
+      if (!await this.sessionValid(user)) { this.revokeSocket(socket); this.refreshPresence(); return; }
       const frame = JSON.parse(message);
       const command = frame?.type === 'command' ? frame.command : frame;
       if (!validCommand(command)) { socket.send(JSON.stringify({ type: 'error', error: 'Invalid command' })); return; }

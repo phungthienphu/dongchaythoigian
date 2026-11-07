@@ -3,13 +3,13 @@ import { cookies } from "next/headers";
 import { cities } from "@/lib/db";
 import { newCity, score } from "@/lib/engine";
 import { PID_COOKIE, playerId, withCity, UnsupportedCityVersionError } from "@/lib/city-store";
-import { currentUser } from "@/lib/auth";
+import { currentUser, SESSION_COOKIE } from "@/lib/auth";
 import { users } from "@/lib/db";
 
 export async function GET() {
   const pid = await playerId();
   if (!pid) {
-    if (!await currentUser()) return NextResponse.json({ error: "Đăng nhập Google để vào làng.", needsLogin: true }, { status: 401 });
+    if (!await currentUser()) return NextResponse.json({ error: "Đăng nhập Google để vào làng.", needsLogin: true, sessionEnded: !!(await cookies()).get(SESSION_COOKIE)?.value }, { status: 401 });
     return NextResponse.json({ needsName: true }, { status: 404 });
   }
   try {

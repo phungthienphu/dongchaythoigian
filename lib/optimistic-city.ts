@@ -30,6 +30,7 @@ export class OptimisticCityQueue {
   private recovering = false;
   private needsSync = false;
   private generation = 0;
+  private stopped = false;
   private clock: () => number;
   constructor(private readonly options: OptimisticCityOptions) {
     this.base = clone(options.state);
@@ -40,13 +41,22 @@ export class OptimisticCityQueue {
   get version(): number { return this.generation; }
   get snapshot(): City { return clone(this.visible); }
 
+  /** Revoke the local controller; an in-flight response must not revive it. */
+  stop() {
+    this.stopped = true;
+    for (const entry of this.pending) entry.resolve(false);
+    this.pending = [];
+  }
+
   /** Advance the same visible state used by subsequent optimistic actions. */
   advance(at = this.clock()) {
+    if (this.stopped) return;
     if (!this.visible.battleId) settle(this.visible, Math.max(at, this.visible.last));
     this.publish();
   }
 
   setAuthoritative(state: City, expectedVersion = this.generation): boolean {
+    if (this.stopped) return false;
     if (this.isPending || expectedVersion !== this.generation || state.last < this.base.last) return false;
     this.base = clone(state);
     const displayAt = Math.max(this.visible.last, this.clock());
@@ -59,6 +69,7 @@ export class OptimisticCityQueue {
   }
 
   enqueue(action: Action): Promise<boolean> {
+    if (this.stopped) return Promise.resolve(false);
     if (this.recovering || this.needsSync) {
       this.options.onError?.('Đang đồng bộ lại làng, vui lòng thử lại sau.');
       return Promise.resolve(false);
@@ -105,6 +116,7 @@ export class OptimisticCityQueue {
   }
 
   private async uncertain(message: string) {
+    if (this.stopped) return;
     this.recovering = true;
     this.needsSync = true;
     const abandoned = this.pending;
@@ -116,13 +128,13 @@ export class OptimisticCityQueue {
     for (const entry of abandoned) entry.resolve(false);
     try {
       const fresh = await this.options.onUncertain();
-      if (fresh) { this.base = clone(fresh); this.visible = clone(fresh); this.needsSync = false; }
+      if (fresh && !this.stopped) { this.base = clone(fresh); this.visible = clone(fresh); this.needsSync = false; }
     } catch {
       this.options.onError?.('Chưa đồng bộ được làng. Hãy tải lại trước khi tiếp tục.');
     } finally {
       this.recovering = false;
       this.generation++;
-      this.publish();
+      if (!this.stopped) this.publish();
     }
   }
 
@@ -138,6 +150,7 @@ export class OptimisticCityQueue {
           await this.uncertain('Mất kết nối khi lưu thao tác. Đang đồng bộ lại làng.');
           return;
         }
+        if (this.stopped) return;
         if (!response.state && !response.error) {
           await this.uncertain('Máy chủ chưa trả về trạng thái làng. Đang đồng bộ lại.');
           return;

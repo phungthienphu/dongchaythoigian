@@ -8,6 +8,9 @@ import { knowsNation } from "./world-discovery";
 import { reserveMarchFood, marchLogistics } from "./march-supplies";
 import { worldDist } from "./world";
 import { battleReport } from "./battle-report";
+import { cookies } from "next/headers";
+import { readSessionClaims, SESSION_COOKIE } from "./auth";
+import { updateWorkerSession } from "./session-worker";
 
 export type BattleDoc = {
   _id: string; attackerId: string; defenderId: string; attackerName: string; defenderName: string;
@@ -41,8 +44,13 @@ export function workerAuthorized(req: Request) {
   const a = Buffer.from(`Bearer ${want}`), b = Buffer.from(got);
   return a.length === b.length && timingSafeEqual(a, b);
 }
-export function socketUrl(roomId: string, playerId: string, side: "attacker" | "defender") {
-  const payload = Buffer.from(JSON.stringify({ roomId, playerId, side, exp: Math.floor(Date.now() / 1000) + 300 })).toString("base64url");
+export async function socketUrl(roomId: string, playerId: string, side: "attacker" | "defender") {
+  const session = readSessionClaims((await cookies()).get(SESSION_COOKIE)?.value);
+  if (!session) throw new Error("Phiên đăng nhập đã hết hiệu lực.");
+  // Also initializes the fence for a newly created village. An older version
+  // cannot overwrite a newer login, even when requests arrive out of order.
+  await updateWorkerSession(playerId, session.sessionVersion);
+  const payload = Buffer.from(JSON.stringify({ roomId, playerId, side, sessionVersion: session.sessionVersion, exp: Math.floor(Date.now() / 1000) + 300 })).toString("base64url");
   const sig = createHmac("sha256", process.env.BATTLE_SERVER_SECRET!).update(payload).digest("base64url");
   return `${workerOrigin().replace(/^http/, "ws")}/rooms/${encodeURIComponent(roomId)}/socket?ticket=${payload}.${sig}`;
 }

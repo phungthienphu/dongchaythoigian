@@ -37,3 +37,15 @@ test('live deposits survive the next action and a delayed server snapshot',async
  const old=structuredClone(initial);settle(old,1000);
  assert.equal(q.setAuthoritative(old),true);assert.equal(shown.res.wood,wood);
 });
+
+test('revoking a session discards queued commands and ignores an in-flight response',async()=>{
+ const gate=deferred<CityActionResponse>(); const initial=city(); let publishes=0, sends=0;
+ const q=new OptimisticCityQueue({state:initial,now:()=>0,onState:()=>{publishes++;},send:async()=>{sends++;return gate.promise;},onUncertain:async()=>initial});
+ const first=q.enqueue(toggle(false)); const second=q.enqueue(toggle(true));
+ q.stop(); const before=publishes;
+ assert.equal(await first,false);assert.equal(await second,false);
+ gate.resolve({state:applied(initial,toggle(false))});await flush();
+ assert.equal(sends,1);assert.equal(publishes,before);
+ assert.equal(await q.enqueue(toggle(false)),false);
+ assert.equal(q.setAuthoritative(initial),false);q.advance(1000);assert.equal(publishes,before);
+});

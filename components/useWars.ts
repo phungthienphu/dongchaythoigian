@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WarLoadStatus } from "@/lib/world-service-status";
 import type { WarView } from "@/lib/war-view";
+import { sessionEnded } from '@/lib/session-client';
 export type WarSummary = WarView & { side: "attacker" | "defender" };
 export function useWars(ready: boolean, onUpdate: () => void) {
   const [wars, setWars] = useState<WarSummary[]>([]);
@@ -45,7 +46,11 @@ export function useWars(ready: boolean, onUpdate: () => void) {
             clearTimeout(renew);
             renew = setTimeout(() => { socket = null; ws.onclose = null; ws.close(); void refresh(); }, 240_000);
           };
-          ws.onmessage = () => { if (!disposed) { void refresh(); updateRef.current(); } };
+          ws.onmessage = event => {
+            if (disposed) return;
+            try { if (JSON.parse(event.data).type === 'session-ended') { sessionEnded(); return; } } catch { return; }
+            void refresh(); updateRef.current();
+          };
           ws.onclose = schedule; ws.onerror = () => ws.close();
         }
       } catch (error) { if (!disposed && request === generation) { setStatus("error");setError(error instanceof Error && error.message.includes("đăng nhập") ? error.message : "Không tải được trạng thái trận đánh. Đang thử kết nối lại…"); schedule(); } }

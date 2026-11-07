@@ -145,5 +145,5 @@ export async function marketData(pid:string,target?:string):Promise<MarketData>{
  const active=await ships.find({$or:[{seller:pid},{buyer:pid},{'raid.by':pid}],status:{$ne:'completed'}}).limit(100).toArray();
  const selected=target?await ships.findOne({_id:target,$or:[{seller:pid},{buyer:pid},{'raid.by':pid}]}):null;
  const rows=[...new Map([...ownRows,...active,...visible,...(selected?[selected]:[])].map(s=>[s._id,s])).values()];
- return {socket:warConfigured()?socketUrl("market-feed",pid,"defender"):null,orders,caravans:rows.flatMap(s=>{const v=caravanView(s,pid,me.state);return v?[v]:[];}),playerId:pid,enabled:hasMarket(me.state),serverNow:Date.now()};
+ return {socket:warConfigured()?await socketUrl("market-feed",pid,"defender"):null,orders,caravans:rows.flatMap(s=>{const v=caravanView(s,pid,me.state);return v?[v]:[];}),playerId:pid,enabled:hasMarket(me.state),serverNow:Date.now()};
 }

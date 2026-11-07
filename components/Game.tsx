@@ -44,6 +44,7 @@ import MarketPanel from "./MarketPanel";
 import { useMarket } from "./useMarket";
 import { useWars } from "./useWars";
 import { OptimisticCityQueue } from "@/lib/optimistic-city";
+import { SESSION_ENDED_EVENT, SESSION_ENDED_MESSAGE } from "@/lib/session-client";
 import type { Nation } from "@/lib/world";
 
 const VISIT_VIEW = { hover: null, selected: null, tool: null, picked: new Set<number>() };
@@ -358,6 +359,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const panelRef = useRef(panel); panelRef.current = panel;
   const cityRef = useRef<City | null>(null);
   const actionQueue = useRef<OptimisticCityQueue | null>(null);
+  const sessionEndedRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const dRef = useRef<Derived | null>(null);
   const offsetRef = useRef(0);
@@ -386,7 +388,21 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const now = () => Date.now() + offsetRef.current;
   const bump = () => setVersion((v) => v + 1);
 
+  const stopSession = useCallback(() => {
+    sessionEndedRef.current = true;
+    actionQueue.current?.stop();
+    cityRef.current = null; dRef.current = null; visitRef.current = null;
+    setMe({ user: null, friends: [] }); setNeedsName(true); setLoading(false);
+    setBattleOpen(null); setWorldOpen(false); setSaving(false); setBusy(false);
+    setMsg({ text: SESSION_ENDED_MESSAGE, err: true });
+  }, []);
+  useEffect(() => {
+    window.addEventListener(SESSION_ENDED_EVENT, stopSession);
+    return () => window.removeEventListener(SESSION_ENDED_EVENT, stopSession);
+  }, [stopSession]);
+
   const accept = useCallback((data: { state: City; serverNow: number; name?: string }) => {
+    if (sessionEndedRef.current) return false;
     offsetRef.current = data.serverNow - Date.now();
     const publish = (state: City) => {
       cityRef.current = state;
@@ -404,6 +420,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
             method: "POST", signal: AbortSignal.timeout(15_000),
             headers: { "content-type": "application/json", "x-action-id": requestId }, body: JSON.stringify(action),
           });
+          if (res.status === 401) { stopSession(); return { error: SESSION_ENDED_MESSAGE }; }
           const response = await res.json();
           if (response.serverNow) offsetRef.current = response.serverNow - Date.now();
           if (!res.ok && !response.error) throw new Error("Không lưu được thao tác.");
@@ -425,23 +442,30 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     }
     if (data.name) setName(data.name);
     return true;
-  }, []);
+  }, [stopSession]);
 
   const loadCity = useCallback(() => reads.current.run("city", async () => {
     try {
+    if (sessionEndedRef.current) return;
     if (actionQueue.current?.isPending) return;
     const generation = actionQueue.current?.version;
     const res = await fetch("/api/city", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
-    if (res.status === 401 || res.status === 404) { setNeedsName(true); setLoading(false); return; }
+    if (res.status === 401) {
+      if (cityRef.current) stopSession();
+      else { setNeedsName(true); setLoading(false); const data = await res.json(); if (data.sessionEnded) setMsg({ text: SESSION_ENDED_MESSAGE, err: true }); }
+      return;
+    }
+    if (res.status === 404) { setNeedsName(true); setLoading(false); return; }
     if (!res.ok) { const data=await res.json().catch(()=>({})); setMsg({ text: data.error ?? "Không tải được thành phố. Thử kết nối lại.", err: true }); setLoading(false); return; }
     const data = await res.json();
+    if (sessionEndedRef.current) return;
     if (actionQueue.current && (actionQueue.current.isPending || generation !== actionQueue.current.version)) return;
     accept(data);
     setShopEra(data.state.era);
     setNeedsName(false);
     setLoading(false);
     } catch { setMsg({text:"Mất kết nối khi tải làng. Hãy tải lại trang.",err:true});setLoading(false); }
-  }), [accept]);
+  }), [accept, stopSession]);
 
 
   const loadWorld = useCallback(() => reads.current.run("world", async () => {
@@ -498,10 +522,15 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
   const loadMe = useCallback(() => reads.current.run("me", async () => {
     try {
+    if (sessionEndedRef.current) return;
     const res = await fetch("/api/me", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
-    if (res.ok) setMe(await res.json());
+    if (res.ok) {
+      const data = await res.json();
+      if (sessionEndedRef.current) return;
+      if (!data.user && cityRef.current) stopSession(); else setMe(data);
+    }
     } catch { /* Retain the last known identity until the next refresh. */ }
-  }), []);
+  }), [stopSession]);
 
   const loadBoard = useCallback(() => reads.current.run("board", async () => {
     try {
@@ -513,7 +542,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   useEffect(() => {
     void loadCity(); void loadMe();
     const authErr = new URLSearchParams(location.search).get("auth");
-    if (authErr) { setMsg({ text: "Đăng nhập Google không thành công, thử lại.", err: true }); history.replaceState(null, "", "/"); }
+    if (authErr) { setMsg({ text: authErr === 'session' ? "Chưa xác nhận được phiên chơi trên máy chủ trận đánh. Hãy thử đăng nhập lại." : "Đăng nhập Google không thành công, thử lại.", err: true }); history.replaceState(null, "", "/"); }
     const tick = setInterval(() => {
       const c = cityRef.current;
       if (!c) return;

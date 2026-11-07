@@ -102,7 +102,7 @@ export default function WelcomeScreen({ user, name, onName, onCreate, busy, mess
           <p id="village-name-hint">Từ 2–24 ký tự. Bạn sẽ bắt đầu ở thời đồ đá với 5 dân làng.</p>
           <button type="submit" disabled={busy || name.trim().length < 2}>{busy ? "Đang dựng làng…" : "Dựng làng mới"}<span aria-hidden="true">→</span></button>
         </form>}
-        {!user && <p className="welcome-login-note">Cần tài khoản Google để chơi. Nếu đã có làng, hãy dùng đúng tài khoản bạn đã đăng nhập trước đó.</p>}
+        {!user && <p className="welcome-login-note">Cần tài khoản Google để chơi. Mỗi tài khoản chơi trên một trình duyệt tại một thời điểm; đăng nhập ở máy mới sẽ ngắt phiên chơi cũ.</p>}
         {message && <p className={`welcome-message${message.err ? " is-error" : ""}`} role={message.err ? "alert" : "status"}>{message.text}</p>}
         <div className="welcome-first-steps">
           <h3>Những việc đầu tiên</h3>

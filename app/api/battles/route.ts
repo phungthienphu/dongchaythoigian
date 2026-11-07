@@ -17,7 +17,7 @@ export async function GET() {
   }
   const mine=await (await cities()).findOne({_id:pid},{projection:{state:1}});
   if(!mine) return NextResponse.json({error:"Chưa có thành phố."},{status:401});
-  return NextResponse.json({ enabled: warConfigured(), playerId: pid, socket: warConfigured() ? socketUrl(`player-${pid}`, pid, "defender") : null,
+  return NextResponse.json({ enabled: warConfigured(), playerId: pid, socket: warConfigured() ? await socketUrl(`player-${pid}`, pid, "defender") : null,
     battles: rows.map((r) => ({ ...warView(r,pid,mine.state), side: r.attackerId === pid ? "attacker" : "defender" })) });
 }
 export async function POST(req: Request) {

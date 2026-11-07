@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE, SESSION_MAX_AGE, appUrl, cookieOpts, makeSession, newFriendCode } from "@/lib/auth";
+import { SESSION_COOKIE, SESSION_MAX_AGE, appUrl, cookieOpts, startSession, newFriendCode } from "@/lib/auth";
 import { cities, users } from "@/lib/db";
 import { PID_COOKIE } from "@/lib/city-store";
 
@@ -57,9 +57,12 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  let session: string;
+  try { session = await startSession(g.sub); }
+  catch { return fail("session"); }
   const res = NextResponse.redirect(`${appUrl()}/`);
   res.cookies.delete("oauth_state");
-  res.cookies.set(SESSION_COOKIE, makeSession(g.sub), cookieOpts(SESSION_MAX_AGE));
+  res.cookies.set(SESSION_COOKIE, session, cookieOpts(SESSION_MAX_AGE));
   if (cityId) res.cookies.set(PID_COOKIE, cityId, cookieOpts(SESSION_MAX_AGE));
   else res.cookies.delete(PID_COOKIE);
   return res;

@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { cities, users, type CityDoc } from "./db";
+import { cities, type CityDoc } from "./db";
 import { SESSION_COOKIE, readSession, currentUser } from "./auth";
 import { ENGINE_VER, score, settle, enrichCopperDeposits, enrichPreciousDeposits, normalizeResources, type City } from "./engine";
 
@@ -16,11 +16,9 @@ export class UnsupportedCityVersionError extends Error {
  * The legacy pid cookie is retained only for first-login adoption in the OAuth callback.
  */
 export async function playerId() {
-  const uid = readSession((await cookies()).get(SESSION_COOKIE)?.value);
-  if (!uid) return null;
-  const user = await (await users()).findOne({ _id: uid }, { projection: { cityId: 1 } });
+  const user = await currentUser();
   if (!user?.cityId) return null;
-  const owned = await (await cities()).findOne({ _id: user.cityId, owner: uid }, { projection: { _id: 1 } });
+  const owned = await (await cities()).findOne({ _id: user.cityId, owner: user._id }, { projection: { _id: 1 } });
   return owned?._id ?? null;
 }
 
