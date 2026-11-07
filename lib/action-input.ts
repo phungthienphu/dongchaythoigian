@@ -56,7 +56,7 @@ export function isActionInput(value: unknown): value is Action {
     case 'advance': case 'alarm': return true;
     case 'build': return known(BUILDINGS, value.k) && point(value) && (!own(value,'confirmFinal')||typeof value.confirmFinal==='boolean');
     case 'upgradeStorage': return point(value) && RESOURCES.includes(value.resource as typeof RESOURCES[number]);
-    case 'plantTree': case 'toggleBuilding': case 'buildShip': case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'speedBuild': return point(value);
+    case 'plantTree': case 'toggleBuilding': case 'buildShip': case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'tendFarmGroup': case 'speedBuild': return point(value);
     case 'relocateDock': return point(value) && tile(value.to);
     case 'moveSoldier': return typeof value.id === 'string' && /^(club|sling|spear|bow|sword|elephant|wagon|medic|crossbow|cavalry|musket|cannon|infantry|armor):\d{1,3}$/.test(value.id) && point(value);
     case 'train': return known(UNITS, value.u) && integer(value.n, 1, 50);

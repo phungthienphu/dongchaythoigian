@@ -2385,6 +2385,27 @@ export const farmCapacity = (b: Building) => 600 * Math.max(1,b.lvl)*(b.k==="est
 export const farmRemaining = (b: Building) => Math.max(0,b.fertility ?? farmCapacity(b));
 export const farmTendCost = (b: Building, era = 1): Partial<Res> => eraCost({ food: 20*Math.max(1,b.lvl)*(b.k==="estate"?4:1), wood: 5*Math.max(1,b.lvl)*(b.k==="estate"?4:1) }, era, 2);
 
+/** Only cardinally connected fields belong to the selected farming cluster.
+ * Healthy or already tended fields connect the cluster but are never charged. */
+export function farmGroupCareQuote(c:City,start:number){
+  const seen=new Set<number>(),queue:number[]=[],tiles:number[]=[],cost:Partial<Res>={};
+  if(c.b[start]&&isField(c.b[start].k)){seen.add(start);queue.push(start);}
+  for(let n=0;n<queue.length;n++){
+    const tile=queue[n],b=c.b[tile],x=tile%W,y=Math.floor(tile/W);
+    if(isBuildingActive(b)&&!b.doneAt&&!b.tendUntil&&farmRemaining(b)<farmCapacity(b)){
+      tiles.push(tile);const single=farmTendCost(b,c.era);
+      for(const r of RES)if(single[r])cost[r]=(cost[r]??0)+single[r]!;
+    }
+    for(const [dx,dy]of N4)if(inb(x+dx,y+dy)){
+      const next=idx(x+dx,y+dy);
+      if(!seen.has(next)&&c.b[next]&&isField(c.b[next].k)){seen.add(next);queue.push(next);}
+    }
+  }
+  tiles.sort((a,b)=>a-b);
+  const error=c.era<3?'Chăm ruộng hàng loạt mở từ Thời đồ sắt.':!queue.length?'Chọn một ruộng trong cụm nối cạnh nhau.':!tiles.length?'Cụm này không có ruộng cần chăm hoặc đang cải tạo/cháy/ngập.':missing(c,cost);
+  return {tiles,cost,connected:queue.length,error};
+}
+
 function beginFarmCare(c:City,b:Building,tile:number,cost:Partial<Res>,at:number){
   pay(c,cost);b.tendUntil=at+FARM_TEND_MS;
   // Only unfinished harvesting is canceled. Paid-for cargo still reaches storage.
@@ -2427,6 +2448,7 @@ export type Action =
   | { type: "relocateDock"; x: number; y: number; to: number }
   | { type: "speedBuild"; x: number; y: number }
   | { type: "tendFarm"; x: number; y: number }
+  | { type: "tendFarmGroup"; x: number; y: number }
   | { type: "demolish"; x: number; y: number }
   | { type: "moveSoldier"; id: string; x: number; y: number }
   | { type: "setGuardPosts"; posts: { x: number; y: number }[] }
@@ -2483,6 +2505,12 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     // Use the normal construction completion path, including staffing and wonders.
     completeBuilding(c,b,now);autoStaff(c, now);
     log(c,now,`Dùng ${cost} kim cương hoàn tất ${def(b.k).n}.`,"good");return null;
+  }
+  if(a.type==='tendFarmGroup'){
+    const quote=farmGroupCareQuote(c,idx(a.x,a.y));if(quote.error)return quote.error;
+    for(const tile of quote.tiles)beginFarmCare(c,c.b[tile],tile,farmTendCost(c.b[tile],c.era),now);
+    log(c,now,`Đang chăm ${quote.tiles.length} ruộng trong cụm nối cạnh; đã trả đủ phí, hoàn tất sau 30 giây.`);
+    return null;
   }
   if (a.type === "tendFarm") {
     const b=c.b[idx(a.x,a.y)];
