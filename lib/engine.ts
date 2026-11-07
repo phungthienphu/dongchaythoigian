@@ -1,3 +1,4 @@
+import {stepHunger,type HungerState} from './hunger';
 import {ERA_UNITS} from './era-military';
 import {selectTowerTiles,towerLimit} from './tower-balance';
 import {MODERN_BUILDINGS,initializeModern,stepPower,serviceBonus,powerFraction,finalWonderError,completedWonder,floodProtection,retentionProtected,scheduleModernFlood,recoverModernFloods,canToggle,operationJobs,type ModernState,type PowerGroup} from './modern';
@@ -232,6 +233,8 @@ export type City = {
   wheelFuelStartsAt?: number;
   gatherFoodStartsAt?: number;
   farmAutoStartsAt?: number;
+  hungerStartsAt?: number;
+  hunger?: HungerState;
   ver: number;
   seed: number;
   t: number[];
@@ -558,7 +561,7 @@ export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
     ver: ENGINE_VER, seed, t, seen: new Array(W * H).fill(0), oldbed: [], xs, camp, b: {}, dep: {}, herds,
     people: [], nextId: 1,
     res: { food: 100, wood: 120, stone: 30, copper: 0, gold: 0, diamond: 0, coal:0 }, pop: 0, popAcc: 0, era: 1,
-    t0: now, last: now, upkeepStartsAt:now, wheelFuelStartsAt:now, gatherFoodStartsAt:now, farmAutoStartsAt:now, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
+    t0: now, last: now, upkeepStartsAt:now, wheelFuelStartsAt:now, gatherFoodStartsAt:now, farmAutoStartsAt:now, hungerStartsAt:now, hunger:{stressMs:0,lossMs:0,warned:0}, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
   };
   enrichCopperDeposits(c);
   enrichPreciousDeposits(c);
@@ -2206,6 +2209,7 @@ export function settle(c: City, now: number) {
   c.wheelFuelStartsAt??=now;
   c.gatherFoodStartsAt??=now;
   c.farmAutoStartsAt??=now;
+  c.hungerStartsAt??=now;
   if (now <= c.last) return;
   let t = c.haulAt ?? c.last;
   c.haulAt = t;
@@ -2308,10 +2312,13 @@ export function settle(c: City, now: number) {
     for (const herd of c.herds) if (herd.n < herd.max) herd.n = Math.min(herd.max, herd.n + HERD_REGROW * h);
 
     const popBefore = c.people.length;
-    if (c.res.food < 0) {
+    const shortage=c.res.food<0;
+    if(t>=c.hungerStartsAt)stepHunger(c,nt,nt-t,shortage);
+    if (shortage) {
       c.res.food = 0;
-      c.popAcc -= h * 6;
-    } else if (c.people.length < st.housing) {
+      if(t<c.hungerStartsAt)c.popAcc-=h*6;else c.popAcc=0;
+    } else if ((c.hunger?.stressMs??0)>0) c.popAcc=0;
+    else if (c.people.length < st.housing) {
       c.popAcc += h * POP_GROWTH_PER_HOUR * (1 + st.fires*fireEff)*pollutionBirth(c)*serviceBonus(c,services,hauling.civic.bonus).birth;
     } else c.popAcc = 0;
     while (c.popAcc >= 1 && c.people.length < st.housing) { addPerson(c); c.popAcc--; autoStaff(c, nt); }
