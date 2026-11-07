@@ -19,7 +19,9 @@ gom 10 giây cho **tất cả người chơi**, thay cho canary riêng một là
   memory dài hạn và theo dõi cùng tải >=48 giờ vẫn chưa nghiệm thu.
 - MongoDB vẫn là nguồn chính. Combat Worker không có thay đổi cần deploy lại;
   Village Worker vẫn là prototype synthetic riêng, chưa nhận làng thật.
-- Ruộng tự cải tạo và quản lý sa thải/đuổi lính thuộc các đợt sau.
+- Sau bản đồng bộ, đã hoàn thiện riêng gameplay ruộng tự cải tạo, đói và
+  quản lý sa thải/đuổi lính. Xem [báo cáo phát hành](./release-report-2026-11-07.md).
+  Các dòng “không đổi engine” phía trên chỉ mô tả đợt đồng bộ trước đó.
 
 ## Mốc phát hành ban đầu đã xác minh (lịch sử)
 
