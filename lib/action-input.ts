@@ -25,6 +25,7 @@ const integer = (value: unknown, min = 0, max = Number.MAX_SAFE_INTEGER): value 
 const tile = (value: unknown) => integer(value, 0, MAP_SIDE * MAP_SIDE - 1);
 const point = (value: unknown) => record(value) && integer(value.x, 0, MAP_SIDE - 1) && integer(value.y, 0, MAP_SIDE - 1);
 const known = (table: object, value: unknown) => typeof value === 'string' && own(table, value);
+const orientation=(value:unknown)=>value==='auto'||value==='x'||value==='y';
 function task(value: unknown) {
   if (!record(value) || !own(value, 't')) return false;
   switch (value.t) {
@@ -54,7 +55,8 @@ export function isActionInput(value: unknown): value is Action {
   switch (value.type) {
     case 'setPowerPriority': return Array.isArray(value.priority)&&value.priority.length===3&&new Set(value.priority).size===3&&value.priority.every(p=>['essential','housing','production'].includes(p));
     case 'advance': case 'alarm': return true;
-    case 'build': return known(BUILDINGS, value.k) && point(value) && (!own(value,'confirmFinal')||typeof value.confirmFinal==='boolean');
+    case 'build': return known(BUILDINGS, value.k) && point(value) && (!own(value,'confirmFinal')||typeof value.confirmFinal==='boolean') && (!own(value,'orientation')||(value.k==='wall'||value.k==='gate')&&orientation(value.orientation));
+    case 'orientDefense': return point(value)&&orientation(value.orientation);
     case 'upgradeStorage': return point(value) && RESOURCES.includes(value.resource as typeof RESOURCES[number]);
     case 'plantTree': case 'toggleBuilding': case 'buildShip': case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'tendFarmGroup': case 'speedBuild': return point(value);
     case 'relocateDock': case 'connectBridge': return point(value) && tile(value.to);

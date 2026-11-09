@@ -1,3 +1,4 @@
+import {isFortification,type DefenseOrientation} from './fortifications';
 import {stepHunger,type HungerState} from './hunger';
 import {ERA_UNITS} from './era-military';
 import {selectTowerTiles,towerLimit} from './tower-balance';
@@ -202,7 +203,7 @@ const ERA_UP: Record<number, string> = {
 export const storageLevel = (b: Building, r: ResKey) => b.storageLevels?.[r] ?? b.lvl;
 
 /** Optional metadata preserves old saves without inventing construction dates. */
-export type Building = { bridge?:BridgeSpan; builtAt?: number; investment?: Partial<Res>; investmentEstimated?: boolean; stranded?: boolean; relocation?: { from: number; startedAt: number; duration: number }; floodUntil?:number; off?:boolean; damageCause?: 'earthquake'; shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
+export type Building = { orientation?:Exclude<DefenseOrientation,'auto'>; bridge?:BridgeSpan; builtAt?: number; investment?: Partial<Res>; investmentEstimated?: boolean; stranded?: boolean; relocation?: { from: number; startedAt: number; duration: number }; floodUntil?:number; off?:boolean; damageCause?: 'earthquake'; shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
 export type Task =
   | { t: "idle"; at?: number } // at = where they stand and wait
   | { t: "work"; at: number }
@@ -2634,7 +2635,8 @@ export function armyReleaseQuote(c:City,units:Troops,mode:'demobilize'|'expel',a
 }
 
 export type Action =
-  | { type: "build"; k: BKey; x: number; y: number; confirmFinal?:boolean }
+  | { type: "build"; k: BKey; x: number; y: number; confirmFinal?:boolean; orientation?:DefenseOrientation }
+  | { type: "orientDefense"; x:number; y:number; orientation:DefenseOrientation }
   | { type: "upgradeStorage"; resource: ResKey; x: number; y: number }
   | { type: "upgrade"; x: number; y: number }
   | { type: "repair"; x: number; y: number }
@@ -2857,10 +2859,15 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     if (err) return err;
     const cost = buildingCost(a.k, c.era);
     pay(c, cost);
-    c.b[i] = { k: a.k, lvl: 0, doneAt: now + buildMs(a.k, 1), investment: {...cost} };
+    c.b[i] = { k: a.k, lvl: 0, doneAt: now + buildMs(a.k, 1), investment: {...cost}, ...((a.k==='wall'||a.k==='gate')&&a.orientation&&a.orientation!=='auto'?{orientation:a.orientation}:{}) };
     return null;
   }
   if (!b) return "Ô này trống.";
+  if(a.type==='orientDefense'){
+    if(!isFortification(b))return 'Chỉ xoay tường thành hoặc cổng làng.';
+    if(a.orientation==='auto')delete b.orientation;else b.orientation=a.orientation;
+    return null;
+  }
   if (a.type === "demolish") {
     const quote = demolitionQuote(c, i, now);
     if (quote.error) return quote.error;

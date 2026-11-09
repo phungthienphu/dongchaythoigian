@@ -9,10 +9,10 @@ import { stripTypeScriptTypes } from 'node:module';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dong-render-check-'));
 try {
-  for (const [input, name] of [['lib/bridges.ts','bridges'], ['lib/economy-balance.ts','economy-balance'], ['lib/resource-history.ts','resource-history'], ['lib/hunger.ts','hunger'], ['lib/tower-balance.ts','tower-balance'], ['lib/industry.ts','industry'], ['lib/modern.ts','modern'], ['lib/era-military.ts','era-military'], ['lib/eras.ts','eras'], ['lib/medieval.ts','medieval'], ['lib/bounded-cache.ts', 'bounded-cache'], ['lib/action-input.ts', 'action-input'], ['lib/engine.ts', 'engine'], ['lib/villager-mood.ts','villager-mood'], ['lib/build-placement.ts', 'build-placement'], ['components/villager-art.ts', 'villager-art'], ['components/actor-art.ts', 'actor-art'], ['components/trade-actors.ts', 'trade-actors'], ['components/draw.ts', 'draw'], ['components/villagers.ts', 'villagers']]) {
+  for (const [input, name] of [['lib/fortifications.ts','fortifications'], ['lib/bridges.ts','bridges'], ['lib/economy-balance.ts','economy-balance'], ['lib/resource-history.ts','resource-history'], ['lib/hunger.ts','hunger'], ['lib/tower-balance.ts','tower-balance'], ['lib/industry.ts','industry'], ['lib/modern.ts','modern'], ['lib/era-military.ts','era-military'], ['lib/eras.ts','eras'], ['lib/medieval.ts','medieval'], ['lib/bounded-cache.ts', 'bounded-cache'], ['lib/action-input.ts', 'action-input'], ['lib/engine.ts', 'engine'], ['lib/villager-mood.ts','villager-mood'], ['lib/build-placement.ts', 'build-placement'], ['components/villager-art.ts', 'villager-art'], ['components/actor-art.ts', 'actor-art'], ['components/trade-actors.ts', 'trade-actors'], ['components/draw.ts', 'draw'], ['components/villagers.ts', 'villagers']]) {
     const output = stripTypeScriptTypes(fs.readFileSync(path.join(root, input), 'utf8'))
       .replaceAll('"./eras"', '"./eras.js"').replaceAll('"./medieval"', '"./medieval.js"').replaceAll('"./bounded-cache"', '"./bounded-cache.js"').replaceAll('"@/lib/bounded-cache"', '"./bounded-cache.js"').replaceAll('"./action-input"', '"./action-input.js"').replaceAll('"@/lib/villager-mood"', '"./villager-mood.js"').replaceAll('"@/lib/engine"', '"./engine.js"').replaceAll('"@/lib/build-placement"', '"./build-placement.js"').replaceAll("'./engine'", "'./engine.js'").replaceAll('"./villager-art"', '"./villager-art.js"').replaceAll('"./actor-art"', '"./actor-art.js"').replaceAll('"./trade-actors"', '"./trade-actors.js"').replaceAll('"./draw"', '"./draw.js"').replaceAll('"./villagers"', '"./villagers.js"');
-    fs.writeFileSync(path.join(temp, `${name}.js`), output.replace(/from (['"])(?:@\/lib\/|\.\/)(bridges|economy-balance|resource-history|hunger|industry|modern|medieval|eras|era-military|tower-balance)\1/g, 'from $1./$2.js$1'));
+    fs.writeFileSync(path.join(temp, `${name}.js`), output.replace(/from (['"])(?:@\/lib\/|\.\/)(fortifications|bridges|economy-balance|resource-history|hunger|industry|modern|medieval|eras|era-military|tower-balance)\1/g, 'from $1./$2.js$1'));
   }
   fs.writeFileSync(path.join(temp, 'package.json'), '{"type":"module"}');
   const { visibleTileBounds, fitView, camView, focusOn, pickBuilding, pickVillageTarget, pickHomeSoldier } = await import(pathToFileURL(path.join(temp, 'draw.js')).href);
@@ -203,6 +203,34 @@ const lonePerson={...blockingPerson,fx:15.5,fy:15.5};
 assert.equal(pickVillageTarget(pickView,pickCity,[lonePerson],1,...project(15.5,15.5,10))?.type,'person','people on empty terrain remain selectable');
 console.log('PASS: building click survives actor overlap; modifier selects person; empty-ground people remain selectable.');
 console.log('PASS: roof/base building picking, adjacent empty/fog/air rejection, frontmost overlap and three-era envoy heights.');
+
+// Every arm painted for an automatic junction must remain clickable after rotation.
+const {wallHeight}=await import(pathToFileURL(path.join(temp,'fortifications.js')).href);
+const {drawBuilding}=await import(pathToFileURL(path.join(temp,'draw.js')).href);
+const wallCity=newCity(0,123);wallCity.t.fill(G);wallCity.seen.fill(1);wallCity.people=[];
+let wallChecks=0,wallOps=0;
+const wallContext=new Proxy({}, {set(){return true;},get(_,key){
+ if(key==='measureText')return text=>({width:String(text).length*7});
+ return (...args)=>{assert.ok(args.every(value=>typeof value!=='number'||Number.isFinite(value)),`wall/gate non-finite ${String(key)}`);wallOps++;};
+}});
+for(let era=1;era<=6;era++)for(let level=1;level<=3;level++)for(let mask=0;mask<16;mask++){
+ wallCity.era=era;wallCity.b={[idx(10,10)]:{k:'wall',lvl:level,doneAt:null}};wallCity.seen.fill(0);wallCity.seen[idx(10,10)]=1;
+ const directions=[[0,-1,1],[1,0,2],[0,1,4],[-1,0,8]];
+ for(const [dx,dy,bit]of directions)if(mask&bit)wallCity.b[idx(10+dx,10+dy)]={k:'wall',lvl:level,doneAt:null};
+ const h=wallHeight(era,level);
+ for(const [dx,dy,bit]of directions)if((mask||10)&bit)assert.deepEqual(pickBuilding(pickView,wallCity,...project(10.5+dx*.35,10.5+dy*.35,h)),{x:10,y:10},`wall arm era${era} level${level} mask${mask} direction${bit}`);
+ const rc={c:wallContext,v:pickView,city:wallCity,D:{},anim:0,now:0,season:0,deck:new Set()};
+ drawBuilding(rc,'wall',10,10,level,idx(10,10));assert.equal(rc.turn,undefined);wallChecks++;
+}
+for(let era=1;era<=6;era++)for(let level=1;level<=3;level++)for(const orientation of ['x','y']){
+ wallCity.era=era;wallCity.b={[idx(10,10)]:{k:'gate',lvl:level,doneAt:null,orientation}};
+ const rc={c:wallContext,v:pickView,city:wallCity,D:{},anim:0,now:0,season:0,deck:new Set()};
+ drawBuilding(rc,'gate',10,10,level,idx(10,10));assert.equal(rc.turn,undefined,'gate rotation must not rotate later buildings');
+ const u=orientation==='x'?.36:0,v=orientation==='y'?.36:0;
+ assert.deepEqual(pickBuilding(pickView,wallCity,...project(10.5+u,10.5+v,8)),{x:10,y:10},`rotated gate pier era${era}`);wallChecks++;
+}
+assert.ok(wallOps>10000);
+console.log(`PASS: ${wallChecks} wall/gate patterns across six eras and three levels; finite art, clickable arms/piers and isolated rotation.`);
 
 // Canal floors sit below ground and their connected arms extend beyond the center box.
 const canalCity=newCity(0,123);canalCity.t.fill(G);canalCity.seen.fill(1);canalCity.b={};canalCity.people=[];

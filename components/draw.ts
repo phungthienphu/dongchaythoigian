@@ -1,3 +1,4 @@
+import {defenseAxis,wallMask,wallOutline,wallFootprints,wallHeight,WALL_N,WALL_E,WALL_S,WALL_W,type DefenseOrientation,type DefensePreview} from '@/lib/fortifications';
 import {bridgeDeck,bridgeGeometry,bridgeReady} from '@/lib/bridges';
 import { drawVillagerArt } from "./villager-art";
 import { drawAnimalArt, drawSoldierArt, drawFutureArt } from "./actor-art";
@@ -108,7 +109,7 @@ function hr(seed: number, n: number) {
 
 /* ---------- render context ---------- */
 type Ctx = CanvasRenderingContext2D;
-type RC = { c: Ctx; v: View; city: City; D: Derived; anim: number; now: number; season: number; deck:ReadonlySet<number> };
+type RC = { c: Ctx; v: View; city: City; D: Derived; anim: number; now: number; season: number; deck:ReadonlySet<number>; defensePreview?:DefensePreview; turn?:boolean };
 type Pt = [number, number];
 
 const P = (v: View, fx: number, fy: number, z = 0): Pt => [v.ox + ((fx - fy) * v.TW) / 2, v.oy + ((fx + fy) * v.TH) / 2 - z];
@@ -125,11 +126,12 @@ function poly(c: Ctx, pts: Pt[], fill: string) {
 /** Tile-local projector: u, v in [-0.5, 0.5] around the tile centre; z in design units (scaled by s). */
 function tp(r: RC, x: number, y: number) {
   const s = r.v.s;
-  return (u: number, v: number, z = 0): Pt => P(r.v, x + 0.5 + u, y + 0.5 + v, z * s);
+  return (u: number, v: number, z = 0): Pt => P(r.v, x + 0.5 + (r.turn?v:u), y + 0.5 + (r.turn?u:v), z * s);
 }
 
 function box(r: RC, x: number, y: number, u0: number, v0: number, u1: number, v1: number, z0: number, z1: number, top: string, left: string, right: string) {
   const q = tp(r, x, y), c = r.c;
+  if(r.turn)[left,right]=[right,left];
   poly(c, [q(u0, v1, z0), q(u1, v1, z0), q(u1, v1, z1), q(u0, v1, z1)], left);
   poly(c, [q(u1, v0, z0), q(u1, v1, z0), q(u1, v1, z1), q(u1, v0, z1)], right);
   poly(c, [q(u0, v0, z1), q(u1, v0, z1), q(u1, v1, z1), q(u0, v1, z1)], top);
@@ -448,6 +450,8 @@ function frontExtras(r: RC, k: BKey, x: number, y: number, lvl: number, i: numbe
 }
 
 export function drawBuilding(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) {
+  if(k==='wall'){drawConnectedWall(r,x,y,lvl);return;}
+  if(k==='gate')r={...r,turn:defenseAxis(r.city,idx(x,y),r.defensePreview)==='y'};
   if (lvl >= 2) backExtras(r, k, x, y, lvl, i);
   if(!drawFutureDefense(r,k,x,y,lvl,i)&&!drawSupportBuilding(r,k,x,y,lvl,i))drawBase(r, k, x, y, lvl, i);
   if(r.city.era>=4&&B[k].era<4&&!['wall','gate','watchtower','farm','canal','levee','temple'].includes(k)){
@@ -460,17 +464,53 @@ export function drawBuilding(r: RC, k: BKey, x: number, y: number, lvl: number, 
   if (lvl >= 2) frontExtras(r, k, x, y, lvl, i);
 }
 
+/** Connected outline shares its geometry with selection; no internal faces at corners. */
+function drawConnectedWall(r:RC,x:number,y:number,lvl:number){
+ const mask=wallMask(r.city,idx(x,y),r.defensePreview),era=r.city.era,h=wallHeight(era,lvl),q=tp(r,x,y),c=r.c;
+ shadow(r,x,y,.42);
+ const arms=[[0,-1,WALL_N],[1,0,WALL_E],[0,1,WALL_S],[-1,0,WALL_W]];
+ if(era===1){
+  const posts:[number,number][]=[[0,0]];
+  for(const [dx,dy,bit]of arms)if(mask&bit){
+   for(const d of [.15,.3,.45])posts.push([dx*d,dy*d]);
+   for(const z of [5,10])line(r,q(0,0,z),q(dx*.5,dy*.5,z),'#63452b',2.5);
+  }
+  for(const [u,v]of posts.sort((a,b)=>a[0]+a[1]-b[0]-b[1])){
+   box(r,x,y,u-.05,v-.05,u+.05,v+.05,0,h,'#b58a51','#87603a','#624329');
+   pyramid(r,x,y,u-.05,v-.05,u+.05,v+.05,h,4,'#c69d60','#916c41');
+   line(r,q(u-.05,v+.052,h-3),q(u+.05,v+.052,h-3),'#d2b17b',.7);
+  }
+  return;
+ }
+ const top=era===2?'#bc9561':era===3?'#b7b7a8':era===4?'#c1b5a0':era===5?'#acb4b0':'#b9cac3';
+ const left=era===2?'#9d774c':era===3?'#93988f':era===4?'#9e907e':'#8fa69d';
+ const right=era===2?'#795b3c':era===3?'#727d78':era===4?'#7f786e':'#6c887d';
+ const outline=wallOutline(mask),edges=outline.map((a,n)=>({a,b:outline[(n+1)%outline.length]})).filter(({a,b})=>b[1]>a[1]||b[0]<a[0]).sort((a,b)=>a.a[0]+a.a[1]+a.b[0]+a.b[1]-b.a[0]-b.a[1]-b.b[0]-b.b[1]);
+ for(const {a,b}of edges){
+  poly(c,[q(...a,0),q(...b,0),q(...b,h),q(...a,h)],b[1]>a[1]?right:left);
+  for(let row=1;row<4;row++){
+   const z=row*h/4;line(r,q(...a,z),q(...b,z),'rgba(40,50,43,.3)',.7);
+   const length=Math.abs(a[0]-b[0])+Math.abs(a[1]-b[1]),count=Math.floor(length/.18);
+   for(let n=1;n<=count;n++){const t=(n-(row%2)*.4)/(count+1),u=a[0]+(b[0]-a[0])*t,v=a[1]+(b[1]-a[1])*t;line(r,q(u,v,z),q(u,v,z-h/4),'rgba(40,50,43,.24)',.6);}
+  }
+ }
+ poly(c,outline.map(([u,v])=>q(u,v,h)),top);
+ // One corner pier and an end merlon on each arm; all share a continuous coping.
+ const caps:[number,number][]=[[0,0]];
+ for(const [dx,dy,bit]of arms)if(mask&bit)caps.push([dx*.4,dy*.4]);
+ for(const [u,v]of caps.sort((a,b)=>a[0]+a[1]-b[0]-b[1])){
+  const w=.12;box(r,x,y,u-w,v-w,u+w,v+w,h,h+4,top,left,right);
+  if(era===4)box(r,x,y,u-w-.015,v-w-.015,u+w+.015,v+w+.015,h+4,h+5,'#ad6749','#8d4f39','#713e30');
+ }
+}
+
 /** New fortifications retain their footprint; the opening under the gate stays visible. */
 function drawFutureDefense(r:RC,k:BKey,x:number,y:number,lvl:number,i:number){
- if(r.city.era<4||!['wall','gate','watchtower'].includes(k))return false;
+ if(r.city.era<4||!['gate','watchtower'].includes(k))return false;
  const era=r.city.era,q=tp(r,x,y),top=era===4?'#c1b5a0':'#b9cac3',left=era===4?'#9e907e':'#8fa69d',right=era===4?'#7f786e':'#6c887d';
  const masonry=(u0:number,v0:number,u1:number,v1:number,z:number,h:number)=>box(r,x,y,u0,v0,u1,v1,z,h,top,left,right);
- const h=(k==='wall'?16:k==='gate'?25:30)+lvl*2;shadow(r,x,y,.48);
- if(k==='wall'){
-  masonry(-.5,-.12,.5,.12,0,h);
-  for(let n=0;n<4;n++)masonry(-.48+n*.25,-.13,-.36+n*.25,.13,h,h+4);
-  for(let row=1;row<4;row++)line(r,q(-.5,.13,row*h/4),q(.5,.13,row*h/4),'#5e7068',.8);
- }else if(k==='gate'){
+ const h=(k==='gate'?25:30)+lvl*2;shadow(r,x,y,.48);
+ if(k==='gate'){
   masonry(-.46,-.16,-.27,.16,0,h);masonry(.27,-.16,.46,.16,0,h);masonry(-.46,-.16,.46,.16,h-7,h);
   if(era===4)gable(r,x,y,-.49,-.22,.49,.22,h,8,'#b4583b','#95432d','#783725');
   else{for(const u of [-.2,0,.2])line(r,q(u,-.14,h-8),q(u,-.14,1),'#465a55',1.5);flag(r,x,y,.4,.1,h,h+10,'#c09e47',i);}
@@ -730,24 +770,6 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
   const c = r.c, s = r.v.s, q = tp(r, x, y), hs = 1 + 0.2 * Math.max(0, lvl - 1);
   const night = false;
   switch (k) {
-    case "wall": {
-      const era = r.city.era, h = (era === 1 ? 14 : 18) * hs;
-      shadow(r, x, y, 0.44);
-      if (era === 1) {
-        for (let n = 0; n < 7; n++) {
-          const u = -0.43 + n * 0.14;
-          box(r, x, y, u, -0.08, u + 0.09, 0.08, 0, h, "#b58a51", "#87603a", "#624329");
-          pyramid(r, x, y, u, -0.08, u + 0.09, 0.08, h, 4, "#c69d60", "#916c41");
-        }
-        line(r, q(-0.45, 0.09, 5), q(0.5, 0.09, 5), "#503b28", 2);
-      } else {
-        const top = era === 2 ? "#bc9561" : "#b7b7a8", left = era === 2 ? "#9d774c" : "#93988f", right = era === 2 ? "#795b3c" : "#727d78";
-        box(r, x, y, -0.5, -0.12, 0.5, 0.12, 0, h, top, left, right);
-        for (const u of [-0.47, -0.12, 0.23]) box(r, x, y, u, -0.12, u + 0.22, 0.12, h, h + 4, top, left, right);
-        for (let row = 1; row < 4; row++) line(r, q(-0.5, 0.125, row * h / 4), q(0.5, 0.125, row * h / 4), "rgba(45,45,35,.35)", 0.8);
-      }
-      break;
-    }
     case "gate": {
       const era = r.city.era, h = 22 * hs, stone = era === 3;
       shadow(r, x, y, 0.46);
@@ -1341,8 +1363,7 @@ function buildingHitShapes(k: BKey, lvl: number, era: number): HitShape[] {
     case "hall": return [shape(-.48, -.44, .48, .44, 4), shape(-.48, -.42, .48, .4, 17, lvl >= 3 ? 8 : 16 * hs), ...(lvl >= 3 ? [{ ...shape(-.4, -.3, .4, .26, 6, 13), z: 21 }] : [])];
     case "barracks": return [shape(-.4, -.32, .36, .26, 13 * hs, 9), shape(-.44, .4, .47, .46, 13)];
     case "temple": return [shape(-.46, -.46, .46, .46, 8), shape(-.36, -.36, .36, .36, 18), shape(-.3, -.3, .3, .3, 34, 22, true)];
-    case "wall": return [shape(-.5, -.12, .5, .12, (era === 1 ? 14 : 18) * hs, 4)];
-    case "gate": return [shape(-.46, -.16, .46, .16, 22 * hs, era > 1 ? 8 : 0)];
+    case "gate": return [shape(-.46, -.16, .46, .16, era>=4?25+lvl*2:22*hs, era===4||era===2||era===3?8:0)];
     case "watchtower": return [shape(-.4, -.4, .4, .4, (era === 1 ? 25 : 32) * hs, 10, era === 1)];
   }
   return [shape(-.44,-.38,.44,.38,24*hs,8)];
@@ -1366,9 +1387,11 @@ export function pickBuilding(v: View, city: City, sx: number, sy: number): { x: 
     const x = tile % W, y = Math.floor(tile / W);
     const shapes:HitShape[]=building.k==='canal'
       ?canalFootprints(city,x,y).map(([u0,v0,u1,v1])=>({u0,v0,u1,v1,wall:4,z:-3}))
+      :building.k==='wall'?wallFootprints(wallMask(city,tile)).map(([u0,v0,u1,v1])=>({u0,v0,u1,v1,wall:wallHeight(city.era,Math.max(1,building.lvl))+4}))
       :buildingHitShapes(building.k, Math.max(1, building.lvl), city.era);
+    const turn=building.k==='gate'&&defenseAxis(city,tile)==='y';
     for (const h of shapes) {
-      const q = (u: number, w: number, z: number): Pt => P(v, x + .5 + u, y + .5 + w, z * v.s);
+      const q = (u: number, w: number, z: number): Pt => P(v, x + .5 + (turn?w:u), y + .5 + (turn?u:w), z * v.s);
       const z = h.z ?? 0, top = z + h.wall;
       const a = q(h.u0, h.v0, z), b = q(h.u1, h.v0, z), c = q(h.u1, h.v1, z), d = q(h.u0, h.v1, z);
       const A = q(h.u0, h.v0, top), B = q(h.u1, h.v0, top), C = q(h.u1, h.v1, top), D = q(h.u0, h.v1, top);
@@ -1437,6 +1460,7 @@ export type DrawOpts = {
   hover: { x: number; y: number } | null;
   selected: { x: number; y: number } | null;
   tool: BKey | null;
+  defenseOrientation?:DefenseOrientation;
   villagers: Villager[];
   picked: Set<number>;
   pickedSoldier?: string | null;
@@ -1447,7 +1471,9 @@ export type DrawOpts = {
 const stagingCache=new WeakMap<City,{at:number;tiles:number[]}>();
 export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   const v = o.v;
-  const r: RC = { c, v, city, D, anim: o.anim, now: o.now, season: seasonAt(city, o.now),deck:bridgeDeck(city) };
+  const defensePreview:DefensePreview|undefined=o.hover&&(o.tool==='wall'||o.tool==='gate')&&!city.b[idx(o.hover.x,o.hover.y)]
+    ?{tile:idx(o.hover.x,o.hover.y),building:{k:o.tool,lvl:1,doneAt:null,...(o.defenseOrientation&&o.defenseOrientation!=='auto'?{orientation:o.defenseOrientation}:{})}}:undefined;
+  const r: RC = { c, v, city, D, defensePreview, anim: o.anim, now: o.now, season: seasonAt(city, o.now),deck:bridgeDeck(city) };
   c.clearRect(0, 0, v.width, v.height);
   const lod = v.TW < 26;
 

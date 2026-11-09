@@ -33,6 +33,8 @@ import { buildAvailability } from "@/lib/build-availability";
 import { placementHint, placementTiles } from "@/lib/build-placement";
 import BattleView from "./BattleView";
 import ArmyManagement from "./ArmyManagement";
+import DefenseOrientation from './DefenseOrientation';
+import {defenseAxis,type DefenseOrientation as DefenseMode} from '@/lib/fortifications';
 import ArmyRecruitment from "./ArmyRecruitment";
 import EconomySummary from './EconomySummary';
 import FarmGroupCare from './FarmGroupCare';
@@ -375,6 +377,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const finalDialog=useRef<HTMLDialogElement>(null);
   useEffect(()=>{if(finalReview&&!finalDialog.current?.open)finalDialog.current?.showModal();},[finalReview]);
   const [tool, setTool] = useState<BKey | null>(null);
+  const [defenseOrientation,setDefenseOrientation]=useState<DefenseMode>('auto');
   const [selected, setSelected] = useState<Cell | null>(null);
   const [bridgeFrom,setBridgeFrom]=useState<number|null>(null);
   const [bridgeTarget,setBridgeTarget]=useState<Cell|null>(null);
@@ -428,8 +431,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const renderPausedRef = useRef(false);
   renderPausedRef.current=worldOpen || !!battleOpen || helpOpen;
   const bridgePreview=bridgeFrom!==null?{from:bridgeFrom,to:bridgeTarget?idx(bridgeTarget.x,bridgeTarget.y):null}:undefined;
-  const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier, bridgePreview });
-  viewRef.current = { hover, selected, tool, picked, pickedSoldier, bridgePreview };
+  const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier, bridgePreview, defenseOrientation });
+  viewRef.current = { hover, selected, tool, picked, pickedSoldier, bridgePreview, defenseOrientation };
 
   useEffect(()=>{if(tool||picked.size||pickedSoldier||guardEditing||planting||visiting){setBridgeFrom(null);setBridgeTarget(null);}},[tool,picked,pickedSoldier,guardEditing,planting,visiting]);
 
@@ -894,7 +897,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if (tool) {
       const cell = cellAt(e);
       if (!cell) return;
-      const ok = await act({ type: "build", k: tool, x: cell.x, y: cell.y, ...(finalConfirmed.current===tool?{confirmFinal:true}:{}) });
+      const ok = await act({ type: "build", k: tool, x: cell.x, y: cell.y, ...((tool==='wall'||tool==='gate')?{orientation:defenseOrientation}:{}), ...(finalConfirmed.current===tool?{confirmFinal:true}:{}) });
       if (ok) {
         if(cityRef.current && buildAvailability(cityRef.current,tool).capped)pickTool(null);
         setMsg({ text: `Thợ bắt đầu xây ${buildingName(c, tool)}.` });
@@ -967,6 +970,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     setPickedSoldier(null);
     setGuardEditing(false);
     setTool(k);
+    setDefenseOrientation('auto');
     setSelected(null);
     setPicked(new Set());
     if (k) setPanel(null);
@@ -975,6 +979,15 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if(e.key.toLowerCase()==='r'&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.repeat&&!(e.target instanceof HTMLElement&&e.target.closest('input,textarea,select,[contenteditable="true"]'))){
+        const view=viewRef.current,c=cityRef.current;
+        if(c&&!renderPausedRef.current&&!visitRef.current&&(view.tool==='wall'||view.tool==='gate')){
+          e.preventDefault();
+          const tile=view.hover?idx(view.hover.x,view.hover.y):-1;
+          const axis=defenseAxis(c,tile,{tile,building:{k:view.tool,lvl:1,doneAt:null,...(view.defenseOrientation!=='auto'?{orientation:view.defenseOrientation}:{})}});
+          setDefenseOrientation(axis==='x'?'y':'x');
+        }
+      }
       if (e.key !== "Escape") return;
       setBridgeFrom(null);setBridgeTarget(null);setDockMove(null);setDockTarget(null);setPlanting(false);setFinalReview(null);setPickedSoldier(null); setGuardEditing(false); setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
     };
@@ -1210,6 +1223,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               <h2>{buildingName(c, sel.k)}{sel.lvl ? ` · cấp ${sel.lvl}` : ""}</h2>
               <p className="muted small">Kiến trúc {ERA_NAMES[c.era].toLowerCase()} · Lên thời đại tự đổi kiến trúc, không tự tăng cấp. Bấm nâng cấp để tăng công năng và trang bị; cấp tối đa theo Đình làng.</p>
               <p className="muted small">{B[sel.k].d}</p>
+              {(sel.k==='wall'||sel.k==='gate')&&<DefenseOrientation value={sel.orientation??'auto'} axis={defenseAxis(c,selI)} disabled={busy} onChange={orientation=>{void act({type:'orientDefense',x:selI%W,y:Math.floor(selI/W),orientation});}}/>}
               {sel.k==='watchtower'&&<p className="small">{towerStats(sel.lvl||1).damage} sát thương/phát · mỗi {towerStats(sel.lvl||1).attackMs/1000} giây 1 phát · tầm {towerStats(sel.lvl||1).range} ô. Đã đặt {buildAvailability(c,'watchtower').count}/{buildAvailability(c,'watchtower').limit} trụ. {sel.lvl>0&&!sel.burned&&!sel.flooded&&(defendingTowers(c).has(selI)?'Trong hạn mức phòng thủ.':'Trụ dự phòng: vượt hạn mức tham chiến thời đại.')} Khi có dư trụ, ưu tiên cấp cao rồi gần Đình/điểm tập kết. Trụ tham chiến được chốt lúc bắt đầu trận.</p>}
               {sel.k==='smelter'&&sel.lvl>=1&&<p className="small">Đủ 3 thợ: tối đa {B.smelter.prod!.copper!*GATHER_SPEED*LVL_MULT[sel.lvl]/60} đồng/phút trước thời gian vận chuyển; dùng {B.smelter.use!.wood!*LVL_MULT[sel.lvl]/60} gỗ + {B.smelter.use!.stone!*LVL_MULT[sel.lvl]/60} đá/phút. Nuôi 3 thợ thêm {3*upkeep.civilian.food/60} thực/phút và {3*upkeep.civilian.wood} gỗ/giờ. Giá bán do người chơi quyết định; tính cả các chi phí này khi định giá.</p>}
               {sel.k==='gather'&&sel.lvl>=1&&<p className="small">Phí vận hành: {gatherFoodPerHour(c,D,selI)/60} thực/phút khi sản xuất. {gatherFoodPerHour(c,D,selI)===120?'Đang được kênh có nước tưới.':'Chưa có kênh có nước tưới trong 1 ô; sát sông hoặc kênh cạn vẫn tính 4 thực/phút.'} Cộng riêng với sức ăn dân; không thu lúc đi giao hàng hoặc chờ kho đầy.</p>}
@@ -1331,6 +1345,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           <div className="pickbar">
             <b>Đang xây {buildingName(c, tool)}</b>
             <span>Ô xanh: xây được · ô đỏ: không hợp lệ. {placementHint(tool)}</span>
+            {(tool==='wall'||tool==='gate')&&<><DefenseOrientation value={defenseOrientation} axis={defenseAxis(c,hover?idx(hover.x,hover.y):-1,{tile:hover?idx(hover.x,hover.y):-1,building:{k:tool,lvl:1,doneAt:null,...(defenseOrientation!=='auto'?{orientation:defenseOrientation}:{})}})} onChange={setDefenseOrientation}/><span className="small">Phím R để xoay. Xoay và tự nối không tốn tài nguyên.</span></>}
             <button onClick={()=>{
               const allowed=placementTiles(c,D,tool,rules);
               let best=-1,distance=Infinity;
