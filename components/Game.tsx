@@ -35,6 +35,7 @@ import BattleView from "./BattleView";
 import ArmyManagement from "./ArmyManagement";
 import EconomySummary from './EconomySummary';
 import FarmGroupCare from './FarmGroupCare';
+import FarmWorkers from './FarmWorkers';
 import {recentResourceFlow} from '@/lib/resource-history';
 import BattleReports from "./BattleReports";
 import DiplomacyMessages, { diplomacyText } from "./DiplomacyMessages";
@@ -855,6 +856,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     const c = cityRef.current, f = fitRef.current;
     if (c) focusOn(f, camRef.current, (c.camp % W) + 0.5, Math.floor(c.camp / W) + 0.5, Math.min(MAX_ZOOM, 60 / f.TW));
   };
+  const focusPerson = (p:Person) => {
+    const actor=crowdRef.current.list.find(v=>v.id===p.id),tile=p.pos??cityRef.current?.camp??0;
+    setPicked(new Set([p.id]));
+    focusOn(fitRef.current,camRef.current,actor?.fx??tile%W+.5,actor?.fy??Math.floor(tile/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));
+  };
 
   const togglePick = (id: number, add: boolean) =>
     setPicked((old) => {
@@ -1219,8 +1225,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                 <FarmGroupCare city={c} tile={selI} busy={busy} act={act}/>
                 {c.era<4 && farmRemaining(sel)<=0 && <p className="err small">Ruộng bạc màu. Người đã giao đang nghỉ, cần cải tạo để tiếp tục thu hoạch.</p>}
               </>}
-              {["farm","estate"].includes(sel.k) && <p className="small">Đã giao {onTarget.length}/{buildingJobs(sel)} người ({onTarget.filter(p=>p.refuge).length} đang tránh địch): {onTarget.filter(p=>!p.refuge && p.haul?.phase==="work").length} đang làm trên ruộng; {onTarget.filter(p=>!p.refuge && p.haul?.phase!=="work").length} đang đi hoặc chở/chờ nộp hàng. Người về kho vẫn giữ chỗ, không cần cử thêm.</p>}
-              <EraCivicBuilding city={c} building={sel} tile={selI} now={t}/>{B[sel.k].jobs ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{buildingJobs(sel)}</b>. {workersAt(c,selI) ? !B[sel.k].prod ? "Nhân viên vận hành dịch vụ tại đây; không mang hàng về kho." : "Gom đủ một chuyến rồi mang về nộp; chỉ khi nộp xong kho mới tăng." : "Chưa có người làm nên chưa tạo tài nguyên. Bấm Giao người rảnh bên dưới."}</p> : null}
+              {["farm","estate"].includes(sel.k) && <FarmWorkers city={c} tile={selI} storage={st.storage}/>}
+              <EraCivicBuilding city={c} building={sel} tile={selI} now={t}/>{B[sel.k].jobs && !["farm","estate"].includes(sel.k) ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{buildingJobs(sel)}</b>. {workersAt(c,selI) ? !B[sel.k].prod ? "Nhân viên vận hành dịch vụ tại đây; không mang hàng về kho." : "Gom đủ một chuyến rồi mang về nộp; chỉ khi nộp xong kho mới tăng." : "Chưa có người làm nên chưa tạo tài nguyên. Bấm Giao người rảnh bên dưới."}</p> : null}
             </>
           ) : (
             <>
@@ -1240,7 +1246,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           {onTarget.length > 0 && (
             <ul className="people compact">
               {onTarget.map((p) => (
-                <li key={p.id}><span>{p.name}<HungryVillager city={c} person={p}/><small className="haul-detail">{haulDetail(p,t,st.storage,c.res,c)}</small></span><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
+                <li key={p.id}><span>{p.name}<HungryVillager city={c} person={p}/><small className="haul-detail">{haulDetail(p,t,st.storage,c.res,c)}</small></span><button className="link" onClick={()=>focusPerson(p)}>Tìm người</button><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
               ))}
             </ul>
           )}
