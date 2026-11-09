@@ -106,7 +106,7 @@ const DEFS = {
   barracks: { n: "Trại lính", era: 1, cost: { wood: 120, stone: 40 }, sec: 120, up: true, max: 3, d: "Huấn luyện quân. Mỗi cấp chứa thêm 10 lính." },
   wall: { n: "Tường thành", era: 1, cost: { wood: 30, stone: 20 }, sec: 30, up: true, d: "Chặn quân địch. Độ bền tăng theo cấp và thời đại." },
   gate: { n: "Cổng làng", era: 1, cost: { wood: 60, stone: 30 }, sec: 60, up: true, d: "Cho quân nhà đi qua tuyến tường, chặn quân địch." },
-  watchtower: { n: "Tháp canh", era: 1, cost: { wood: 100, stone: 80 }, sec: 120, up: true, d: "Tầm 6 ô, bắn mỗi giây: cấp 1/2/3 gây 6/9/12 sát thương. Giới hạn theo đời: 2/3/4/5/6/8 trụ; cần phối hợp quân phòng thủ." },
+  watchtower: { n: "Tháp canh", era: 1, cost: { wood: 100, stone: 80 }, sec: 120, up: true, d: "Tầm 4 ô, bắn mỗi 1,5 giây: cấp 1/2/3 gây 6/9/12 sát thương. Giới hạn theo đời: 2/3/4/5/6/8 trụ; cần phối hợp quân phòng thủ." },
   logistics: { n: "Trạm hậu cần", era: 2, cost: { wood: 100, stone: 40 }, sec: 90, up: true, max: 2, d: "Đào tạo đoàn vận tải; mỗi đoàn hỗ trợ 20 chiến binh trên đường xa. Nâng cấp tăng tốc đào tạo." },
   infirmary: { n: "Quân y viện", era: 2, cost: { wood: 80, stone: 60, food: 40 }, sec: 90, up: true, max: 2, d: "Đào tạo quân y; mỗi người chăm sóc 20 chiến binh khi hành quân và chữa thương trong trận." },
   temple: { n: "Đền Sông Mẹ", era: 3, cost: { wood: 800, stone: 1200, copper: 400 }, sec: 4 * 3600, max: 1, d: "Kỳ quan của thành phố." },
@@ -132,7 +132,7 @@ export const UNITS: Record<UKey, Unit> = {
   spear: { n: "Giáo binh đồng", era: 2, cost: { food: 50, copper: 10 }, sec: 90, atk: 9, hp: 40, space: 1, d: "Chắc chắn, giữ hàng đầu." },
   bow: { n: "Cung thủ", era: 2, cost: { food: 40, wood: 30 }, sec: 90, atk: 11, hp: 25, space: 1, d: "Bắn xa, sát thương cao." },
   sword: { n: "Kiếm sĩ sắt", era: 3, cost: { food: 80, copper: 25 }, sec: 180, atk: 18, hp: 70, space: 1, d: "Tinh nhuệ thời đồ sắt." },
-  elephant: { n: "Voi chiến", era: 3, cost: { food: 300, wood: 50 }, sec: 600, atk: 45, hp: 300, space: 5, d: "Phá trại, chiếm 5 chỗ." },
+  elephant: { n: "Voi chiến", era: 3, cost: { food: 300, wood: 50 }, sec: 600, atk: 45, hp: 300, space: 5, d: "Phá trại, chiếm 5 chỗ. Giảm 50% sát thương tên trụ thời Đá đến Trung đại; không kháng đạn trụ thời Thuốc súng và Công nghiệp." },
   wagon: { n: "Đoàn vận tải", era: 2, cost: { food: 30, wood: 40 }, sec: 25, atk: 0, hp: 50, space: 2, building: "logistics", d: "Xe lương và tùy tùng, hỗ trợ 20 chiến binh, giảm hao quân đường xa; không chiến đấu." },
   medic: { n: "Quân y", era: 2, cost: { food: 30, wood: 10, copper: 5 }, sec: 25, atk: 0, hp: 25, space: 1, building: "infirmary", d: "Chăm sóc 20 chiến binh trên đường xa, chữa người bị thương trong trận; không hồi sinh người chết." },
 };

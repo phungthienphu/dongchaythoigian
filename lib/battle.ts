@@ -1,5 +1,5 @@
 import {unitCounter} from './era-military';
-import {selectTowerTiles,towerStats} from './tower-balance';
+import {selectTowerTiles,towerDamage,towerStats} from './tower-balance';
 import {bridgeReady,SHORT_BRIDGE_WATER_TILES,type BridgeSpan} from './bridges';
 /** Serializable, deterministic battle simulation. All time advances in 100 ms ticks.
  * Balance defaults: loot cap is 25% of each starting resource; civilian loss is
@@ -253,7 +253,7 @@ function tick(s:BattleState){
     const weapon=towerStats(b.lvl),origin=xy(b.tile);
     let target:BattleGroup|undefined,nearest=weapon.range;
     for(const g of s.groups)if(g.side==='attacker'&&living(g)){const distance=dist(g,origin);if(distance<=nearest){target=g;nearest=distance;}}
-    if(target){b.nextAttackAt=s.lastTick+weapon.attackMs;strike(s,b.id,(s.defenderEra??3)>=5?'bullet':'arrow',origin,target,true);damage(target,weapon.damage);}
+    if(target){b.nextAttackAt=s.lastTick+weapon.attackMs;strike(s,b.id,(s.defenderEra??3)>=5?'bullet':'arrow',origin,target,true);damage(target,towerDamage(b.lvl,target.u,s.defenderEra??3));}
   }
   const total=s.buildings.reduce((n,b)=>n+(b.initiallyBurned?0:b.value),0),burned=s.buildings.reduce((n,b)=>n+(b.burned&&!b.initiallyBurned?b.value:0),0),fraction=total?burned/total:0;
   s.populationLoss=Math.min(Math.floor(s.initialPopulation/2),Math.floor(fraction*s.initialPopulation/2));
