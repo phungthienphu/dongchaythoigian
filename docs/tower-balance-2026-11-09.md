@@ -24,3 +24,9 @@ Luật nằm trong `lib/tower-balance.ts`, dùng chung cho mô phỏng trận c�
 Tập mô phỏng này dùng ngân sách quy đổi các loại tài nguyên thành trọng số bằng nhau, đội hình đơn loại và chiến thuật cố định; không đại diện tỷ lệ thắng của người chơi. Kết quả cho thấy giảm áp lực phòng thủ trong tập thử, chưa chứng minh cân bằng toàn bộ game. Cần theo dõi trận thật có chênh lệch thời đại, quân phối hợp và bố trí trụ/tường. Không mở cuộc tấn công vào làng thật để thử bản này.
 
 Phát hành cần cập nhật battle Worker trước, sau đó frontend/API Cloudflare để luật và thông tin hiển thị đồng nhất. Không cần thêm biến môi trường hoặc di chuyển dữ liệu.
+
+## Cập nhật theo yêu cầu mới: tầm trụ ngang pháo
+
+Thay đổi lần tiếp theo nâng tầm trụ từ 4 lên **10 ô ở mọi cấp và thời đại**, ngang tầm pháo dã chiến hiện tại. Sát thương 6/9/12, nhịp 1,5 giây, giới hạn trụ và kháng tên của voi giữ nguyên. Mô tả 4 ô và kết quả mô phỏng ở phần trên là lịch sử bản giảm tầm, không đại diện bản nâng tầm này.
+
+Kiểm thử biên 10/10,01 ô, đường chéo 6–8 và ngoài đường tròn; kiểm tra pháo bắn từ đúng tầm tối đa có thể bị trụ bắn trả ở cả sáu thời đại và ba cấp. Giao diện chi tiết đọc chung `towerStats`; hướng dẫn đã bỏ thông tin pháo/cung/nỏ có thể đứng ngoài tầm trụ. Trận đang diễn ra dùng tầm mới ở loạt bắn tiếp theo, vẫn giữ hồi chiêu đã lưu. Không thêm ENV, request hay migration.

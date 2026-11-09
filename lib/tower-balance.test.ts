@@ -29,12 +29,12 @@ test('tower volley has 4/6/8 sustained DPS, real 1.5-second cadence and matching
   advanceBattle(s,100);assert.equal(hp-s.groups[0].hp,d);assert.equal(s.strikes!.length,1);
   advanceBattle(s,1500);assert.equal(hp-s.groups[0].hp,d);
   advanceBattle(s,1600);assert.equal(hp-s.groups[0].hp,2*d);assert.equal(s.strikes!.at(-1)!.at,1600);
-  s.groups[0].x=1.5;s.groups[0].order={type:'guard',x:1.5,y:5.5};advanceBattle(s,2500);assert.equal(hp-s.groups[0].hp,2*d);
+  s.groups[0].x=19.5;s.groups[0].order={type:'guard',x:19.5,y:5.5};advanceBattle(s,2500);assert.equal(hp-s.groups[0].hp,2*d);
  }
  const s=firing(1,5);advanceBattle(s,100);assert.equal(s.strikes![0].kind,'bullet');
 });
 test('entering range between clock boundaries emits the actual volley and persists cooldown on reload',()=>{
- const s=firing();s.groups[0].x=.5;s.groups[0].order={type:'guard',x:.5,y:5.5};advanceBattle(s,300);
+ const s=firing();s.groups[0].x=19.5;s.groups[0].order={type:'guard',x:19.5,y:5.5};advanceBattle(s,300);
  s.groups[0].x=5.5;s.groups[0].order={type:'guard',x:5.5,y:5.5};advanceBattle(s,400);assert.equal(s.strikes![0].at,400);
  const copy=JSON.parse(JSON.stringify(s));advanceBattle(s,2500);for(const at of [500,999,1400,1857,2500])advanceBattle(copy,at);assert.deepEqual(copy,s);
 });
@@ -51,9 +51,9 @@ test('a small equipped invasion can destroy a level-three tower while still taki
  const g=s.groups[0];g.x=7.5;g.y=5.5;g.order={type:'attack',targetId:s.buildings[0].id};advanceBattle(s,30_000);
  assert.equal(s.buildings[0].burned,true);assert.equal(s.winner,'attacker');assert.ok(g.count>0&&g.count<=8);assert.ok(g.hp<8*UNITS.sword.hp);
 });
-test('all tower levels stop at four tiles including diagonals, with no shots beyond the boundary',()=>{
- for(let lvl=1;lvl<=3;lvl++)for(const [dx,dy,inside]of [[4,0,true],[4.01,0,false],[2.4,3.2,true],[3,3,false]]as const){
-  const s=firing(lvl),g=s.groups[0],hp=g.hp;g.x=8.5-dx;g.y=5.5-dy;g.order={type:'guard',x:g.x,y:g.y};
+test('all tower levels reach cannon range including diagonals, with no shots beyond ten tiles',()=>{
+ for(let lvl=1;lvl<=3;lvl++)for(const [dx,dy,inside]of [[10,0,true],[10.01,0,false],[6,8,true],[6.01,8,false]]as const){
+  const s=firing(lvl),g=s.groups[0],hp=g.hp;s.buildings[0].tile=idx(20,20);g.x=20.5-dx;g.y=20.5-dy;g.order={type:'guard',x:g.x,y:g.y};
   advanceBattle(s,100);assert.equal(hp-g.hp,inside?towerStats(lvl).damage:0);assert.equal(s.strikes?.length??0,inside?1:0);
  }
 });
@@ -83,4 +83,17 @@ test('clustered towers apply separate volleys, remain dangerous, and persist coo
 test('an elephant ordered to attack can approach and destroy a tower while taking real damage',()=>{
  const s=firing(3),g=s.groups[0];g.u='elephant';g.count=g.initial=1;g.hp=300;g.x=2.5;g.order={type:'attack',targetId:s.buildings[0].id};
  advanceBattle(s,30000);assert.equal(s.buildings[0].burned,true);assert.equal(s.winner,'attacker');assert.equal(g.count,1);assert.ok(g.hp<300);
+});
+
+test('all eras and tower levels can hit a cannon firing at its maximum range',()=>{
+ for(let era=1;era<=6;era++)for(let level=1;level<=3;level++){
+  assert.ok(towerStats(level).range>=UNITS.cannon.range!);
+  const s=firing(level,era),g=s.groups[0],tower=s.buildings[0];
+  tower.tile=idx(20,20);tower.hp=tower.maxHp=100000;
+  g.u='cannon';g.count=g.initial=1;g.hp=UNITS.cannon.hp;g.x=20.5-UNITS.cannon.range!;g.y=20.5;g.order={type:'attack',targetId:tower.id};
+  advanceBattle(s,100);
+  assert.ok(tower.hp<100000,'cannon fires from maximum range');
+  assert.equal(g.hp,UNITS.cannon.hp-towerStats(level).damage,'tower returns fire from the same distance');
+  assert.ok(s.strikes!.some(strike=>strike.source===tower.id));
+ }
 });

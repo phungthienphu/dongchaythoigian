@@ -3,7 +3,7 @@ export const TOWER_LIMITS=[0,2,3,4,5,6,8] as const;
 export function towerLimit(era:number){return TOWER_LIMITS[Math.max(1,Math.min(6,Math.floor(Number.isFinite(era)?era:1)))];}
 export function towerStats(level:number){
  const lvl=Math.max(1,Math.min(3,Math.floor(level)));
- return {damage:[0,6,9,12][lvl],range:4,attackMs:1500};
+ return {damage:[0,6,9,12][lvl],range:10,attackMs:1500};
 }
 /** Thick hide resists tower arrows, not gunpowder or other units' attacks. */
 export function towerDamage(level:number,target:string,defenderEra:number){
