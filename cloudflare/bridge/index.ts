@@ -5,6 +5,7 @@ import type { VillageNamespace } from '../api/runtime';
 import { withRequestContext } from './context';
 import { dispatch, resolveRoute } from './routes';
 import { repository } from './auth-repository';
+import { CityRecoveringError } from '../../lib/engine';
 import { BATCH_DELAY_MS } from '../../lib/city-sync';
 
 export interface BridgeEnv extends AuthEnv {
@@ -42,6 +43,7 @@ export class GameApi {
         return result;
       }));
     } catch (error) {
+      if (error instanceof CityRecoveringError) return response({ error: error.message, recovering: true }, 409);
       // Driver errors may contain connection details: emit a fixed diagnostic.
       console.error('cloudflare_game_request_failed', error instanceof Error ? error.name : 'Error');
       return response({ error: 'Kết nối máy chủ tạm gián đoạn. Thao tác chưa xác nhận sẽ được thử lại.' }, 503);

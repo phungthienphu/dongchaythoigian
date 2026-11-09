@@ -38,7 +38,14 @@ try {
   const data = Buffer.from(JSON.stringify({ uid: user._id, sessionVersion: user.sessionVersion, exp: Date.now() + 60_000 })).toString('base64url');
   const cookie = `sid=${data}.${createHmac('sha256', source.AUTH_SECRET).update(data).digest('base64url')}`;
   const me = await (await get('/api/me', cookie)).json(); assert.equal(me.user?.id, user._id); assert.equal(me.user?.hasCity, true);
-  const loaded = await get('/api/city', cookie); assert.equal(loaded.status, 200);
+  let loaded;
+  for (let slice = 0; slice < 200; slice++) {
+    loaded = await get('/api/city', cookie);
+    if (loaded.status !== 202) break;
+    const recovery = await loaded.json(); assert.equal(recovery.recovering, true);
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  assert.equal(loaded.status, 200);
   const game = await loaded.json(); assert.equal(game.name, city.name); assert.equal(game.state.seed, city.state.seed); assert.equal(game.state.ver, city.state.ver);
   assert.equal(game.batchEnabled, true); assert.equal(game.sync.cityId, city._id);
   const battles = await (await get('/api/battles', cookie)).json(); assert.equal(battles.enabled, true); assert.ok(battles.socket.startsWith('wss://dong-song-battles.'));

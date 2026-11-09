@@ -228,7 +228,16 @@ export type Herd = { id: number; at: number; kind: "deer" | "boar"; n: number; m
 export type DisasterNotice = { id:string; at:number; kind:"flood"|"earthquake"|"river"|"dock"; phase:"warning"|"impact"|"protected"; msg:string; tiles:number[] };
 export type LogEntry = { caravanId?: string; at: number; msg: string; cls?: "warn" | "good" };
 export type RaidEncounter = { start:number; engage:number; resolveAt:number; end:number; route:number[]; power:number; won?:boolean };
+export type CityCatchUp = { from: number; target: number };
+export class CityRecoveringError extends Error {
+  constructor() { super("Làng đang khôi phục tiến trình offline. Vui lòng chờ tải bản đồ xong."); }
+}
+export type SettlementBudget = { maxTicks: number; maxMs: number };
+export const RECOVERY_THRESHOLD_MS = 30 * 60_000;
+
 export type City = {
+  /** Durable continuation. Only budgeted settlement may advance this timeline. */
+  catchUp?: CityCatchUp;
   modern?:ModernState;
   industry?: IndustryState;
   medieval?: MedievalState;
@@ -2204,7 +2213,12 @@ function completeBuilding(c:City,b:Building,at:number){
 }
 
 /** Advance the city to `now`: finish construction, run seasons, produce, grow. Mutates `c`. */
-export function settle(c: City, now: number) {
+export function settle(c: City, now: number, budget?: SettlementBudget) {
+  if (c.catchUp && !budget) throw new CityRecoveringError();
+  const started = performance.now();
+  // Use the first request's target across retries, including legacy activations
+  // and the fourteen-day cap. Time spent loading is caught up after completion.
+  if (c.catchUp) now = c.catchUp.target;
   normalizeResources(c);
   syncDockBanks(c,c.last);
   initializeMedieval(c,now);
@@ -2231,6 +2245,8 @@ export function settle(c: City, now: number) {
     if(c.industry)c.industry.minuteAt=Math.max(c.industry.minuteAt,Math.floor(t/MIN)*MIN);
     if(c.medieval)c.medieval.minuteAt=Math.max(c.medieval.minuteAt,Math.floor(t/MIN)*MIN);
   }
+  const from = c.catchUp?.from ?? t;
+  let ticks = 0;
   let D = derive(c), st = stats(c, D, t), dirty = false;
   let hauling = haulingContext(c, D);
   if(updateRefuges(c,t))dirty=true;
@@ -2346,9 +2362,17 @@ export function settle(c: City, now: number) {
     c.pop = c.people.length;
     if (c.people.length !== popBefore) { updateRefuges(c,nt); dirty = true; }
     t = nt;
+    ticks++;
+    if (budget && (ticks >= budget.maxTicks || ticks % 64 === 0 && performance.now() - started >= budget.maxMs)) break;
   }
   c.haulAt = t;
-  c.last = now;
+  if (t < end) {
+    c.catchUp = { from, target: now };
+    c.last = t;
+  } else {
+    delete c.catchUp;
+    c.last = now;
+  }
 }
 
 export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rules:EngineRules=RELEASE_RULES,skipCost=false,relocatingDockFrom?:number): string | null {

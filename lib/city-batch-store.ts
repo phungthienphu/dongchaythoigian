@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { cities, type CityDoc, type UserDoc } from './db';
-import { ENGINE_VER, normalizeResources, score } from './engine';
+import { CityRecoveringError, ENGINE_VER, normalizeResources, score } from './engine';
 import { applyCommandBatch, type BatchRequest, type SyncResult } from './city-sync';
 import { citySync, readAnchor } from './sync-anchor';
 import { resolveDiscoveries } from './world';
@@ -23,6 +23,7 @@ export async function saveCityBatch(user:UserDoc,request:BatchRequest,metrics:Co
     metrics.attempts++;
     const doc=await col.findOne({_id:pid,owner:user._id});
     if(!doc)return null;
+    if(doc.state.catchUp)throw new CityRecoveringError();
     if(doc.state.ver!==ENGINE_VER)throw new UnsupportedCityVersionError();
     if(doc.citySync && doc.citySync.session>session)throw new BatchConflict('Phiên chơi này đã được thay thế.');
     const ledger=doc.citySync?.session===session?doc.citySync:{session,ack:0,lastAt:0,results:[]};

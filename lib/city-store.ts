@@ -1,11 +1,12 @@
 import { cookies } from "next/headers";
 import { cities, type CityDoc } from "./db";
 import { SESSION_COOKIE, readSession, currentUser } from "./auth";
-import { ENGINE_VER, score, settle, enrichCopperDeposits, enrichPreciousDeposits, normalizeResources, type City } from "./engine";
+import { RECOVERY_THRESHOLD_MS, ENGINE_VER, score, settle, enrichCopperDeposits, enrichPreciousDeposits, normalizeResources, type City } from "./engine";
 
 import { registerEnvoyVisits } from "./diplomacy";
 import { resolveDiscoveries } from "./world";
 import type { CommandMetrics } from "./command-metrics";
+import { recoverCity, CityRecoveryPending } from './city-recovery';
 import { ownerSnapshots } from './village-snapshot';
 
 export const PID_COOKIE = "pid";
@@ -45,12 +46,18 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
     if (!doc || (doc.owner && doc.owner !== uid)) return null;
     if (doc.state.ver !== ENGINE_VER) throw new UnsupportedCityVersionError();
     const now = Date.now();
+    normalizeResources(doc.state);
+    if (!doc.state.battleId && (doc.state.catchUp || now - doc.state.last > RECOVERY_THRESHOLD_MS)) {
+      // One bounded slice per request, committed before progress is returned.
+      // Never execute the caller's mutation or advance its command receipt here.
+      const progress = await recoverCity(col, doc, now);
+      throw new CityRecoveryPending(progress);
+    }
     const receipt = opts.requestId && doc.actionReceipts?.find((r) => r.id === opts.requestId);
     if (receipt) {
       if (opts.metrics) opts.metrics.replayed = true;
       return { doc, result: receipt.result as T, now };
     }
-    normalizeResources(doc.state);
     // Most reads need only a deterministic projection. Persist only the rare
     // bootstrap/discovery work which has side effects outside the village.
     const s=doc.state;

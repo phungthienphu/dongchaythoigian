@@ -6,6 +6,7 @@ import { PID_COOKIE, playerId, withCity, UnsupportedCityVersionError } from "@/l
 import { currentUser, SESSION_COOKIE } from "@/lib/auth";
 import { users } from "@/lib/db";
 import { citySync } from '@/lib/sync-anchor';
+import { CityRecoveryPending } from '@/lib/city-recovery';
 import { batchDelayEnabled } from '@/lib/city-sync-config';
 
 export async function GET() {
@@ -15,9 +16,10 @@ export async function GET() {
   if(!pid)return NextResponse.json({needsName:true},{status:404});
   try {
     const out = await withCity(pid, () => null, { readOnlyFallback: true });
-    if (!out) return NextResponse.json({ needsName: true }, { status: 404 });
+    if (!out) return NextResponse.json({ error: "Chưa tìm thấy dữ liệu làng của tài khoản. Hãy thử tải lại; tiến trình chưa bị thay đổi." }, { status: 409 });
     return NextResponse.json({ name: out.doc.name, state: out.doc.state, serverNow: out.now, ...(user.sessionVersion?{sync:citySync(out.doc,user.sessionVersion,out.now,out.checkpointAt??out.doc.state.last),batchEnabled:batchDelayEnabled(pid)}:{}) });
   } catch (error) {
+    if (error instanceof CityRecoveryPending) return NextResponse.json({ recovering: true, progress: error.progress, retryAfterMs: 250 }, { status: 202, headers: { 'retry-after': '1' } });
     if (error instanceof UnsupportedCityVersionError) return NextResponse.json({ error: error.message }, { status: 409 });
     throw error;
   }

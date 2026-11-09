@@ -549,3 +549,14 @@ a.google.small { padding: 4px 10px; font-size: 12.5px; }
 .army-management td input { width:64px; box-sizing:border-box; }
 .army-management fieldset { margin-top:16px; border:1px solid var(--line); }
 .army-management label { display:block; margin:8px 0; }
+
+body:has(.map-loading) { padding: 0; }
+.map-loading { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: radial-gradient(ellipse at top, #263f36, #151d19 70%); color: #eee6d1; text-align: center; }
+.map-loading section { width: min(100%, 440px); }
+.map-loading-brand { font-size: 11px; letter-spacing: .2em; color: #c6ad72; margin-bottom: 40px; }
+.map-loading svg { color: #c6ad72; margin-bottom: 18px; }
+.map-loading h1 { font-size: clamp(24px, 5vw, 32px); margin: 0 0 16px; }
+.map-loading p { line-height: 1.65; }
+.map-loading progress { display: block; width: 100%; height: 10px; margin: 28px 0 10px; accent-color: #c6ad72; }
+.map-loading .muted { color: #b3baac; }
+.map-loading button { margin-top: 16px; }

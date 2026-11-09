@@ -22,6 +22,9 @@ import { ERAS as ERA_ROADMAP, RELEASED_ERA } from "@/lib/eras";
 import { expeditionReadiness } from "@/lib/expedition-readiness";
 import ExpeditionReadiness from "./ExpeditionReadiness";
 import WorldMap from "./WorldMap";
+import MapLoadingScreen from './MapLoadingScreen';
+import { loadCityResponse } from '@/lib/city-loading';
+import type { RecoveryProgress } from '@/lib/city-recovery';
 import WelcomeScreen from "./WelcomeScreen";
 import DisasterNotifications from "./DisasterNotifications";
 import FriendSearch from "./FriendSearch";
@@ -334,6 +337,29 @@ function ControlPanel(props: {
 
 export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string>();
+  const [recoveryProgress, setRecoveryProgress] = useState<RecoveryProgress>();
+  const loadAbort = useRef<AbortController | null>(null);
+  const recoveringRef = useRef(false);
+  const fetchCity = useCallback(async () => {
+    const controller = new AbortController();
+    loadAbort.current?.abort(); loadAbort.current = controller;
+    try {
+      return await loadCityResponse({ signal: controller.signal, onProgress: progress => {
+        recoveringRef.current = true; setLoading(true); setRecoveryProgress(progress);
+      } });
+    } catch (error) {
+      if (recoveringRef.current && !controller.signal.aborted) {
+        setLoadError('Kết nối tạm gián đoạn. Hãy thử tải lại để tiếp tục từ tiến trình đã lưu.');
+        setLoading(false);
+      }
+      throw error;
+    } finally {
+      if (loadAbort.current === controller) loadAbort.current = null;
+      recoveringRef.current = false;
+    }
+  }, []);
+  useEffect(() => () => { loadAbort.current?.abort(); }, []);
   const [readNotice, setReadNotice] = useState({ key: "", at: 0 });
   const [needsName, setNeedsName] = useState(false);
   const [name, setName] = useState("");
@@ -403,6 +429,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
   const stopSession = useCallback(() => {
     sessionEndedRef.current = true;
+    loadAbort.current?.abort();
     actionQueue.current?.stop();
     controlEpoch.current++;controlRef.current?.dispose();controlRef.current=null;
     cityRef.current = null; dRef.current = null; visitRef.current = null;
@@ -427,10 +454,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       bump();
     };
     const loadCheckpoint=async():Promise<BatchResponse>=>{
-      const res=await fetch('/api/city',{cache:'no-store',signal:AbortSignal.timeout(15_000)});
+      const res=await fetchCity();
       if(res.status===401){stopSession();throw new Error(SESSION_ENDED_MESSAGE);}
       const value=await res.json();
       if(!res.ok||!value.sync)throw new Error(value.error??'Chưa tải được checkpoint của làng.');
+      setLoading(false); setRecoveryProgress(undefined);
       offsetRef.current=value.serverNow-Date.now();return value;
     };
     if(data.sync && !actionQueue.current) {
@@ -489,7 +517,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           return response;
         },
         onUncertain: async () => {
-          const res = await fetch("/api/city", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
+          const res = await fetchCity();
           if (!res.ok) throw new Error("Không tải được làng.");
           const response = await res.json();
           offsetRef.current = response.serverNow - Date.now();
@@ -505,7 +533,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     }
     if (data.name) setName(data.name);
     return true;
-  }, [stopSession]);
+  }, [stopSession, fetchCity]);
 
   const externalCity=useCallback(async <T,>(run:()=>Promise<T>):Promise<T>=>{
     const queue=actionQueue.current;
@@ -518,26 +546,32 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const loadCity = useCallback(() => reads.current.run("city", async () => {
     try {
     if (sessionEndedRef.current) return;
+    setLoadError(undefined);
+    if (!cityRef.current) setLoading(true);
     if (actionQueue.current?.isPending) return;
     if(actionQueue.current instanceof BatchedCityQueue){await actionQueue.current.refresh();return;}
     const generation = actionQueue.current?.version;
-    const res = await fetch("/api/city", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
+    const res = await fetchCity();
     if (res.status === 401) {
       if (cityRef.current) stopSession();
-      else { setNeedsName(true); setLoading(false); const data = await res.json(); if (data.sessionEnded) setMsg({ text: SESSION_ENDED_MESSAGE, err: true }); }
+      else { setMe({ user: null, friends: [] }); setNeedsName(true); setLoading(false); const data = await res.json(); if (data.sessionEnded) setMsg({ text: SESSION_ENDED_MESSAGE, err: true }); }
       return;
     }
-    if (res.status === 404) { setNeedsName(true); setLoading(false); return; }
-    if (!res.ok) { const data=await res.json().catch(()=>({})); setMsg({ text: data.error ?? "Không tải được thành phố. Thử kết nối lại.", err: true }); setLoading(false); return; }
+    if (res.status === 404) {
+      const data = await res.json();
+      if (data.needsName === true) { setNeedsName(true); setLoading(false); return; }
+    }
+    if (!res.ok) { const data=await res.json().catch(()=>({})); setLoadError(data.error ?? "Không tải được làng. Hãy thử kết nối lại."); setMsg({ text: data.error ?? "Không tải được làng. Hãy thử kết nối lại.", err: true }); setLoading(false); return; }
     const data = await res.json();
     if (sessionEndedRef.current) return;
     if (actionQueue.current && (actionQueue.current.isPending || generation !== actionQueue.current.version)) return;
     accept(data);
+    setRecoveryProgress(undefined);
     setShopEra(data.state.era);
     setNeedsName(false);
     setLoading(false);
-    } catch { setMsg({text:"Mất kết nối khi tải làng. Hãy tải lại trang.",err:true});setLoading(false); }
-  }), [accept, stopSession]);
+    } catch { if (!sessionEndedRef.current) { setLoadError("Kết nối tạm gián đoạn. Bạn có thể thử tải lại để tiếp tục từ tiến trình đã lưu."); setMsg({text:"Mất kết nối khi tải làng. Hãy thử tải lại.",err:true}); setLoading(false); } }
+  }), [accept, stopSession, fetchCity]);
 
 
   const loadWorld = useCallback(() => reads.current.run("world", async () => {
@@ -621,7 +655,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if (authErr) { setMsg({ text: authErr === 'session' ? "Chưa xác nhận được phiên chơi trên máy chủ trận đánh. Hãy thử đăng nhập lại." : "Đăng nhập Google không thành công, thử lại.", err: true }); history.replaceState(null, "", "/"); }
     const tick = setInterval(() => {
       const c = cityRef.current;
-      if (!c) return;
+      if (!c || recoveringRef.current) return;
       actionQueue.current?.advance(now());
       const vis = visitRef.current;
       if (vis) { if (!vis.city.battleId) settle(vis.city, now()); vis.D = derive(vis.city); vis.crowd.sync(vis.city); }
@@ -952,11 +986,13 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const archivedDisasters=(c?.disasterNotices??[]).filter(n=>!c?.log.some(l=>l.at===n.at&&l.msg===n.msg)).map(n=>({caravanId:undefined as string|undefined,at:n.at,msg:n.msg,cls:n.phase==='protected'?'good' as const:'warn' as const}));
   const notices=[...(c?.log??[]),...archivedDisasters,...diplomaticNotices].sort((a,b)=>b.at-a.at);
 
-  if (loading) return <main className="wrap"><p className="muted">Đang tải thành phố…</p></main>;
+  if (loading || recoveryProgress && loadError) return <MapLoadingScreen progress={recoveryProgress} error={loading ? undefined : loadError} onRetry={() => void loadCity()}/>;
 
-  if (needsName || !c || !D) {
+  if (needsName) {
     return <WelcomeScreen user={me.user} name={nameInput} onName={setNameInput} onCreate={createCity} busy={busy} message={msg} maxEra={rules.maxEra}/>;
   }
+
+  if (!c || !D) return <MapLoadingScreen progress={recoveryProgress} error={loadError ?? 'Chưa tải được dữ liệu làng. Hãy thử lại.'} onRetry={() => void loadCity()}/>;
 
   const st = stats(c, D, t), upkeep=upkeepRates(c.era);
   const resourceFlow=recentResourceFlow(c,t);
