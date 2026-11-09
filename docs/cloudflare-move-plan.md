@@ -126,8 +126,8 @@ là backlog mới, không đánh dấu các task cũ hoàn thành chỉ vì có 
 |---|---|---|---|
 | M00 | Kiểm kê, baseline và bộ workload | Không | Có tài liệu/số đo lịch sử, cần cập nhật |
 | M01 | Build giao diện tĩnh và router API | M00 | Đã kiểm tra staging; API gameplay khóa |
-| M02 | Google OAuth, phiên và kết nối Mongo trên Workers | M00, M01 cho luồng browser | Mongo/transaction/repository và Google thật một browser qua; hai browser/socket fence chưa nghiệm thu |
-| M03 | Village DO production, fencing và giao thức batch | M00, hợp đồng M02 | Có prototype/preflight để tái sử dụng |
+| M02 | Google OAuth, phiên và kết nối Mongo trên Workers | M00, M01 cho luồng browser | Google thật một browser qua; login/logout đã nối fence Village QA; hai browser/Battle socket chưa nghiệm thu |
+| M03 | Village DO production, fencing và giao thức batch | M00, hợp đồng M02 | Core SQLite/batch 10s đã chạy làng QA trên staging; epoch production, inbox/outbox và migration fence còn thiếu |
 | M04 | Tối ưu engine theo sự kiện, có version gate | M00 | Chưa làm; chạy độc lập với đổi hosting |
 | M05 | Chợ, sứ giả, hành quân và kết quả combat | M02, M03 | Business logic cũ có, coordinator mới chưa làm |
 | M06 | Client trực tiếp, thông báo sự kiện và phục hồi | M01–M03, M05 | Queue cũ có, kết nối mới chưa làm |

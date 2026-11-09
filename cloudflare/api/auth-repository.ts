@@ -2,6 +2,13 @@ import { MongoClient } from 'mongodb';
 import { randomBytes } from 'node:crypto';
 import type { UserDoc } from '../../lib/db';
 import type { AuthRepository } from './auth';
+import { QA_EPOCH, villageRequest, type VillageEnv, type VillageRegistration } from './runtime';
+
+type Account = UserDoc & { villageRegistration?: VillageRegistration };
+export interface VillageRepository extends AuthRepository {
+  registration(user: UserDoc): VillageRegistration | null;
+  reserveVillage(uid: string, version: number, name: string): Promise<VillageRegistration | null>;
+}
 
 export interface AuthDatabaseEnv {
   MONGODB_QA_URI: string;
@@ -10,15 +17,37 @@ export interface AuthDatabaseEnv {
 const QA_DATABASE = 'dong_song_cloudflare_qa';
 
 /** Staging only until ownership migration is implemented. No implicit indexes. */
-export async function withAuthRepository<T>(env: AuthDatabaseEnv, run: (repo: AuthRepository) => Promise<T>): Promise<T> {
+export async function withAuthRepository<T>(env: AuthDatabaseEnv & Partial<VillageEnv>, run: (repo: VillageRepository) => Promise<T>): Promise<T> {
   if (!env.MONGODB_QA_URI || env.AUTH_DATABASE !== QA_DATABASE) throw new Error('QA database configuration required');
   const client = new MongoClient(env.MONGODB_QA_URI, { appName: 'dong-song-cloudflare-auth-qa',
     maxPoolSize: 1, minPoolSize: 0, serverSelectionTimeoutMS: 10_000, connectTimeoutMS: 8_000, socketTimeoutMS: 10_000 });
   try {
     // Mongo connects lazily on the first operation. Login redirects, rejected
     // callbacks and anonymous /me must not open a database connection.
-    const db = client.db(QA_DATABASE), users = db.collection<UserDoc>('users');
+    const db = client.db(QA_DATABASE), users = db.collection<Account>('users');
+    const registration = (user: UserDoc) => {
+      const r = (user as Account).villageRegistration;
+      return r && r.owner === user._id && r.id === user.cityId && r.epoch === QA_EPOCH ? r : null;
+    };
+    const fence = async (user: Account) => {
+      if (env.VILLAGE_ENABLED !== 'true' || !user.cityId) return;
+      const r = registration(user);
+      if (!r || !env.VILLAGES) throw new Error('Village ownership not provisioned');
+      const response = await villageRequest(env as VillageEnv, r, user.sessionVersion!, 'fence');
+      if (!response.ok) throw new Error('Village session fence unavailable');
+    };
     return await run({
+      registration,
+      async reserveVillage(uid, version, name) {
+        if (env.VILLAGE_ENABLED !== 'true' || env.VILLAGE_EPOCH !== QA_EPOCH) throw new Error('Village disabled');
+        const r: VillageRegistration = { id: `qa-${crypto.randomUUID()}`, owner: uid, epoch: QA_EPOCH, name, createdAt: Date.now() };
+        // The pointer and retry metadata commit atomically in one account row.
+        // If provisioning the DO fails, GET/POST can repeat the same creation.
+        const reserved = await users.findOneAndUpdate({ _id: uid, sessionVersion: version, cityId: null },
+          { $set: { cityId: r.id, villageRegistration: r } }, { returnDocument: 'after' });
+        const user = reserved ?? await users.findOne({ _id: uid, sessionVersion: version });
+        return user ? registration(user) : null;
+      },
       findUser: (uid, version) => users.findOne({ _id: uid, sessionVersion: version }),
       async upsertGoogle(profile) {
         const now = new Date();
@@ -40,11 +69,17 @@ export async function withAuthRepository<T>(env: AuthDatabaseEnv, run: (repo: Au
       async startSession(uid) {
         const user = await users.findOneAndUpdate({ _id: uid }, { $inc: { sessionVersion: 1 }, $unset: { sessionRevokedFrom: '' } }, { returnDocument: 'after' });
         if (!user?.sessionVersion) throw new Error('No session');
+        // Do not publish the login cookie until the village rejects old writers.
+        await fence(user);
         return user;
       },
       async endSession(uid, version) {
         // A stale browser may not revoke a newer login.
-        await users.updateOne({ _id: uid, sessionVersion: version }, { $inc: { sessionVersion: 1 }, $set: { sessionRevokedFrom: version } });
+        const user = await users.findOneAndUpdate({ _id: uid, sessionVersion: version },
+          { $inc: { sessionVersion: 1 }, $set: { sessionRevokedFrom: version } }, { returnDocument: 'after' });
+        // Retry a failed fence without incrementing again or revoking a newer login.
+        const revoked = user ?? await users.findOne({ _id: uid, sessionRevokedFrom: version });
+        if (revoked) await fence(revoked);
       },
       async profile(user) {
         const now = Date.now();

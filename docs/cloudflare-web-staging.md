@@ -10,8 +10,9 @@ Ngày: 09/11/2026. **Không phải bản game production đã chuyển dữ li�
 - Database duy nhất được code auth staging chấp nhận: `dong_song_cloudflare_qa`.
   Không đọc/ghi làng thật. Secret kết nối được chủ dự án cho phép cấu hình vào
   Cloudflare Secrets; không xuất hiện trong repo/client bundle hoặc báo cáo.
-- `gameReady:false`. Xây dựng, điều quân, market và city batch trả JSON 503,
-  không ACK và không tạo dữ liệu giả để báo thành công. `/dev/*` trả 404.
+- `gameReady:false`. M03 đã mở tạo/đọc làng QA, batch và checkpoint trên một
+  namespace SQLite mới. Market, world, sứ giả và combat còn trả JSON 503;
+  `/api/city/action` cũ không nhận ghi. `/dev/*` trả 404.
 
 ## M01 — Giao diện tĩnh
 
@@ -81,17 +82,78 @@ Worker probe tạm đã xóa sau kiểm tra; secrets của probe được xóa c
 Các file secrets tạm dùng để upload cũng được dọn. Worker staging giữ secrets
 đã được chủ dự án cho phép để tiếp tục kiểm thử; không dùng khóa QA cho production.
 
-**Chưa nghiệm thu M02 đầy đủ:** đăng nhập hai browser thật; rào phiên HTTP/socket
-của Village/Battle sau migration. Không gọi M02 xong chỉ vì OAuth một browser qua.
+Login/logout đã nối rào phiên Village QA trong M03. **Chưa nghiệm thu M02 đầy
+đủ:** đăng nhập hai browser độc lập thật và rào phiên Battle/socket sau migration.
+Không gọi M02 xong chỉ vì OAuth một browser qua.
+
+## M03 — Làng QA, lưu bền vững và batch 10 giây
+
+`cloudflare/api/village.ts` là class mới `Village`, namespace riêng trong Worker
+staging. Không dùng lại Village prototype/Battle. Chỉ nhận ID `qa-<uuid>` và
+epoch cố định `cloudflare-qa-v1`; không có API seed, synthetic clock hoặc import.
+Mongo chỉ giữ tài khoản và reservation tạo làng, không giữ bản state thứ hai.
+State và ledger/receipt của làng QA được ghi vào một row SQLite trong transaction.
+
+- Gateway kiểm tra sid, phiên Mongo, Origin cho mutation và quyền sở hữu. Tự
+  dựng request nội bộ; không tin city ID/owner/session/epoch từ header client.
+- Reservation gồm city pointer + tên/timestamp được ghi nguyên tử trong row
+  account. Bốn yêu cầu tạo đồng thời cho cùng một tài khoản nhận cùng một ID.
+  Nếu storage hoặc response tạo làng lỗi, GET/POST khôi phục cùng reservation.
+- Batch giữ giao thức engine/anchor/sequence/digest hiện tại, giới hạn 32 lệnh,
+  256 KiB trước parse; receipt giữ tối đa 256. Replay còn receipt trả snapshot
+  đã commit, không chạy engine hoặc ghi lại. Payload đổi/sequence thiếu bị chặn.
+- State + ACK chỉ xuất hiện trong response thành công sau commit. Lỗi storage
+  rollback cả hai; không gửi ACK hoặc snapshot chưa lưu. Kết quả lệnh bị từ
+  chối vẫn có receipt lỗi để client bỏ đúng thao tác, không báo đã thực hiện.
+- Login tăng phiên Mongo rồi chờ fence Village trước khi cấp cookie. Logout
+  CAS và retry fence không tăng phiên lần nữa; logout cũ không khóa login mới.
+- Catch-up dài dùng work snapshot riêng, tối đa một lát dài 6 giờ mỗi request.
+  Chưa hoàn tất trả 503 `CHECKPOINT_PENDING`, không ACK/không public state giữa
+  chừng. GET hoặc retry tiếp tục từ SQLite sau restart. Fence phiên mới hủy
+  work chưa ACK; state đã công bố được giữ nguyên.
+
+Kiểm chứng ngày 09/11/2026:
+
+- 43 bài auth/router/Village/gateway/batch/queue qua; type-check và diff check
+  qua. Có parity với engine cũ, mất response/retry, SQL rollback, concurrent
+  duplicate, fence, malformed/oversized, catch-up và restart adapter SQLite.
+- Workerd + SQLite thật cục bộ: 9 request qua, gồm simultaneous duplicate,
+  dừng/khởi tạo lại runtime giữ ACK, conflict và fence. Đây không phải soak cloud.
+- Repository thật với Mongo QA + Village SQLite cục bộ: concurrent reservation,
+  login fence, stale logout, retry logout và identity recovery qua. Tài khoản
+  tổng hợp đã được xóa đúng ID; không đụng tài khoản người chơi thật.
+- Browser staging đã tạo **Làng QA Cloudflare**, giao 2 dân chặt gỗ: UI phản hồi
+  ngay, hiển thị Chờ lưu rồi Đã lưu; dân nộp gỗ về kho. Reload vẫn còn làng,
+  phân công 2 dân và tiến trình. Đây là làng QA mới, không phải Nam Quốc Sơn Hà.
+- HTTP staging: 33 request kiểm tra 16 asset, cache/MIME, auth/CSRF, legacy
+  action vẫn khóa; không nhận lệnh ẩn danh. Nhãn QA được build riêng cho origin
+  staging để tránh nhầm với bản đã chuyển production.
+
+**Chưa xong toàn bộ M03:** ownership/cutover epoch và chặn mọi writer cũ,
+inbox/outbox cho side effect M05, import/restore, khoá socket Battle, ngân sách
+Free và soak cloud còn chờ các task liên quan. Với state ngoài cửa sổ 14 ngày,
+QA trả `OFFLINE_MIGRATION_REQUIRED` thay vì sửa timestamp để giả lập cap; phải
+giải quyết và differential-test boundary này trước import/cutover. Chia lát chỉ
+giới hạn một lần tính, chưa chứng minh engine đã được tối ưu hoặc nằm trong quota.
+Client phục hồi catch-up ban đầu/đường mất mạng dài còn cần nghiệm thu M06.
+
+Bản M03 staging cuối đã deploy: `b25efdde-e4a6-4eff-b803-6127d05151ef`.
+Worker production `dongchaythoigian` và các làng thật chưa được chuyển.
+
+Game UI cũ vẫn thử tải battle/world/diplomacy; thông báo chưa kết nối combat
+trên QA là giới hạn M05/M06 hiện tại. Không trả dữ liệu trận giả để che lỗi này.
 
 ## Lệnh sử dụng
 
 ```sh
 bun run build:cloudflare
 bun run type-check
-bun test tests/cloudflare-router.test.ts tests/cloudflare-auth.test.ts
+bun test tests/cloudflare-*.test.ts lib/city-sync.test.ts lib/batched-city.test.ts
+WRANGLER_LOG_PATH=/tmp/dong-song-wrangler.log worker/node_modules/.bin/wrangler deploy --dry-run --config cloudflare/wrangler.staging.jsonc --outdir /tmp/dong-song-m03-bundle
+node scripts/check-cloudflare-village-runtime.mjs /tmp/dong-song-m03-bundle/index.js
+bun scripts/check-cloudflare-village-repository.ts
 WRANGLER_LOG_PATH=/tmp/dong-song-wrangler.log worker/node_modules/.bin/wrangler deploy --config cloudflare/wrangler.staging.jsonc
-node scripts/check-cloudflare-web.mjs https://dong-song-game-staging.phungthienphu.workers.dev --auth
+node scripts/check-cloudflare-web.mjs https://dong-song-game-staging.phungthienphu.workers.dev --auth --village
 ```
 
 Build mặc định lấy origin staging. Build cho origin khác truyền URL vào script,
@@ -102,7 +164,9 @@ node scripts/build-cloudflare-web.mjs https://dongchaythoigian.phungthienphu.wor
 ```
 
 Chưa có cấu hình deploy production. Không đổi tên staging config để bỏ qua các
-gate M03–M10. `AUTH_ENABLED` chỉ mở bốn route auth/me, không mở city/gameplay.
+gate M03–M10. `AUTH_ENABLED` mở auth/me; `VILLAGE_ENABLED` chỉ mở ba route
+city/batch/checkpoint QA khi binding/epoch/database đúng. Không đổi các biến này
+thành cấu hình production để bỏ qua migrator và ownership cutover.
 
 Setup secrets QA là thao tác riêng, cần quyền rõ ràng của chủ dự án. Script
 `prepare-cloudflare-auth-qa.mjs` đọc dotenv production, chỉ tạo index QA và tạo

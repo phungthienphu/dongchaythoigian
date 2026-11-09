@@ -46,13 +46,20 @@ for (const path of ['/dev', '/dev/sync', '/dev/eras', '/_next/static/missing-chu
 const health = await get('/api/health');
 assert.equal(health.status, 200);
 assert.equal((await health.json()).gameReady, false);
-for (const [path, method] of [['/api/city', 'GET'], ['/api/city/batch', 'POST'], ['/api/unknown', 'GET']]) {
+const villageQA = process.argv.includes('--village');
+for (const [path, method] of [...(villageQA ? [] : [['/api/city', 'GET'], ['/api/city/batch', 'POST']]), ['/api/city/action', 'POST'], ['/api/unknown', 'GET']]) {
   const response = await get(path, method);
   assert.equal(response.status, 503, path);
   assert.equal(response.headers.get('cache-control'), 'no-store', path);
   assert.equal((await response.json()).code, 'MIGRATION_NOT_READY');
 }
 const checks = ['html', 'chunks', 'css', 'fonts', 'icons', 'cache', '404', 'api-fence'];
+if (villageQA) {
+  const city = await get('/api/city');
+  assert.equal(city.status, 401); assert.equal((await city.json()).needsLogin, true);
+  assert.equal((await get('/api/city/batch', 'POST')).status, 403);
+  checks.push('village-auth', 'village-csrf', 'legacy-action-disabled');
+}
 if (process.argv.includes('--auth')) {
   const me = await get('/api/me');
   assert.equal(me.status, 200);
