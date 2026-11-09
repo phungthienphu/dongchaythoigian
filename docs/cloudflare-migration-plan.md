@@ -1,5 +1,11 @@
 # Kế hoạch giảm CPU và thử chuyển backend làng sang Cloudflare
 
+> **Đã có kế hoạch thay thế ngày 09/11/2026:**
+> [Chuyển game khỏi Vercel sang Cloudflare](./cloudflare-move-plan.md).
+> Tài liệu bên dưới giữ làm lịch sử. Batch 10 giây đã được phát hành toàn bộ
+> sau soak theo `sync-release.md`; các dòng trạng thái ngày 07/11 không mô tả
+> runtime mới nhất. Kế hoạch mới chuyển cả web/OAuth và bỏ phụ thuộc Vercel.
+
 Ngày lập/cập nhật: 07/11/2026. Trạng thái: **Chặng A đã push/phát hành với delay off;
 chưa bật canary 10 giây, chưa triển khai migration**. Runbook: [sync-release.md](./sync-release.md).
 

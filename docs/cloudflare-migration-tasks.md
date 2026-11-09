@@ -1,5 +1,11 @@
 # Task breakdown — đồng bộ 10 giây và backend làng
 
+> **Backlog triển khai mới từ 09/11/2026:**
+> [M00–M11 trong kế hoạch chuyển nhà](./cloudflare-move-plan.md).
+> T00–T12 bên dưới là đặc tả/lịch sử của phương án cũ; không dùng trạng thái
+> của chúng để suy ra migration production đã hoàn tất. Các hợp đồng còn phù
+> hợp được tái sử dụng, khác biệt phạm vi/rollout được ghi trong kế hoạch mới.
+
 Đọc [kế hoạch tổng thể](./cloudflare-migration-plan.md) trước. Đây là description
 để tạo ticket triển khai; **chưa phải danh sách chức năng đã hoàn thành**.
 Tiến độ cập nhật ở bảng trong kế hoạch tổng thể; bằng chứng và phần còn thiếu ở
