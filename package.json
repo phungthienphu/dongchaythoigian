@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:cloudflare": "node scripts/build-cloudflare-web.mjs",
     "start": "next start",
     "type-check": "tsc --noEmit",
     "test": "bun test lib/*.test.ts",

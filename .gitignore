@@ -8,3 +8,11 @@ next-env.d.ts
 
 # Local Wrangler build/runtime output
 .wrangler/
+
+# Cloudflare static app: metadata copied from app/ before building.
+cloudflare/web/out/
+cloudflare/web/app/favicon.ico
+cloudflare/web/app/icon.svg
+cloudflare/web/app/apple-icon.png
+cloudflare/web/app/opengraph-image.png
+cloudflare/web/app/opengraph-image.alt.txt
