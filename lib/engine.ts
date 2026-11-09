@@ -103,7 +103,7 @@ const DEFS = {
   wheel: { n: "Cối nước", era: 3, cost: { wood: 200, stone: 100 }, sec: 1200, jobs: 2, prod: { food: 50 }, use: { wood: WATERMILL_WOOD_PER_HOUR }, need: "river", up: true, d: "Sát sông. Nguồn thực ổn định qua mùa đông; sản lượng không còn vượt trội ruộng được chăm. Mỗi cối dùng 2 gỗ/phút khi sản xuất, không tăng theo cấp hay số thợ. Hết gỗ tạm dừng; có gỗ tự chạy lại." },
   hall: { n: "Đình làng", era: 2, cost: { wood: 300, stone: 200, copper: 20 }, sec: 900, house: 5, storage: 500, up: true, max: 1, drop: ["food", "wood", "stone", "copper", "gold", "diamond", "coal"], d: "Nhà chính. Công trình khác chỉ nâng được tới cấp của Đình. Cấp 3 mở trung tâm điều khiển." },
   envoy: { n: "Nhà sứ giả", era: 1, cost: { wood: 80, stone: 30, food: 30 }, sec: 90, up: true, max: 1, d: "Có sứ giả để đi thăm các nước. Mỗi cấp thêm một sứ giả và đi nhanh hơn." },
-  barracks: { n: "Trại lính", era: 1, cost: { wood: 120, stone: 40 }, sec: 120, up: true, max: 3, d: "Huấn luyện quân. Mỗi cấp chứa thêm 10 lính." },
+  barracks: { n: "Trại lính", era: 1, cost: { wood: 120, stone: 40 }, sec: 120, up: true, max: 3, d: "Mỗi trại tuyển độc lập. Sức chứa tăng theo cấp và thời đại; ba trại cấp 3 chứa 90/90/180/240/300/360 chỗ từ Đá đến Hiện đại." },
   wall: { n: "Tường thành", era: 1, cost: { wood: 30, stone: 20 }, sec: 30, up: true, d: "Chặn quân địch. Độ bền tăng theo cấp và thời đại." },
   gate: { n: "Cổng làng", era: 1, cost: { wood: 60, stone: 30 }, sec: 60, up: true, d: "Cho quân nhà đi qua tuyến tường, chặn quân địch." },
   watchtower: { n: "Tháp canh", era: 1, cost: { wood: 100, stone: 80 }, sec: 120, up: true, d: "Tầm 4 ô, bắn mỗi 1,5 giây: cấp 1/2/3 gây 6/9/12 sát thương. Giới hạn theo đời: 2/3/4/5/6/8 trụ; cần phối hợp quân phòng thủ." },
@@ -285,7 +285,7 @@ export type City = {
   shieldUntil?: number;
   battleId?: string; // active defending battle
   army: Troops; // at home
-  queue: { u: UKey; doneAt: number; startedAt?: number }[];
+  queue: TrainingOrder[];
   transportShips?: number;
   deployedShips?: number;
   ferryBookings?: { id:string; ships:number; back:number; at?:number; arrive?:number; route?:number[] }[];
@@ -718,6 +718,7 @@ export function demolitionQuote(c: City, tile: number, now: number) {
     }
     if ((b.k === 'dam' || b.k === 'green') && c.modern?.completedAt) error = "Kỳ quan cuối đã khánh thành; có thể sửa chữa nhưng không phá hoặc đổi nhánh.";
     else if (b.shipQueue?.length) error = "Cảng đang đóng thuyền; chờ hoàn tất trước khi phá.";
+    else if (c.queue.some(q=>q.source===tile)) error = "Công trình còn quân đang tuyển. Chờ hoàn tất; nếu cháy/ngập hoặc bịt lối thì sửa và mở đường trước khi phá.";
     // Mirror stats() storage rules without deriving the whole map for a preview.
     const capacity = Object.fromEntries(RES.map(r => [r, BASE_STORAGE])) as Res;
     for (const [i, other] of buildings(c)) if (i !== tile && other.lvl >= 1 && !other.burned && !other.flooded)
@@ -751,8 +752,54 @@ const missing = (c: City, cost: Partial<Res>) => {
 const pay = (c: City, cost: Partial<Res>, sign = -1,at=c.last) => { for (const r of RES) {const amount=cost[r]??0;c.res[r] += sign*amount;if(sign<0)recordResourceFlow(c,at,'spent',r,-sign*amount);} };
 
 export const soldiers = (c: City) => troopCount(c.army) + troopCount(c.deployedArmy ?? {}) + c.queue.length + c.exps.reduce((a, e) => a + troopCount(e.units), 0);
-export const armyCap = (c: City) => Object.values(c.b).reduce((a, b) => a + (b.k === "barracks" && isBuildingActive(b) ? b.lvl * 10 : 0), 0);
+/** Slots per individual barracks level. Existing troops are never removed when capacity drops. */
+const BARRACKS_CAPACITY=[[0,10,20,30],[0,10,20,30],[0,20,40,60],[0,30,55,80],[0,40,70,100],[0,50,85,120]];
+export function barracksCapacity(era:number,level:number){
+  return BARRACKS_CAPACITY[Math.max(1,Math.min(6,Math.floor(era)))-1][Math.max(0,Math.min(3,Math.floor(level)))];
+}
+export const armyCap = (c: City) => Object.values(c.b).reduce((a, b) => a + (b.k === "barracks" && isBuildingActive(b) ? barracksCapacity(c.era,b.lvl) : 0), 0);
 export const armyUsed = (c: City) => troopSpace(c.army) + troopSpace(c.deployedArmy ?? {}) + c.queue.reduce((a, q) => a + UNITS[q.u].space, 0) + c.exps.reduce((a, e) => a + troopSpace(e.units), 0);
+export type TrainingOrder={u:UKey;doneAt:number;startedAt?:number;source?:number;paused?:'inactive'|'exit'};
+export const MAX_TRAIN_BATCH=50;
+const trainingKind=(u:UKey):BKey=>UNITS[u].building??'barracks';
+const compareTraining=(a:TrainingOrder,b:TrainingOrder)=>a.doneAt-b.doneAt||(a.startedAt??0)-(b.startedAt??0)||(a.source??-1)-(b.source??-1);
+export function trainingFacilities(c:City,u:UKey){
+  return buildings(c).filter(([,b])=>b.k===trainingKind(u)&&isBuildingActive(b)).sort(([a],[b])=>a-b);
+}
+/** Pure preview used by the form and authoritative action. No timers or requests per facility. */
+export function trainingPlan(c:City,u:UKey,n:number,now:number,rules:EngineRules=RELEASE_RULES){
+  const unit=UNITS[u],single=trainingCost(u,c.era),cost:Partial<Res>={},orders:TrainingOrder[]=[];
+  const free=Math.max(0,armyCap(c)-armyUsed(c)),facilities=trainingFacilities(c,u);
+  const max=Math.max(0,Math.min(MAX_TRAIN_BATCH,Math.floor(free/unit.space),...RES.filter(r=>single[r]).map(r=>Math.floor(c.res[r]/single[r]!))));
+  let error:string|null=null;
+  if(!Number.isSafeInteger(n)||n<1||n>MAX_TRAIN_BATCH)error=`Mỗi lần tuyển từ 1 đến ${MAX_TRAIN_BATCH} quân.`;
+  else if(unit.era>rules.maxEra)error='Loại quân này sắp ra mắt.';
+  else if(unit.era>c.era)error='Chưa tới thời đại của loại quân này.';
+  else if(!armyCap(c))error='Cần xây Trại lính đang hoạt động trước.';
+  else if(!facilities.length)error=`Cần ${B[trainingKind(u)].n} đang hoạt động để tuyển ${unit.n}.`;
+  else if(n*unit.space>free)error=`Còn ${free} chỗ, cần ${n*unit.space} chỗ cho ${n} ${unit.n}. Nâng cấp hoặc xây thêm trại.`;
+  if(Number.isSafeInteger(n)&&n>=1&&n<=MAX_TRAIN_BATCH){
+    for(const r of RES)if(single[r])cost[r]=single[r]!*n;
+    const missingResources=RES.filter(r=>(cost[r]??0)>c.res[r]);
+    if(!error&&missingResources.length)error=`Thiếu ${missingResources.map(r=>`${Math.ceil(cost[r]!-c.res[r])} ${RN[r].toLowerCase()}`).join(', ')}.`;
+    // Legacy orders keep their original dates and reserve their facility kind
+    // until the old serial backlog has finished. They are never charged again.
+    const legacyEnd=c.queue.reduce((end,q)=>q.source===undefined&&trainingKind(q.u)===trainingKind(u)?Math.max(end,q.doneAt):end,now);
+    const lanes=facilities.map(([source,b])=>({source,each:unit.sec*1000/(1+.5*(b.lvl-1)),end:c.queue.reduce((end,q)=>q.source===source?Math.max(end,q.doneAt):end,legacyEnd)}));
+    for(let k=0;k<n&&lanes.length;k++){
+      lanes.sort((a,b)=>(a.end+a.each)-(b.end+b.each)||a.source-b.source);
+      const lane=lanes[0],startedAt=lane.end;lane.end+=lane.each;
+      orders.push({u,source:lane.source,startedAt,doneAt:lane.end});
+    }
+    orders.sort(compareTraining);
+  }
+  return {cost,orders,free,max:unit.era>Math.min(c.era,rules.maxEra)||!facilities.length?0:max,error,doneAt:orders.at(-1)?.doneAt??now};
+}
+export function trainingLanes(c:City){
+  const lanes=new Map<number,{source?:number;orders:TrainingOrder[]}>();
+  for(const q of c.queue){const key=q.source??-1;if(!lanes.has(key))lanes.set(key,{source:q.source,orders:[]});lanes.get(key)!.orders.push(q);}
+  return [...lanes.values()].map(lane=>({...lane,orders:lane.orders.slice().sort(compareTraining)})).sort((a,b)=>(a.source??-1)-(b.source??-1));
+}
 export const campStrength = (camp:Camp) => camp.garrison ? Math.round(troopPower(camp.garrison)) : camp.power;
 export const campById = (c: City, id: number) => c.camps.find((k) => k.id === id);
 export const marchMs = (from: number, to: number) => (Math.max(1, cheb(from, to)) / EXPLORE_TILES_PER_MIN) * MIN;
@@ -2130,6 +2177,58 @@ function finishCampCombat(c:City,e:Expedition,camp:Camp|undefined,at:number){
   log(c,at,e.won ? `Quân ta phá trại man rợ!${troopCount(lost)?` Hy sinh: ${troopText(lost)}.`:""} Đang mang về ${costText(e.loot??{})}.` : `Quân ta phải rút khỏi trại man rợ.${troopCount(lost)?` Hy sinh: ${troopText(lost)}.`:""} Quân địch còn ${troopCount(e.combat!.defenders)} người.`,e.won?"good":"warn");
 }
 
+function stepTraining(c:City,nt:number){
+  if(!c.queue.length)return false;
+  let changed=false;
+  // Only new, explicitly assigned lanes pause. Historical serial orders retain
+  // their paid dates and completion behavior. A paused lane never blocks another.
+  let queueMoved=false;
+  const paused=new Set<number>();
+  const laneStarts=new Map<number,number>();
+  for(const q of c.queue)if(q.source!==undefined&&!paused.has(q.source)){
+    const b=c.b[q.source];if(!isBuildingActive(b)||b.k!==trainingKind(q.u))paused.add(q.source);
+  }
+  for(const q of c.queue)if(q.source!==undefined&&paused.has(q.source))laneStarts.set(q.source,Math.min(laneStarts.get(q.source)??Infinity,q.startedAt??nt-HAUL_TILE_MS));
+  for(const q of c.queue)if(q.source!==undefined&&!paused.has(q.source))delete q.paused;
+  for(const q of c.queue)if(q.source!==undefined&&paused.has(q.source)){
+    const delay=Math.max(0,Math.min(HAUL_TILE_MS,nt-laneStarts.get(q.source)!));
+    q.paused='inactive';q.doneAt+=delay;if(q.startedAt!==undefined)q.startedAt+=delay;if(delay)queueMoved=true;
+  }
+  const ready:TrainingOrder[]=[];
+  const exits=new Map<number,number|undefined>();
+  for(const q of c.queue){
+    if(q.doneAt>nt||q.source!==undefined&&paused.has(q.source))continue;
+    if(q.source!==undefined){
+      if(!exits.has(q.source))exits.set(q.source,armyStagingTiles(c,1,q.source)[0]);
+      if(exits.get(q.source)===undefined){paused.add(q.source);continue;}
+    }
+    delete q.paused;ready.push(q);
+  }
+  // Finished recruits wait at their own entrance when it is sealed. Keep all
+  // remaining dates on that lane in order while other facilities finish normally.
+  for(const q of c.queue)if(q.source!==undefined&&paused.has(q.source)&&isBuildingActive(c.b[q.source])&&c.b[q.source].k===trainingKind(q.u)){
+    q.paused='exit';q.doneAt+=HAUL_TILE_MS;if(q.startedAt!==undefined)q.startedAt+=HAUL_TILE_MS;queueMoved=true;
+  }
+  if(queueMoved)c.queue.sort(compareTraining);
+  if(ready.length){const completed=new Set(ready);c.queue=c.queue.filter(q=>!completed.has(q));ready.sort(compareTraining);}
+  for (const q of ready) {
+    const k = c.army[q.u] ?? 0;
+    c.army[q.u] = k + 1;
+    const source = q.source??buildings(c).find(([, b]) => b.k === trainingKind(q.u) && isBuildingActive(b))?.[0];
+    const exit = source === undefined ? undefined : armyStagingTiles(c,1,source)[0];
+    const entrance = exit === undefined ? undefined : {x:exit%W,y:Math.floor(exit/W)};
+    if (entrance) {
+      const id = `${q.u}:${k}`, tile = idx(entrance.x,entrance.y);
+      (c.homeOrders ??= {})[id] = { route:[tile], at:q.doneAt, x:entrance.x+.5, y:entrance.y+.5 };
+      const post = c.guardPosts?.[k % c.guardPosts.length];
+      const destination = post ? idx(post.x,post.y) : armyStagingTiles(c)[k % Math.max(1,armyStagingTiles(c).length)];
+      if (destination !== undefined) orderHomeSoldier(c,id,destination,q.doneAt);
+    }
+    changed = true;
+  }
+  return changed;
+}
+
 function stepArmy(c: City, nt: number,docks=buildings(c).filter(([,b])=>b.k==="dock")) {
   if(c.merchantJourneys?.some(j=>j.back<=nt))c.merchantJourneys=c.merchantJourneys.filter(j=>j.back>nt);
   if(c.ferryBookings)c.ferryBookings=c.ferryBookings.filter(b=>b.back>nt);
@@ -2150,22 +2249,7 @@ function stepArmy(c: City, nt: number,docks=buildings(c).filter(([,b])=>b.k==="d
     raid(c,encounter.resolveAt,rng(c.seed ^ Math.imul(Math.floor(c.raid.at / MIN),3266489917)));changed=true;
   }
   if(encounter && encounter.end<=nt){delete c.raidEncounter;changed=true;}
-  while (c.queue.length && c.queue[0].doneAt <= nt) {
-    const q = c.queue.shift()!;
-    const k = c.army[q.u] ?? 0;
-    c.army[q.u] = k + 1;
-    const source = buildings(c).find(([, b]) => b.k === (UNITS[q.u].building ?? "barracks") && isBuildingActive(b))?.[0];
-    const exit = source === undefined ? undefined : armyStagingTiles(c,1,source)[0];
-    const entrance = exit === undefined ? undefined : {x:exit%W,y:Math.floor(exit/W)};
-    if (entrance) {
-      const id = `${q.u}:${k}`, tile = idx(entrance.x,entrance.y);
-      (c.homeOrders ??= {})[id] = { route:[tile], at:q.doneAt, x:entrance.x+.5, y:entrance.y+.5 };
-      const post = c.guardPosts?.[k % c.guardPosts.length];
-      const destination = post ? idx(post.x,post.y) : armyStagingTiles(c)[k % Math.max(1,armyStagingTiles(c).length)];
-      if (destination !== undefined) orderHomeSoldier(c,id,destination,q.doneAt);
-    }
-    changed = true;
-  }
+  if(stepTraining(c,nt))changed=true;
   for (const k of c.camps) {
     if (k.cleared && k.respawnAt && k.respawnAt <= nt) {
       k.cleared = false; k.respawnAt = null;
@@ -2675,24 +2759,10 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     return null;
   }
   if (a.type === "train") {
-    const u = UNITS[a.u];
-    if (!u) return "Loại quân không hợp lệ.";
-    if(u.era>rules.maxEra)return "Loại quân này sắp ra mắt.";
-    if (u.era > c.era) return "Chưa tới thời đại của loại quân này.";
-    if (!armyCap(c)) return "Cần xây Trại lính trước.";
-    if(u.building && !Object.values(c.b).some(b=>b.k===u.building && isBuildingActive(b)))return `Cần xây ${B[u.building].n} để đào tạo ${u.n}.`;
-    const n = Math.max(1, Math.min(50, Math.floor(a.n)));
-    if (armyUsed(c) + n * u.space > armyCap(c)) return `Trại lính hết chỗ (${armyUsed(c)}/${armyCap(c)}). Nâng cấp hoặc xây thêm trại.`;
-    const cost: Partial<Res> = {};
-    const single = trainingCost(a.u, c.era);
-    for (const r of RES) if (single[r]) cost[r] = single[r]! * n;
-    const err = missing(c, cost);
-    if (err) return err;
-    pay(c, cost);
-    const lv = Object.values(c.b).reduce((a2, b) => a2 + (b.k === (u.building ?? "barracks") && isBuildingActive(b) ? b.lvl : 0), 0);
-    const each = (u.sec * 1000) / (1 + 0.5 * (lv - 1));
-    let start = Math.max(now, c.queue.length ? c.queue[c.queue.length - 1].doneAt : now);
-    for (let k = 0; k < n; k++) { const startedAt = start; start += each; c.queue.push({ u: a.u, startedAt, doneAt: start }); }
+    const plan=trainingPlan(c,a.u,a.n,now,rules);
+    if(plan.error)return plan.error;
+    pay(c,plan.cost);
+    c.queue.push(...plan.orders);c.queue.sort(compareTraining);
     return null;
   }
   if (a.type === "alarm") {

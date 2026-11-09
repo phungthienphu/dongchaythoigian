@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
   dockRelocationPlan, buildingJobs,storageCapacity, availableForQuickAssign, quickAssignBlockedReason, isScout, taskResource, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
-  armyCap, armyUsed, buildingCost, trainingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
+  armyCap, armyUsed, barracksCapacity, buildingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, farmAutoStatus, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
 } from "@/lib/engine";
@@ -33,6 +33,7 @@ import { buildAvailability } from "@/lib/build-availability";
 import { placementHint, placementTiles } from "@/lib/build-placement";
 import BattleView from "./BattleView";
 import ArmyManagement from "./ArmyManagement";
+import ArmyRecruitment from "./ArmyRecruitment";
 import EconomySummary from './EconomySummary';
 import FarmGroupCare from './FarmGroupCare';
 import FarmWorkers from './FarmWorkers';
@@ -1259,7 +1260,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                 <button className="primary" disabled={busy || !envoyCount(c) || envoysAway(c)>=envoyCount(c)} onClick={()=>sendEnvoy()}>Cử sứ giả rảnh đi do thám · 2 phút</button>
                 <button onClick={()=>{setWorldOpen(true);setPanel(null);}}>Xem hành trình trên bản đồ thế giới</button>
               </>}
-              {sel.k==="barracks" && sel.lvl>=1 && !armyStagingTiles(c,1).length && <p className="err small">Trại lính bị bịt kín. Chừa lối đất nối ra ngoài, đặt cổng thay tường hoặc dỡ công trình chắn lối; quân không tự phá nhà mình.</p>}
+              {sel.k==="barracks" && sel.lvl>=1 && <p className="small">Trại này hỗ trợ {barracksCapacity(c.era,sel.lvl)} chỗ quân và có hàng tuyển riêng.</p>}
+              {sel.k==="barracks" && sel.lvl>=1 && !armyStagingTiles(c,1,selI).length && <p className="err small">Trại lính bị bịt kín. Chừa lối đất nối ra ngoài, đặt cổng thay tường hoặc dỡ công trình chắn lối; quân không tự phá nhà mình.</p>}
               {["barracks","logistics","infirmary"].includes(sel.k) && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
               {sel.k==='ironbridge'&&sel.lvl>=1&&<BridgePanel city={c} from={selI} to={bridgeFrom===selI&&bridgeTarget?idx(bridgeTarget.x,bridgeTarget.y):null} selecting={bridgeFrom===selI} busy={busy} rules={rules} act={act} onSelect={()=>{setBridgeFrom(selI);setBridgeTarget(null);setDockMove(null);setDockTarget(null);setTool(null);setPicked(new Set());setPickedSoldier(null);setGuardEditing(false);setPlanting(false);setMsg(null);}} onCancel={()=>{setBridgeFrom(null);setBridgeTarget(null);}}/>}
               {sel.k==="dock"&&sel.lvl>=1&&<>
@@ -1465,29 +1467,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                   <p className="small">Sức chứa trại: <b>{used}/{cap}</b> · Quân ở nhà: <b>⚔ {fmt(homePower)}</b></p>
                 )}
                 <button onClick={()=>setArmyManagement(true)}>Quản lý quân · giải ngũ</button>
-                <ul className="units train">
-                  {UKEYS.filter(u=>UNITS[u].era<=rules.maxEra).map((u) => {
-                    const U = UNITS[u], needsBuilding=U.building && !Object.values(c.b).some(b=>b.k===U.building && b.lvl>0 && !b.burned && !b.flooded), locked = U.era > c.era || !!needsBuilding;
-                    return (
-                      <li key={u} className={locked ? "locked" : ""}>
-                        <div>
-                          <b>{U.n}</b> <span className="muted small">· {c.army[u] ?? 0} ở nhà</span>
-                          <div className="muted small">⚔ {U.atk} · ❤ {U.hp}{U.space > 1 ? ` · ${U.space} chỗ` : ""} · {costText(trainingCost(u, Math.max(U.era,c.era)))} · {fmtDur(U.sec * 1000)}</div>
-                          <div className="muted small">{U.era>c.era ? `Mở ở ${ERA_NAMES[U.era]}` : needsBuilding ? `Cần xây ${B[U.building!].n}` : U.d}</div>
-                        </div>
-                        <div className="tb">
-                          <button disabled={locked || !cap || busy} onClick={() => act({ type: "train", u, n: 1 })}>+1</button>
-                          <button disabled={locked || !cap || busy} onClick={() => act({ type: "train", u, n: 5 })}>+5</button>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-                {c.queue.length > 0 && (
-                  <div><p className="small">Đang luyện {c.queue.length} lính · tiếp theo: {UNITS[c.queue[0].u].n} · xong sau {fmtDur(c.queue[0].doneAt - t)} · tất cả xong sau {fmtDur(c.queue[c.queue.length - 1].doneAt - t)}</p>
-                    <progress aria-label={`Tiến độ luyện ${UNITS[c.queue[0].u].n}`} max={1} value={Math.max(0,Math.min(1,1-(c.queue[0].doneAt-t)/Math.max(1,c.queue[0].doneAt-(c.queue[0].startedAt ?? c.queue[0].doneAt-UNITS[c.queue[0].u].sec*1000))))} style={{width:"100%",accentColor:"var(--accent)"}} />
-                  </div>
-                )}
+                <ArmyRecruitment city={c} now={t} busy={busy} act={act} rules={rules}/>
                 <p className="muted small">Đánh nước khác: mở Thế giới, cử sứ giả thăm rồi chọn quân. Hai nước cần đăng nhập Google.</p>
                 <h3>Phòng thủ làng</h3>
                 <p className="muted small">Đặt tối đa 20 điểm gác. Lính ở nhà tự bảo vệ các điểm này khi bạn vắng mặt.</p>
