@@ -2,7 +2,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {BatchedCityQueue,type SaveStatus} from '@/lib/batched-city';
 import {controlCityTab} from '@/lib/city-queue-storage';
-import {applyCommandBatch,type CitySync,type BatchResponse,type BatchRequest} from '@/lib/city-sync';
+import {BATCH_DELAY_MS,applyCommandBatch,type CitySync,type BatchResponse,type BatchRequest} from '@/lib/city-sync';
 import {ENGINE_VER,newCity,type City} from '@/lib/engine';
 
 // All state here is synthetic and local to this origin, with no API/DB access.
@@ -47,7 +47,7 @@ export default function SyncHarness() {
     return()=>{disposed=true;dispose();queue.current?.stop();};
   },[]);
   return <main style={{padding:24,maxWidth:850,margin:'auto',fontFamily:'sans-serif'}}>
-    <h1>Kiểm tra đồng bộ 10 giây</h1>
+    <h1>Kiểm tra đồng bộ {BATCH_DELAY_MS / 1000} giây</h1>
     <p>Dữ liệu giả trên máy này. Không kết nối tài khoản, API hoặc database game.</p>
     <p role="status" data-testid="sync-status">Trạng thái: {status}</p>
     <p data-testid="server-stats">ACK: {server?.ack??0} · Số gói: {server?.calls??0}</p>

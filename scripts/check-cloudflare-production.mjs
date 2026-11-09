@@ -15,7 +15,7 @@ async function get(path, cookie) {
   return fetch(`${origin}${path}`, { headers: cookie ? { cookie } : {}, redirect: 'manual', signal: AbortSignal.timeout(60_000) });
 }
 try {
-  const health = await (await get('/api/health')).json(); assert.equal(health.gameReady, true);
+  const health = await (await get('/api/health')).json(); assert.equal(health.gameReady, true); assert.equal(health.syncSeconds, 30);
   const html = await (await get('/')).text(); assert.ok(!html.includes('Hello World!')); assert.ok(!html.includes('qa-notice'));
   const assets = [...new Set([...html.matchAll(/(?:src|href)="([^"?#]+)(?:\?[^" ]*)?"/g)].map(match => match[1]).filter(path => path.startsWith('/_next/') || /\.(ico|svg|png)$/.test(path)))];
   assert.ok(assets.length > 5);

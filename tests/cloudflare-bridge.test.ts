@@ -21,6 +21,12 @@ const env = { APP_URL: origin, AUTH_SECRET: secret, GOOGLE_CLIENT_ID: 'test', GO
 const sid = createSession({ _id: 'account-a', sessionVersion: 1 }, secret);
 const req = (path: string, method = 'GET', headers: Record<string, string> = {}, body?: string) => new Request(`${origin}${path}`, { method, headers, body });
 
+test('health advertises the active 30-second batch window without forwarding to a DO', async () => {
+  const before = calls.length;
+  expect((await (await bridge.fetch(req('/api/health'), env)).json()).syncSeconds).toBe(30);
+  expect(calls.length).toBe(before);
+});
+
 test('anonymous, forged, old and wrong-origin requests never reach Mongo executor', async () => {
   const before = calls.length;
   expect((await bridge.fetch(req('/api/city'), env)).status).toBe(401);

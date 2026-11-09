@@ -1,7 +1,7 @@
 import { ENGINE_VER, applyAction, settle, type Action, type City } from './engine';
 import { isActionInput } from './action-input';
 
-export const BATCH_DELAY_MS = 10_000;
+export const BATCH_DELAY_MS = 30_000;
 export const BATCH_LIMIT = 32;
 export const BATCH_BYTES = 256 * 1024;
 export const QUEUE_LIMIT = 256;

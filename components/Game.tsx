@@ -50,7 +50,7 @@ import { useWars } from "./useWars";
 import { OptimisticCityQueue } from "@/lib/optimistic-city";
 import { BatchedCityQueue, SyncTransportError, type SaveStatus } from '@/lib/batched-city';
 import { controlCityTab } from '@/lib/city-queue-storage';
-import type { BatchRequest, BatchResponse, CitySync } from '@/lib/city-sync';
+import { BATCH_DELAY_MS, type BatchRequest, type BatchResponse, type CitySync } from '@/lib/city-sync';
 import { SESSION_ENDED_EVENT, SESSION_ENDED_MESSAGE } from "@/lib/session-client";
 import type { Nation } from "@/lib/world";
 
@@ -448,7 +448,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               if(fresh.sync.cityId!==data.sync!.cityId||fresh.sync.session!==data.sync!.session||fresh.sync.engine!==data.sync!.engine)throw new Error("Phiên chơi đã đổi; hãy tải lại trang.");
               const queue=new BatchedCityQueue({
                 state:fresh.state,sync:fresh.sync,rules,storage,now:()=>Date.now()+offsetRef.current,
-                delayMs:fresh.batchEnabled?10_000:0,onState:publish,
+                delayMs:fresh.batchEnabled?BATCH_DELAY_MS:0,onState:publish,
                 onStatus:s=>{setSaveStatus(s);setSaving(s==='queued'||s==='sending'||s==='offline');},
                 onError:text=>setMsg({text,err:true}),reload:loadCheckpoint,
                 checkpoint:async()=>{

@@ -5,6 +5,7 @@ import type { VillageNamespace } from '../api/runtime';
 import { withRequestContext } from './context';
 import { dispatch, resolveRoute } from './routes';
 import { repository } from './auth-repository';
+import { BATCH_DELAY_MS } from '../../lib/city-sync';
 
 export interface BridgeEnv extends AuthEnv {
   ASSETS: { fetch(request: Request): Promise<Response> };
@@ -52,7 +53,7 @@ export default {
   async fetch(request: Request, env: BridgeEnv): Promise<Response> {
     const url = new URL(request.url), path = url.pathname;
     if (path === '/api/health' && request.method === 'GET') return response({ status: env.GAME_ENABLED === 'true' ? 'ready' : 'maintenance',
-      gameReady: env.GAME_ENABLED === 'true', release: env.RELEASE_ID, storage: 'mongodb', compute: 'durable-objects', syncSeconds: 10 });
+      gameReady: env.GAME_ENABLED === 'true', release: env.RELEASE_ID, storage: 'mongodb', compute: 'durable-objects', syncSeconds: BATCH_DELAY_MS / 1000 });
     if (path === '/dev' || path.startsWith('/dev/')) return new Response('Not found', { status: 404 });
     if (path !== '/api' && !path.startsWith('/api/')) return env.ASSETS.fetch(request);
     if (env.GAME_ENABLED !== 'true') return response({ error: 'Game đang chuyển máy chủ. Vui lòng quay lại sau ít phút.' }, 503);

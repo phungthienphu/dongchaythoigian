@@ -54,8 +54,8 @@ ACK batch chỉ gửi receipt thuộc range được hỏi, không gửi digest 
 checkpoint gửi tối đa 256 receipt để khôi phục mất ACK. `checkpointAt` là mốc đã
 ghi DB, tách khỏi thời gian của snapshot mô phỏng để đọc.
 
-Client hiển thị ngay; Promise enqueue biểu thị nhận local, không chờ 10 giây.
-IndexedDB ghi trước khi báo nhận local bền vững. Deadline 10 giây từ lệnh đầu,
+Client hiển thị ngay; Promise enqueue biểu thị nhận local, không chờ 30 giây.
+IndexedDB ghi trước khi báo nhận local bền vững. Deadline 30 giây từ lệnh đầu,
 không debounce. Đủ batch thì gửi sớm; idle không gọi API batch.
 Một tab giữ Web Lock cho làng; các tab còn lại chỉ xem và có thể nhận quyền sau
 khi tab cũ đóng. Trình duyệt không có Web Locks dùng cùng một khóa IndexedDB có
@@ -71,7 +71,7 @@ liệu nguyên vẹn để thử đọc lại; không chuyển sang ghi đè r�
 nhưng lần ghi mới lỗi, báo rõ và gửi ngay. Trình duyệt không có IndexedDB nhưng
 có Web Locks dùng memory/gửi ngay, không hứa phục hồi sau đóng trang.
 
-`CITY_BATCH_ENABLED=true` bật delay 10 giây, `CITY_BATCH_CANARY_IDS` giới hạn
+`CITY_BATCH_ENABLED=true` bật delay 30 giây, `CITY_BATCH_CANARY_IDS` giới hạn
 làng thử. Mặc định/tắt flag vẫn dùng queue/receipt bền vững và API batch, gửi
 ngay; không quay lại API cũ. Server luôn nhận in-flight batch hợp lệ.
 

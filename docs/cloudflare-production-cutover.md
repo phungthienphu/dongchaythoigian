@@ -7,7 +7,8 @@
 - MongoDB vẫn là nguồn lưu duy nhất cho làng, người chơi và giao dịch.
 - GameApi DO chia theo tài khoản có chữ ký hợp lệ, chạy engine phía server;
   không chạy engine trong HTTP Worker bị giới hạn CPU 10ms của Free.
-- Client phản hồi ngay, gom thao tác 10 giây cho tất cả tài khoản. Khi rảnh,
+- Client phản hồi ngay, gom thao tác 30 giây cho tất cả tài khoản (cập nhật
+  sau cutover; bản cutover ban đầu là 10 giây). Khi rảnh,
   checkpoint 5 phút như bản trước; giao thương và combat giữ đường xử lý riêng.
 - Giữ `dong-song-battles` và namespace BattleRoom hiện có. Callback/cron chạy
   về origin mới, không còn gọi Vercel. Cấu hình QA dùng worker combat riêng.

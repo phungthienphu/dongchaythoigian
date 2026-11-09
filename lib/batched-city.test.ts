@@ -35,13 +35,21 @@ function fixture() {
 }
 const idle={type:'assign' as const,ids:[1],task:{t:'idle' as const}};
 const work={type:'assign' as const,ids:[1],task:{t:'work' as const,at:idx(25,25)}};
-test('local acceptance is durable and immediate; 10s deadline does not slide, idle sends nothing',async()=>{
+test('local acceptance is durable and immediate; 30s deadline does not slide, idle sends nothing',async()=>{
   const f=fixture(),q=f.queue();await q.initialize();
   assert.equal(await q.enqueue(idle),true);assert.equal(f.calls.length,0);assert.equal(f.saved!.commands.length,1);assert.equal(q.snapshot.people[0].task.t,'idle');
-  f.time.tick(9000);await q.enqueue(work);assert.equal(f.calls.length,0);
+  f.time.tick(29000);await q.enqueue(work);assert.equal(f.calls.length,0);
   f.time.tick(999);assert.equal(f.calls.length,0);f.time.tick(1);await q.flush();
   assert.equal(f.calls.length,1);assert.equal(f.calls[0].commands.length,2);assert.equal(q.status,'saved');assert.equal(f.saved!.commands.length,0);
   f.time.tick(100000);assert.equal(f.calls.length,1);q.stop();
+});
+test('a full 32-command batch sends before the 30s deadline without dropping IDs',async()=>{
+  const f=fixture(),q=f.queue();await q.initialize();
+  for(let n=0;n<31;n++)assert.equal(await q.enqueue(idle),true);
+  assert.equal(f.calls.length,0);const ids=f.saved!.commands.map(c=>c.id);
+  assert.equal(await q.enqueue(idle),true);await q.flush();
+  assert.equal(f.time.now,0);assert.equal(f.calls.length,1);assert.equal(f.calls[0].commands.length,32);
+  assert.deepEqual(f.calls[0].commands.slice(0,31).map(c=>c.id),ids);assert.equal(q.isPending,false);q.stop();
 });
 test('delay rollback flushes existing pending IDs and keeps the same durable queue protocol',async()=>{
   const f=fixture(),q=f.queue();await q.initialize();await q.enqueue(idle);const id=f.saved!.commands[0].id;
@@ -59,7 +67,7 @@ test('offline retry keeps the queue; barrier flushes first, blocks concurrent ac
   const f=fixture(),q=f.queue();await q.initialize();await q.enqueue(idle);f.offline(true);
   assert.equal(await q.flush(),false);assert.equal(f.saved!.commands.length,1);f.offline(false);
   const order:string[]=[];
-  await q.exclusive(async()=>{order.push('external');assert.equal(q.isPending,false);assert.equal(await q.enqueue(work),false);});
+  await q.exclusive(async()=>{order.push('external');assert.equal(f.calls.length,2);assert.equal(f.time.now,0);assert.equal(q.isPending,false);assert.equal(await q.enqueue(work),false);});
   assert.deepEqual(order,['external']);assert.ok(f.reloads>=2);assert.equal(q.status,'saved');q.stop();
 });
 test('storage failure switches to immediate send; lost lease stops instead of bypassing the writer fence',async()=>{

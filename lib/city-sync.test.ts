@@ -5,13 +5,13 @@ import { applyCommandBatch, validBatch, QUEUE_AGE_MS, type SyncCommand } from '.
 import { syncFixture, syncCommands } from '../tests/sync-workload';
 
 const command=(seq:number,at:number,action:SyncCommand['action']):SyncCommand=>({seq,at,action,id:`id-${seq}`,anchor:'signed'});
-test('batch preserves work and delivery timeline without losing the ten seconds',()=>{
-  for(const pop of [3,50,200]) {
+test('10s and 30s batches preserve the same work and delivery timeline as immediate commands',()=>{
+  for(const end of [10_000,30_000])for(const pop of [3,50,200]) {
     const direct=syncFixture(pop),batched=structuredClone(direct);
     const commands=syncCommands().map((c,n)=>command(n+1,c.at,c.action));
     for(const c of commands)applyAction(direct,c.action,c.at);
-    settle(direct,10_000);
-    const results=applyCommandBatch(batched,commands,10_000);
+    settle(direct,end);
+    const results=applyCommandBatch(batched,commands,end);
     assert.deepEqual(batched,direct);assert.ok(results.every(r=>!r.error));
   }
 });

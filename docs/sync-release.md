@@ -1,5 +1,20 @@
 # Phát hành Chặng A và rollback
 
+## Cập nhật 09/11/2026: gom lệnh 30 giây
+
+Nhịp hiện tại là 30 giây từ lệnh đầu tiên, thay cho 10 giây trong các đợt
+phát hành lịch sử bên dưới. Client nhận lệnh ngay và giữ queue IndexedDB;
+không gửi batch rỗng. Đủ 32 lệnh/256 KiB gửi sớm. Giao thương, sứ giả và
+xuất quân vẫn flush/ACK trước khi thực hiện; combat giữ WebSocket riêng.
+Không đổi anchor 90 giây, checkpoint idle 5 phút hay nhịp đọc định kỳ.
+Không cần thêm env hoặc secret; build lại frontend để nhận nhịp mới.
+
+Khi liên tục có lệnh và không chạm các điều kiện gửi sớm, mô hình batch giảm
+từ 360 xuống 120 request/giờ (giảm 67%). Đây không phải tỷ lệ giảm tổng API
+hoặc CPU; chưa có số đo production sau thay đổi này.
+
+## Lịch sử triển khai
+
 Ngày 07/11/2026. Code giữ MongoDB làm nguồn chính, combat tiếp tục ở Worker.
 Đã phát hành Chặng A với delay off. Sau soak đạt, chủ dự án yêu cầu phát hành
 gom 10 giây cho **tất cả người chơi**, thay cho canary riêng một làng. Không
@@ -58,8 +73,8 @@ secret trong lúc đo vì anchor của queue đang chờ phải còn kiểm ch�
 
 | Biến server | Giá trị | Ý nghĩa |
 |---|---|---|
-| `CITY_BATCH_ENABLED` | mặc định/`false` | Vẫn queue + API batch, gửi ngay; không gom chờ 10 giây |
-| `CITY_BATCH_ENABLED` | `true` | Gom tối đa 10 giây, đủ 32 lệnh/256 KiB thì gửi sớm |
+| `CITY_BATCH_ENABLED` | mặc định/`false` | Vẫn queue + API batch, gửi ngay; không gom chờ 30 giây |
+| `CITY_BATCH_ENABLED` | `true` | Gom tối đa 30 giây, đủ 32 lệnh/256 KiB thì gửi sớm |
 | `CITY_BATCH_CANARY_IDS` | ID làng cách nhau dấu phẩy | Chỉ các làng này có delay; rỗng/bỏ biến là mọi làng |
 
 Flag chỉ điều khiển **delay**, không hoàn tác read cache/checkpoint hay đổi về
