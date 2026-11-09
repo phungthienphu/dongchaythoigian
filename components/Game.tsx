@@ -41,6 +41,7 @@ import DiplomacyMessages, { diplomacyText } from "./DiplomacyMessages";
 import { useDiplomacy } from "./useDiplomacy";
 import CaravanNoticeLink from "./CaravanNoticeLink";
 import DockPanel from "./DockPanel";
+import BridgePanel from "./BridgePanel";
 import DemolitionPanel from "./DemolitionPanel";
 import AutoAssignPanel from "./AutoAssignPanel";
 import EraStorageNotice from "./EraStorageNotice";
@@ -373,6 +374,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   useEffect(()=>{if(finalReview&&!finalDialog.current?.open)finalDialog.current?.showModal();},[finalReview]);
   const [tool, setTool] = useState<BKey | null>(null);
   const [selected, setSelected] = useState<Cell | null>(null);
+  const [bridgeFrom,setBridgeFrom]=useState<number|null>(null);
+  const [bridgeTarget,setBridgeTarget]=useState<Cell|null>(null);
   const [dockMove, setDockMove] = useState<number | null>(null);
   const [dockTarget, setDockTarget] = useState<Cell | null>(null);
   const [herdSel, setHerdSel] = useState<number | null>(null);
@@ -422,8 +425,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const dragRef = useRef<{ sx: number; sy: number; moved: boolean; pinch: number } | null>(null);
   const renderPausedRef = useRef(false);
   renderPausedRef.current=worldOpen || !!battleOpen || helpOpen;
-  const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier });
-  viewRef.current = { hover, selected, tool, picked, pickedSoldier };
+  const bridgePreview=bridgeFrom!==null?{from:bridgeFrom,to:bridgeTarget?idx(bridgeTarget.x,bridgeTarget.y):null}:undefined;
+  const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier, bridgePreview });
+  viewRef.current = { hover, selected, tool, picked, pickedSoldier, bridgePreview };
+
+  useEffect(()=>{if(tool||picked.size||pickedSoldier||guardEditing||planting||visiting){setBridgeFrom(null);setBridgeTarget(null);}},[tool,picked,pickedSoldier,guardEditing,planting,visiting]);
 
   const now = () => Date.now() + offsetRef.current;
   const bump = () => setVersion((v) => v + 1);
@@ -868,6 +874,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     const c = cityRef.current;
     if (!c) return;
     const p = local(e);
+    if(bridgeFrom!==null){const cell=cellAt(e);if(cell)setBridgeTarget(cell);return;}
     if(dockMove!==null){const cell=cellAt(e);if(cell)setDockTarget(cell);return;}
     if(planting){const cell=cellAt(e);if(cell)await act({type:"plantTree",...cell});return;}
     if (guardEditing) {
@@ -948,7 +955,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   };
 
   const pickTool = (k: BKey | null) => {
-    setDockMove(null);setDockTarget(null);
+    setBridgeFrom(null);setBridgeTarget(null);setDockMove(null);setDockTarget(null);
     setPlanting(false);
     setPickedSoldier(null);
     setGuardEditing(false);
@@ -962,7 +969,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setDockMove(null);setDockTarget(null);setPlanting(false);setFinalReview(null);setPickedSoldier(null); setGuardEditing(false); setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
+      setBridgeFrom(null);setBridgeTarget(null);setDockMove(null);setDockTarget(null);setPlanting(false);setFinalReview(null);setPickedSoldier(null); setGuardEditing(false); setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1011,7 +1018,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const cap = armyCap(c), used = armyUsed(c), homePower = troopPower(c.army);
 
   let status: { text: string; err?: boolean } | null = msg;
-  if (dockMove!==null) {
+  if(bridgeFrom!==null){status={text:"Chọn ô đất ở bờ đối diện, thẳng hàng với Cầu Sắt. Xem chi phí và điều kiện trước khi xác nhận."};
+  } else if (dockMove!==null) {
     const plan=hover?dockRelocationPlan(c,dockMove,idx(hover.x,hover.y),rules):null;
     status={text:plan?`Chuyển bến: ${plan.error??`${plan.distance} ô · ${costText(plan.cost)} · ${fmtDur(plan.duration)} · 1 đội thợ xây. Bấm để chọn, xác nhận trong bảng cảng.`}`:"Chọn ô đất trống sát sông để chuyển bến. Esc để hủy.",err:!!plan?.error};
   } else if (hover && tool) {
@@ -1200,9 +1208,9 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               {sel.k==='gather'&&sel.lvl>=1&&<p className="small">Phí vận hành: {gatherFoodPerHour(c,D,selI)/60} thực/phút khi sản xuất. {gatherFoodPerHour(c,D,selI)===120?'Đang được kênh có nước tưới.':'Chưa có kênh có nước tưới trong 1 ô; sát sông hoặc kênh cạn vẫn tính 4 thực/phút.'} Cộng riêng với sức ăn dân; không thu lúc đi giao hàng hoặc chờ kho đầy.</p>}
               {sel.k==='wheel'&&sel.lvl>=1&&c.res.wood<=0&&<p className="err small">Cối nước hết gỗ, tạm ngừng sản xuất. Bổ sung gỗ để dân tự làm tiếp; hàng đang mang vẫn được nộp kho.</p>}
               {sel.k==='canal'&&sel.lvl>=1&&<p className={D.wet[selI]?'small':'err small'}>{D.wet[selI]?'Kênh đang có nước, tưới cho đất xung quanh.':'Kênh cạn: mất đường nối tới sông, không còn tưới đất. Nối lại kênh để có nước hoặc dùng Phá dỡ bên dưới để gỡ từng đoạn.'}</p>}
-              {sel.doneAt && <p className="small">{sel.relocation ? "Đang chuyển bến" : sel.lvl === 0 ? "Đang xây" : sel.storageUpgrade ? `Đang nâng ngăn ${RN[sel.storageUpgrade]}` : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
+              {sel.doneAt && <p className="small">{sel.relocation ? "Đang chuyển bến" : sel.k==='ironbridge'&&sel.bridge&&!sel.bridge.ready ? "Đang nối nhịp cầu" : sel.lvl === 0 ? "Đang xây" : sel.storageUpgrade ? `Đang nâng ngăn ${RN[sel.storageUpgrade]}` : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
               {c.cropDamage?.tile===selI && c.cropDamage.until>t && <p className="err small">Ruộng bị thú rừng giẫm: năng suất còn 50%, phục hồi sau {fmtDur(c.cropDamage.until-t)}.</p>}
-              {sel.doneAt && <button disabled={busy||c.res.diamond<speedBuildCost(sel,t)} onClick={()=>act({type:"speedBuild",...selected})}>Hoàn tất ngay · {speedBuildCost(sel,t)} kim cương (30 giây / viên)</button>}
+
               {(sel.flooded || sel.burned) && <p className="err small">{sel.damageCause==='earthquake'?"Hư hại do động đất, cần sửa để hoạt động lại.":sel.burned ? "Bị cháy, cần sửa để hoạt động lại." : "Bị ngập, không hoạt động."}</p>}
               {["farm","estate"].includes(sel.k) && <>
                 <p className={farmRemaining(sel)<=0?"err small":"small"}>Dinh dưỡng: {Math.ceil(farmRemaining(sel))}/{farmCapacity(sel)} · giảm theo lượng lương thực thực sự thu hoạch.</p>
@@ -1247,8 +1255,9 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               </>}
               {sel.k==="barracks" && sel.lvl>=1 && !armyStagingTiles(c,1).length && <p className="err small">Trại lính bị bịt kín. Chừa lối đất nối ra ngoài, đặt cổng thay tường hoặc dỡ công trình chắn lối; quân không tự phá nhà mình.</p>}
               {["barracks","logistics","infirmary"].includes(sel.k) && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("army")}>Luyện quân</button>}
+              {sel.k==='ironbridge'&&sel.lvl>=1&&<BridgePanel city={c} from={selI} to={bridgeFrom===selI&&bridgeTarget?idx(bridgeTarget.x,bridgeTarget.y):null} selecting={bridgeFrom===selI} busy={busy} rules={rules} act={act} onSelect={()=>{setBridgeFrom(selI);setBridgeTarget(null);setDockMove(null);setDockTarget(null);setTool(null);setPicked(new Set());setPickedSoldier(null);setGuardEditing(false);setPlanting(false);setMsg(null);}} onCancel={()=>{setBridgeFrom(null);setBridgeTarget(null);}}/>}
               {sel.k==="dock"&&sel.lvl>=1&&<>
-                <DockPanel city={c} building={sel} now={t} busy={busy} onBuild={()=>{void act({type:"buildShip",...selected});}} onRelocate={()=>{setDockMove(selI);setDockTarget(null);setTool(null);setPicked(new Set());setPickedSoldier(null);setGuardEditing(false);setPlanting(false);setMsg(null);}}/>
+                <DockPanel city={c} building={sel} now={t} busy={busy} onBuild={()=>{void act({type:"buildShip",...selected});}} onRelocate={()=>{setBridgeFrom(null);setBridgeTarget(null);setDockMove(selI);setDockTarget(null);setTool(null);setPicked(new Set());setPickedSoldier(null);setGuardEditing(false);setPlanting(false);setMsg(null);}}/>
                 {dockMove===selI&&<div className="dock-move-review" role="region" aria-label="Chuyển bến cảng"><p>Chọn ô đất trống sát sông trên bản đồ. Xem phí trước khi xác nhận.</p>{dockTarget&&(()=>{
                   const plan=dockRelocationPlan(c,selI,idx(dockTarget.x,dockTarget.y),rules);
                   return <><p>Bờ mới ({dockTarget.x}, {dockTarget.y}) · {plan.distance} ô</p><p>{costText(plan.cost)} · {fmtDur(plan.duration)} · 1 đội thợ xây</p>{plan.error&&<p className="err" role="status">{plan.error}</p>}<button className="primary" disabled={busy||!!plan.error} onClick={async()=>{if(await act({type:"relocateDock",...selected,to:idx(dockTarget.x,dockTarget.y)})){setSelected(dockTarget);setDockMove(null);setDockTarget(null);}}}>Xác nhận chuyển bến</button></>;

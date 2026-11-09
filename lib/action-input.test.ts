@@ -27,3 +27,9 @@ test('engine rejects malformed actions before settlement or any state mutation',
  const c=newCity(0,123),before=structuredClone(c);
  for(const value of [{type:'train',u:'club',n:'foo'},{type:'build',k:'__proto__',x:0,y:0},{type:'demolish',x:96,y:-1},null,{type:'attack',camp:1,units:{club:NaN}}]){assert.equal(applyAction(c,value as Action,3600000),'Yêu cầu không hợp lệ.');assert.deepEqual(c,before);}
 });
+
+test('bridge linking validates source coordinates and integer target tile at the JSON boundary',()=>{
+ assert.equal(isActionInput({type:'connectBridge',x:14,y:10,to:977}),true);
+ for(const to of [-1,9216,1.5,'17',null,NaN,Infinity])assert.equal(isActionInput({type:'connectBridge',x:14,y:10,to}),false);
+ assert.equal(isActionInput({type:'connectBridge',x:96,y:10,to:1}),false);
+});

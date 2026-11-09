@@ -13,7 +13,8 @@ export const INDUSTRIAL_BUILDINGS={
  tenement:{n:'Khu tập thể',era:5,cost:{wood:1000,stone:3000,copper:400},sec:3600,house:30,up:true,d:'30 dân mỗi cấp, chống ngập. Không tự thay thế nhà cũ.'},
  treatment:{n:'Trạm xử lý nước',era:5,cost:{wood:800,stone:2000,copper:500,gold:150},sec:3600,jobs:3,max:3,d:'3 thợ giảm 4 ô nhiễm/giờ. Không cần điện; tối đa 3, một cấp.'},
  nursery:{n:'Vườn ươm',era:5,cost:{wood:400,stone:600,gold:100},sec:1800,jobs:2,d:'Đủ 2 thợ mới nhận cây mới. Mỗi cây tốn 10 thực, sau 30 phút thành rừng 400 gỗ. Tối đa 4 cây đang ươm, trong 6 ô; cây đã trả phí tiếp tục lớn.'},
- ironbridge:{n:'Cầu Sắt Đại Hà',era:5,cost:{wood:6000,stone:18000,copper:6000,gold:1500,coal:3000},sec:43200,max:1,need:'river',d:'Quần thể Cầu–Bến trên bờ: +20% tốc độ vận chuyển toàn làng, điều kiện vào Hiện đại. Không thay dòng sông hoặc khóa thuyền.'},
+ ironbridge:{n:'Cầu Sắt Đại Hà',era:5,cost:{wood:6000,stone:18000,copper:6000,gold:1500,coal:3000},sec:43200,max:1,need:'river',d:'Xây đầu cầu chính sát sông, chọn công trình rồi Nối sang bờ kia để thi công nhịp cầu. Vượt hơn 2 ô nước cần xây thêm Đầu cầu sắt bên kia. Dân và quân đi qua cầu hoàn chỉnh; thuyền vẫn lưu thông. +20% vận chuyển, điều kiện vào Hiện đại.'},
+ bridgehead:{n:'Đầu cầu sắt',era:5,cost:{wood:1200,stone:3600,copper:1200,gold:300,coal:600},sec:7200,max:1,need:'river',d:'Mố cầu đối diện cho Cầu Sắt Đại Hà vượt hơn 2 ô nước. Xây thẳng hàng với đầu cầu chính qua một dải sông liên tục; hoàn tất cả hai đầu rồi mới nối nhịp.'},
 } satisfies Record<string,Def>;
 export type IndustryState={version:1;enteredAt:number;minuteAt:number;pollution:number;emission:number;cleanSince?:number;coalSpawned:boolean;coalDelivered?:number;processed?:boolean;delivered?:Partial<City['res']>;inputsSpent?:Partial<City['res']>;seedlings:Record<string,{readyAt:number;nursery:number}>;};
 export const active=(b:Building|undefined):b is Building=>!!b&&b.lvl>0&&!b.burned&&!b.flooded&&!b.off;

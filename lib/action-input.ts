@@ -4,7 +4,7 @@ import type { Action, BKey, UKey } from './engine';
 // without a runtime engine import (the engine itself invokes this guard).
 const BUILDINGS: Record<BKey, true> = {
   thermal:true,hydro:true,solar:true,apartment:true,complex:true,hospital:true,university:true,park:true,retention:true,dam:true,green:true,
-  coalmine:true,charcoal:true,machine:true,factory:true,transport:true,tenement:true,treatment:true,nursery:true,ironbridge:true,
+  coalmine:true,charcoal:true,machine:true,factory:true,transport:true,tenement:true,treatment:true,nursery:true,ironbridge:true,bridgehead:true,
   grandstore:true, tilehouse:true, well:true, reservoir:true, estate:true, school:true, artisan:true, academy:true,
   dock: true, builderhouse: true, hut: true, gather: true, wood: true, quarry: true, storehouse: true,
   fire: true, farm: true, canal: true, levee: true, house: true,
@@ -57,7 +57,7 @@ export function isActionInput(value: unknown): value is Action {
     case 'build': return known(BUILDINGS, value.k) && point(value) && (!own(value,'confirmFinal')||typeof value.confirmFinal==='boolean');
     case 'upgradeStorage': return point(value) && RESOURCES.includes(value.resource as typeof RESOURCES[number]);
     case 'plantTree': case 'toggleBuilding': case 'buildShip': case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'tendFarmGroup': case 'speedBuild': return point(value);
-    case 'relocateDock': return point(value) && tile(value.to);
+    case 'relocateDock': case 'connectBridge': return point(value) && tile(value.to);
     case 'moveSoldier': return typeof value.id === 'string' && /^(club|sling|spear|bow|sword|elephant|wagon|medic|crossbow|cavalry|musket|cannon|infantry|armor):\d{1,3}$/.test(value.id) && point(value);
     case 'train': return known(UNITS, value.u) && integer(value.n, 1, 50);
     case 'releaseTroops': return troops(value.units) && (value.mode==='demobilize'||value.mode==='expel');

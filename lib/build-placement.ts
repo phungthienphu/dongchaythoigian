@@ -17,6 +17,7 @@ export function placementTiles(c: City, d: Derived, tool: BKey,rules:EngineRules
   };
 }
 export function placementHint(k: BKey) {
+  if(k==='bridgehead')return 'Đặt ở bờ đối diện Cầu Sắt đã xây, thẳng hàng qua hơn 2 ô nước liên tục.';
   if (k === 'coalmine')return 'Đặt trên ô mỏ than có vân đen, đã khám phá.';
   if (k === 'quarry') return 'Đặt trên ô đồi đá đã khám phá.';
   const need = B[k].need;

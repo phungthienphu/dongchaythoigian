@@ -9,6 +9,7 @@ import { BoundedCache } from "./bounded-cache";
 import { isActionInput } from "./action-input";
 import {buildingOutput} from './economy-balance';
 import {recordResourceFlow,type ResourceHistory} from './resource-history';
+import {bridgeDeck,bridgeGeometry,bridgeHeadSite,bridgeExitReserved,bridgeReady,type BridgeSpan} from './bridges';
 
 // Shared game engine. Runs on the server (source of truth) and on the client
 // (to show live numbers between requests). Must stay deterministic: same city +
@@ -201,7 +202,7 @@ const ERA_UP: Record<number, string> = {
 export const storageLevel = (b: Building, r: ResKey) => b.storageLevels?.[r] ?? b.lvl;
 
 /** Optional metadata preserves old saves without inventing construction dates. */
-export type Building = { builtAt?: number; investment?: Partial<Res>; investmentEstimated?: boolean; stranded?: boolean; relocation?: { from: number; startedAt: number; duration: number }; floodUntil?:number; off?:boolean; damageCause?: 'earthquake'; shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
+export type Building = { bridge?:BridgeSpan; builtAt?: number; investment?: Partial<Res>; investmentEstimated?: boolean; stranded?: boolean; relocation?: { from: number; startedAt: number; duration: number }; floodUntil?:number; off?:boolean; damageCause?: 'earthquake'; shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
 export type Task =
   | { t: "idle"; at?: number } // at = where they stand and wait
   | { t: "work"; at: number }
@@ -312,6 +313,7 @@ export type EnvoyTrip = { id: number; target: string; targetName: string; depart
 export function envoyVillageRoute(c: City, kind:BKey="envoy"): number[] {
   const house=buildings(c).find(([,b])=>b.k===kind&&isBuildingActive(b));
   if(!house)return [];
+  const deck=bridgeDeck(c),pass=(tile:number)=>haulPassable(c,tile,-1,false,deck);
   const from=house[0],prev=new Int32Array(W*H).fill(-1),queue=[from];prev[from]=from;
   for(let head=0;head<queue.length;head++){
     const i=queue[head],x=i%W,y=Math.floor(i/W);
@@ -320,8 +322,8 @@ export function envoyVillageRoute(c: City, kind:BKey="envoy"): number[] {
     }
     for(const [dx,dy] of N8){
       const nx=x+dx,ny=y+dy;if(!inb(nx,ny))continue;const next=idx(nx,ny);
-      if(prev[next]!==-1||!haulPassable(c,next,-1,false))continue;
-      if(dx&&dy&&(!haulPassable(c,idx(nx,y),-1,false)||!haulPassable(c,idx(x,ny),-1,false)))continue;
+      if(prev[next]!==-1||!pass(next))continue;
+      if(dx&&dy&&(!pass(idx(nx,y))||!pass(idx(x,ny))))continue;
       prev[next]=i;queue.push(next);
     }
   }
@@ -707,6 +709,13 @@ export function demolitionQuote(c: City, tile: number, now: number) {
   const gross: Partial<Res> = {}, refund: Partial<Res> = {}, overflow: Partial<Res> = {};
   let error: string | null = !b ? "Ô này trống." : null;
   if (b) {
+    if(b.k==='ironbridge'||b.k==='bridgehead'){
+      const span=b.bridge??Object.values(c.b).find(x=>x.k==='ironbridge'&&x.bridge?.to===tile)?.bridge;
+      if(span){
+        const deck=new Set(span.tiles),onDeck=(x:number,y:number)=>deck.has(idx(Math.floor(x),Math.floor(y)));
+        if(c.people.some(p=>deck.has(p.pos??-1)||p.haul?.route.some(i=>deck.has(i))||p.refuge?.route.some(i=>deck.has(i)))||homeSoldiers(c,now).some(p=>onDeck(p.x,p.y))||[...c.exps,...(c.trips??[]).filter(t=>t.back>now).map(t=>({route:t.villageRoute})),...(c.merchantJourneys??[]).filter(t=>t.back>now).map(t=>({route:t.villageRoute}))].some(e=>e.route?.some(i=>deck.has(i))))error='Dân hoặc đoàn quân đang dùng cầu. Đưa họ về bờ và chờ hành trình kết thúc trước khi phá.';
+      }
+    }
     if ((b.k === 'dam' || b.k === 'green') && c.modern?.completedAt) error = "Kỳ quan cuối đã khánh thành; có thể sửa chữa nhưng không phá hoặc đổi nhánh.";
     else if (b.shipQueue?.length) error = "Cảng đang đóng thuyền; chờ hoàn tất trước khi phá.";
     // Mirror stats() storage rules without deriving the whole map for a preview.
@@ -1140,7 +1149,7 @@ const HAUL_UNLOAD_MS = 1000;
 type HaulJob = { tile: number; resource: ResKey; rate: number; source: NonNullable<Haul["source"]> };
 type DropRoute = { route: number[]; drop: number; length: number };
 type RouteTree = { prev: Int32Array; rank: Uint16Array; queue: Int32Array; head: number; size: number };
-type HaulContext = { civic:ReturnType<typeof civicContext>; transport:ReturnType<typeof transportNetwork>; pass?: Uint8Array; sources: Map<ResKey,number[]>; gatherTargets: BoundedCache<string,number|null>; trees: BoundedCache<string, RouteTree>; drops: BoundedCache<string, DropRoute | null>; paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number; medievalBonus:number };
+type HaulContext = { bridges:ReadonlySet<number>; civic:ReturnType<typeof civicContext>; transport:ReturnType<typeof transportNetwork>; pass?: Uint8Array; sources: Map<ResKey,number[]>; gatherTargets: BoundedCache<string,number|null>; trees: BoundedCache<string, RouteTree>; drops: BoundedCache<string, DropRoute | null>; paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number; medievalBonus:number };
 const taskKey = (p: Person) => JSON.stringify(p.task);
 
 /** Record the ore before any worker can exhaust it. Old in-flight loads keep
@@ -1197,23 +1206,24 @@ function routeLength(route: number[]) {
   for (let i = 1; i < route.length; i++) n += Math.hypot(route[i] % W - route[i - 1] % W, Math.floor(route[i] / W) - Math.floor(route[i - 1] / W));
   return n;
 }
-function haulPassable(c: City, tile: number, to: number, water: boolean) {
+function haulPassable(c: City, tile: number, to: number, water: boolean, bridges?:ReadonlySet<number>) {
   const b = c.b[tile];
   if (b?.k === "wall" && built(b)) return false;
   if (isRock(c.t[tile])) return false;
   if (tile === to) return true;
-  if (!water && c.t[tile] === R) return false;
-  return !b || b.burned || b.k === "canal" || isField(b.k) || b.k === "levee" || b.k === "gate";
+  if (!water && c.t[tile] === R && !(bridges??bridgeDeck(c)).has(tile)) return false;
+  return !b || b.burned || b.k === "canal" || isField(b.k) || b.k === "levee" || b.k === "gate" || (b.k === "ironbridge" || b.k === "bridgehead") && b.lvl>0;
 }
 function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredLand = false): number[] | null {
+  const passable=(tile:number,to:number,water:boolean)=>haulPassable(c,tile,to,water,ctx.bridges);
   const key = `${from}:${to}:${exploredLand}`;
   if (ctx.paths.has(key)) return ctx.paths.get(key)!;
   const rockyTarget = isRock(c.t[to]);
-  const arrived = (tile: number) => rockyTarget ? tile !== to && cheb(tile, to) === 1 && haulPassable(c, tile, -1, true) : tile === to;
+  const arrived = (tile: number) => rockyTarget ? tile !== to && cheb(tile, to) === 1 && passable( tile, -1, true) : tile === to;
   if (arrived(from)) { const path = [from]; ctx.paths.set(key, path); return path; }
   const find = (water: boolean) => {
-    const endpoint = !rockyTarget && !haulPassable(c,to,-1,water);
-    if (!rockyTarget && (!haulPassable(c,to,to,water) || exploredLand && !c.seen[to])) return null;
+    const endpoint = !rockyTarget && !passable(to,-1,water);
+    if (!rockyTarget && (!passable(to,to,water) || exploredLand && !c.seen[to])) return null;
     const goals: number[] = [];
     if (!rockyTarget && !endpoint) goals.push(to);
     else {
@@ -1222,11 +1232,11 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredL
         if (!inb(x+dx,y+dy)) continue;
         const next = idx(x+dx,y+dy);
         if (rockyTarget) { if (!arrived(next)) continue; }
-        else if (dx && dy && (!haulPassable(c,idx(x+dx,y),to,water) || !haulPassable(c,idx(x,y+dy),to,water))) continue;
+        else if (dx && dy && (!passable(idx(x+dx,y),to,water) || !passable(idx(x,y+dy),to,water))) continue;
         goals.push(next);
       }
     }
-    const pass = ctx.pass ??= Uint8Array.from(c.t, (_,i) => (haulPassable(c,i,-1,true) ? 1 : 0) | (haulPassable(c,i,-1,false) ? 2 : 0));
+    const pass = ctx.pass ??= Uint8Array.from(c.t, (_,i) => (passable(i,-1,true) ? 1 : 0) | (passable(i,-1,false) ? 2 : 0));
     const mode = water ? 1 : 2;
     const treeKey = `${from}:${water}:${exploredLand}`;
     let tree = ctx.trees.get(treeKey);
@@ -1284,7 +1294,7 @@ function civicContext(c:City){
 function haulingContext(c: City, D: Derived): HaulContext {
   const active = Object.values(c.b).filter(b => built(b) && !b.flooded);
   const civic=civicContext(c);
-  return { civic,transport:transportNetwork(c,undefined,civic.transport),medievalBonus:medievalBonus(c,undefined,civic.bonus), sources:new Map(),gatherTargets:new BoundedCache<string,number|null>(512,512), trees: new BoundedCache<string,RouteTree>(32,884736,tree=>tree.prev.length+tree.rank.length+tree.queue.length), drops: new BoundedCache<string,DropRoute|null>(512,65536,drop=>drop?.route.length??1), paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: (1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length))*(1+medievalBonus(c)) };
+  return { bridges:bridgeDeck(c),civic,transport:transportNetwork(c,undefined,civic.transport),medievalBonus:medievalBonus(c,undefined,civic.bonus), sources:new Map(),gatherTargets:new BoundedCache<string,number|null>(512,512), trees: new BoundedCache<string,RouteTree>(32,884736,tree=>tree.prev.length+tree.rank.length+tree.queue.length), drops: new BoundedCache<string,DropRoute|null>(512,65536,drop=>drop?.route.length??1), paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: (1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length))*(1+medievalBonus(c)) };
 }
 /** Docks need a cardinal river neighbor; canals cannot float transports. */
 export function dockOnRiver(c:City,tile:number){
@@ -1332,7 +1342,7 @@ function militaryPath(c:City,from:number,to:number,ships=1){
     const add=(tile:number)=>{if(c.t[tile]===R&&c.seen[tile]&&!water.has(tile)){water.add(tile);queue.push(tile);}};
     for(const [dx,dy]of N4){const x=dock%W+dx,y=Math.floor(dock/W)+dy;if(inb(x,y))add(idx(x,y));}
     for(let head=0;head<queue.length;head++){const tile=queue[head];for(const [dx,dy]of N4){const x=tile%W+dx,y=Math.floor(tile/W)+dy;if(inb(x,y))add(idx(x,y));}}
-    const pass=(tile:number)=>c.seen[tile]&&(c.t[tile]===R?water.has(tile):haulPassable(c,tile,-1,false));
+    const pass=(tile:number)=>c.seen[tile]&&(c.t[tile]===R?context.bridges.has(tile)||water.has(tile):haulPassable(c,tile,-1,false,context.bridges));
     const prev=new Int32Array(W*H).fill(-1),q=[from];prev[from]=from;
     for(let head=0;head<q.length;head++){
       const tile=q[head];if(tile===to){const route=[to];for(let i=to;i!==from;){i=prev[i];route.push(i);}return {route:route.reverse(),ships};}
@@ -1346,11 +1356,12 @@ function militaryPath(c:City,from:number,to:number,ships=1){
 }
 
 export function armyStagingTiles(c:City,limit=24,source?:number){
+  const deck=bridgeDeck(c),pass=(tile:number)=>haulPassable(c,tile,-1,false,deck);
   const home=source??buildings(c).find(([,b])=>b.k==="barracks"&&isBuildingActive(b))?.[0]??c.camp;
   const queue=[home],seen=new Set(queue),tiles:number[]=[];
-  for(let head=0;head<queue.length && tiles.length<limit;head++){const tile=queue[head],x=tile%W,y=Math.floor(tile/W);if(haulPassable(c,tile,-1,false))tiles.push(tile);
-    for(const [dx,dy] of N8){const nx=x+dx,ny=y+dy,next=idx(nx,ny);if(!inb(nx,ny)||seen.has(next)||!haulPassable(c,next,-1,false))continue;
-      if(dx&&dy&&(!haulPassable(c,idx(nx,y),-1,false)||!haulPassable(c,idx(x,ny),-1,false)))continue;
+  for(let head=0;head<queue.length && tiles.length<limit;head++){const tile=queue[head],x=tile%W,y=Math.floor(tile/W);if(pass(tile))tiles.push(tile);
+    for(const [dx,dy] of N8){const nx=x+dx,ny=y+dy,next=idx(nx,ny);if(!inb(nx,ny)||seen.has(next)||!pass(next))continue;
+      if(dx&&dy&&(!pass(idx(nx,y))||!pass(idx(x,ny))))continue;
       seen.add(next);queue.push(next);
     }
   }
@@ -1365,13 +1376,14 @@ export function pruneHomeOrders(c: City) {
   }
 }
 export function homeSoldiers(c: City, now: number, staging = armyStagingTiles(c)) {
+  const deck=bridgeDeck(c);
   const result: { id: string; u: UKey; x: number; y: number; moving: boolean; face: 1 | -1 }[] = [];
   let n = 0;
   for (const u of UKEYS) for (let k = 0; k < (c.army[u] ?? 0); k++, n++) {
     const id = `${u}:${k}`, order = c.homeOrders?.[id], tile = staging[Math.floor(n / 3) % staging.length];
     if (!order && tile === undefined) continue;
     const guard=c.guardPosts?.[n % c.guardPosts.length], guardTile=guard?idx(guard.x,guard.y):-1;
-    const validGuard=guard && haulPassable(c,guardTile,-1,false);
+    const validGuard=guard && haulPassable(c,guardTile,-1,false,deck);
     const row=Math.floor(n/Math.max(1,c.guardPosts?.length??0));
     let x = validGuard ? guard.x+.3+(row%3)*.18 : tile % W + .3 + (n % 3) * .18;
     let y = validGuard ? guard.y+.3+(Math.floor(row/3)%3)*.18 : Math.floor(tile / W) + .5;
@@ -1394,7 +1406,7 @@ function orderHomeSoldier(c: City, id: string, to: number, now: number): boolean
   const actor = homeSoldiers(c, now).find(s => s.id === id);
   if (!actor || !c.seen[to] || !haulPassable(c, to, -1, false)) return false;
   const from = idx(Math.floor(actor.x), Math.floor(actor.y));
-  if(c.t[from]===R)return false; // finish the crossing before changing orders
+  if(c.t[from]===R&&!bridgeDeck(c).has(from))return false; // finish the crossing before changing orders
   const plan=militaryPath(c,from,to,Math.ceil(shipPlaces(actor.u)/SHIP_CAPACITY)),route=plan?.route;
   if(!route)return false;
   if(plan!.ships){const duration=Math.max(1000,Math.ceil(routeLength(route)/(1.9*(UNITS[actor.u].speed??1))*1000));(c.ferryBookings??=[]).push({id,ships:plan!.ships,at:now,arrive:now+duration,back:now+duration*2,route});}
@@ -1659,7 +1671,7 @@ function refreshHauling(c: City, at: number, ctx: HaulContext) {
     const from = idx(Math.max(0, Math.min(W - 1, Math.floor(point.x))), Math.max(0, Math.min(H - 1, Math.floor(point.y))));
     // A ford is allowed by the existing villager policy; buildings and walls
     // must still be respected when a previously valid route becomes blocked.
-    if (h.route.every(tile => haulPassable(c, tile, target, true) || tile === h.route[0])) continue;
+    if (h.route.every(tile => haulPassable(c, tile, target, true,ctx.bridges) || tile === h.route[0])) continue;
     const route = haulPath(c, from, target, ctx);
     h.tile = from; p.pos = from;
     if (!route) { h.phase = "unload"; h.route = [from]; h.at = at; h.nextAt = at + HAUL_TILE_MS; delete h.drop; continue; }
@@ -1734,7 +1746,7 @@ export function wildernessKeep(c:City,at:number){
   for(const tile of Object.keys(c.industry?.seedlings??{}))around(+tile);
   for(let i=0;i<c.t.length;i++)if(c.t[i]===COAL)around(i,0);
   around(c.camp,START_SIGHT);
-  for(const [i]of buildings(c))around(i,2);
+  for(const [i,b]of buildings(c)){around(i,2);if(b.bridge){around(b.bridge.to);route(b.bridge.tiles);}}
   for(const p of c.people){
     around(p.pos??c.camp);const tk=p.task;
     if(tk.t==='explore'){
@@ -2226,6 +2238,11 @@ function onSeason(c: City, si: number) {
 }
 
 function completeBuilding(c:City,b:Building,at:number){
+  if(b.k==='ironbridge'&&b.bridge&&!b.bridge.ready){
+    b.bridge.ready=true;b.doneAt=null;
+    const tile=buildings(c).find(([,other])=>other===b)?.[0];
+    log(c,at,tile!==undefined&&bridgeReady(c,tile)?'Cầu Sắt đã nối hai bờ. Dân và quân qua cầu không cần thuyền; thuyền vẫn đi dưới cầu.':'Thi công nhịp cầu hoàn tất nhưng hai bờ hoặc đầu cầu đã thay đổi. Chọn Cầu Sắt để kiểm tra, sửa đầu cầu hoặc nối lại.',tile!==undefined&&bridgeReady(c,tile)?'good':'warn');return;
+  }
   if(b.relocation){
     delete b.relocation;b.doneAt=null;
     const tile=buildings(c).find(([,building])=>building===b)?.[0];
@@ -2418,6 +2435,7 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rul
   if (d.era > c.era) return "Chưa tới thời đại này.";
   if(c.modern?.choice===k)return "Kỳ quan đã khánh thành, không thể xây lại hoặc đổi nhánh.";
   if (c.b[i]) return "Ô này đã có công trình.";
+  if(bridgeExitReserved(c,i)&&k!=='bridgehead')return "Ô này là lối ra của Cầu Sắt. Giữ trống để dân và quân qua cầu.";
   if (t === R) return "Không xây được trên sông.";
   if(!["farm","estate","canal","levee","gate"].includes(k) && [...c.exps,...(c.raidEncounter && c.raidEncounter.end>c.last?[c.raidEncounter]:[]),...(c.merchantJourneys??[]).filter(j=>j.back>c.last).map(j=>({route:j.villageRoute})),...(Object.keys(c.homeOrders??{}).length?homeSoldiers(c,c.last):[]).flatMap(s=>{const o=c.homeOrders?.[s.id];return o?[{route:s.moving?o.route:[idx(Math.floor(s.x),Math.floor(s.y))]}]:[];}),...c.people.flatMap(p=>p.refuge?[p.refuge]:[])].some(e=>e.route?.some((tile,n,route)=>tile===i || n>0 && tile%W!==route[n-1]%W && Math.floor(tile/W)!==Math.floor(route[n-1]/W) && (i===idx(tile%W,Math.floor(route[n-1]/W)) || i===idx(route[n-1]%W,Math.floor(tile/W))))))return "Đoàn quân hoặc dân tránh địch đang dùng lối này. Chờ họ trở về hoặc chọn ô khác để không chặn đường.";
   if(c.industry?.seedlings[i])return "Ô đang ươm cây; chờ cây lớn rồi chặt trước khi xây.";
@@ -2433,6 +2451,7 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rul
   if((k==="retention")&&!hasWaterSource(c,D,i))return "Hồ điều hòa cần kề sông/kênh có nước.";
   if (d.need === "water" && !near(N4, (j) => c.t[j] === R || c.b[j]?.k === "canal")) return "Kênh phải nối thẳng (không chéo) vào sông hoặc kênh khác.";
   if (d.need === "river" && !near(N4, (j) => c.t[j] === R)) return `${def(k).n} phải sát sông (không chéo).`;
+  if(k==='bridgehead'&&!bridgeHeadSite(c,i))return "Đầu cầu phải ở bờ đối diện, thẳng hàng với Cầu Sắt đã xây, qua đoạn sông rộng cần hai đầu cầu.";
   if (d.need === "bank" && D.rd[i] !== 1 && !near(N4,j=>c.b[j]?.k==="levee")) return "Đê phải sát bờ sông hoặc nối thẳng vào đoạn đê khác (không chéo).";
   const finalError=finalWonderError(c,k,c.last);if(finalError)return finalError;
   const limit=buildingLimit(c,k);
@@ -2441,6 +2460,13 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rul
   if (!movingDock && limit!==undefined && count(c, k) >= limit) return k==='watchtower'?`Đã đủ giới hạn ${count(c,k)}/${limit} trụ ở thời đại này.`:`Đã đủ số lượng tối đa (${limit}).`;
   if (busyBuilders(c) >= builders(c)) return "Tất cả thợ đang bận.";
   return skipCost?null:missing(c, buildingCost(k, c.era));
+}
+
+export function bridgeQuote(c:City,from:number,to:number,rules:EngineRules=RELEASE_RULES){
+  const plan=bridgeGeometry(c,from,to),b=c.b[from],head=c.b[to],headReady=head?.k==='bridgehead'&&isBuildingActive(head)&&!head.doneAt;
+  const cost=eraCost({wood:120*plan.width,stone:300*plan.width,copper:160*plan.width,gold:25*plan.width,coal:80*plan.width},c.era,5),duration=plan.width*2*MIN;
+  const error=c.era<5||rules.maxEra<5?'Cầu Sắt mở từ thời Công nghiệp.':c.battleId?'Không thi công cầu khi đang bị tấn công.':b?.k!=='ironbridge'||!isBuildingActive(b)?'Chọn Cầu Sắt đã xây xong, không cháy/ngập.':b.doneAt?'Cầu đang thi công.':bridgeReady(c,from)?'Cầu đã nối hai bờ.':plan.error??(plan.needsHead&&!headReady?`Sông rộng ${plan.width} ô: cần xây xong Đầu cầu sắt tại bờ đối diện trước khi nối nhịp.`:null)??(busyBuilders(c)>=builders(c)?'Tất cả thợ đang bận.':missing(c,cost));
+  return {...plan,cost,duration,headReady,error};
 }
 
 export function reqMet(c: City, rules:EngineRules=RELEASE_RULES) {
@@ -2521,6 +2547,7 @@ export type Action =
   | { type: "repair"; x: number; y: number }
   | { type: "buildShip"; x: number; y: number }
   | { type: "relocateDock"; x: number; y: number; to: number }
+  | { type: "connectBridge"; x:number; y:number; to:number }
   | { type: "speedBuild"; x: number; y: number }
   | { type: "tendFarm"; x: number; y: number }
   | { type: "tendFarmGroup"; x: number; y: number }
@@ -2555,6 +2582,13 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
   if(a.type==="setPowerPriority"){if(!c.modern||rules.maxEra<6)return "Điện mở ở Hiện đại.";c.modern.priority=[...a.priority];stepPower(c,now,now,B);return null;}
   if(a.type==="plantTree")return rules.maxEra>=5?plantTree(c,idx(a.x,a.y),now):"Sắp ra mắt.";
   if(a.type==="toggleBuilding"){const b=c.b[idx(a.x,a.y)];if(!b||def(b.k).era>rules.maxEra||!canToggle(def(b.k)))return "Chỉ bật/tắt cơ sở công nghiệp và dịch vụ mới.";b.off=!b.off;if(c.modern)stepPower(c,now,now,B);return null;}
+  if(a.type==='connectBridge'){
+    const from=idx(a.x,a.y),plan=bridgeQuote(c,from,a.to,rules);
+    if(plan.error)return plan.error;
+    const b=c.b[from];pay(c,plan.cost);recordBuildingInvestment(b,plan.cost);
+    b.bridge={to:a.to,tiles:plan.tiles,ready:false};b.doneAt=now+plan.duration;
+    log(c,now,`Đang nối Cầu Sắt qua ${plan.width} ô nước, đã trả ${costText(plan.cost)}. Hoàn tất sau ${Math.ceil(plan.duration/MIN)} phút; dùng 1 đội thợ xây.`,'good');return null;
+  }
   if(a.type==="relocateDock"){
     const from=idx(a.x,a.y),plan=dockRelocationPlan(c,from,a.to,rules);
     if(plan.error)return plan.error;
@@ -2607,7 +2641,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     for (const p of a.posts) {
       if (!p || !Number.isInteger(p.x) || !Number.isInteger(p.y) || !inb(p.x, p.y)) return "Điểm gác không hợp lệ.";
       const i = idx(p.x, p.y);
-      if (!c.seen[i] || c.t[i] === R || (isBuildingActive(c.b[i]) && c.b[i].k === "wall")) return "Đặt điểm gác trên đất đã khám phá, ngoài tường thành.";
+      if (!c.seen[i] || c.t[i] === R&&!bridgeDeck(c).has(i) || (isBuildingActive(c.b[i]) && c.b[i].k === "wall")) return "Đặt điểm gác trên đất/cầu đã khám phá, ngoài tường thành.";
       if (seen.has(i)) return "Điểm gác bị trùng.";
       seen.add(i);
     }

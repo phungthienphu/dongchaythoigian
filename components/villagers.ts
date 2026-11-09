@@ -1,3 +1,4 @@
+import {bridgeDeck} from '@/lib/bridges';
 import { BoundedCache } from "@/lib/bounded-cache";
 // Client-side animation of the people stored on the server. Positions are visual only;
 // what each person does (their task) comes from the server.
@@ -56,20 +57,20 @@ const tileOf = (fx: number, fy: number) => idx(Math.max(0, Math.min(W - 1, Math.
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const;
 
 /** Can a villager stand on this tile? (`water` = allow swimming) */
-function passable(city: City, j: number, to: number, water: boolean) {
+function passable(city: City, j: number, to: number, water: boolean, deck: ReadonlySet<number>) {
   if (isRock(city.t[j])) return false;
   if (j === to) return true;
-  if (!water && city.t[j] === R) return false;
+  if (!water && city.t[j] === R && !deck.has(j)) return false;
   const b = city.b[j];
-  return !b || b.k === "canal" || (b.k === "farm" || b.k === "estate") || b.k === "levee" || b.k === "gate";
+  return !b || b.k === "canal" || (b.k === "farm" || b.k === "estate") || b.k === "levee" || b.k === "gate" || (b.k === "ironbridge" || b.k === "bridgehead") && b.lvl>0;
 }
 
 /** 8-direction BFS (no corner cutting), then straightened so people walk diagonally instead of in steps. */
-function findPath(city: City, from: number, to: number, water: boolean): [number, number][] | null {
+function findPath(city: City, from: number, to: number, water: boolean, deck:ReadonlySet<number>): [number, number][] | null {
   if (isRock(city.t[to])) {
     const x = to % W, y = Math.floor(to / W);
-    const paths = DIRS.filter(([dx,dy]) => inb(x+dx,y+dy) && passable(city,idx(x+dx,y+dy),-1,water))
-      .map(([dx,dy]) => findPath(city,from,idx(x+dx,y+dy),water)).filter((p): p is [number,number][] => p !== null);
+    const paths = DIRS.filter(([dx,dy]) => inb(x+dx,y+dy) && passable(city,idx(x+dx,y+dy),-1,water,deck))
+      .map(([dx,dy]) => findPath(city,from,idx(x+dx,y+dy),water,deck)).filter((p): p is [number,number][] => p !== null);
     return paths.sort((a,b) => a.length-b.length)[0] ?? null;
   }
   if (from === to) return [center(to)];
@@ -84,8 +85,8 @@ function findPath(city: City, from: number, to: number, water: boolean): [number
     for (const [dx, dy] of DIRS) {
       if (!inb(x + dx, y + dy)) continue;
       const j = idx(x + dx, y + dy);
-      if (seen[j] || !passable(city, j, to, water)) continue;
-      if (dx && dy && (!passable(city, idx(x + dx, y), to, water) || !passable(city, idx(x, y + dy), to, water))) continue;
+      if (seen[j] || !passable(city, j, to, water, deck)) continue;
+      if (dx && dy && (!passable(city, idx(x + dx, y), to, water, deck) || !passable(city, idx(x, y + dy), to, water, deck))) continue;
       seen[j] = 1; prev[j] = i; q.push(j);
     }
   }
@@ -93,29 +94,29 @@ function findPath(city: City, from: number, to: number, water: boolean): [number
   const tiles: number[] = [];
   for (let i = to; i !== -1; i = prev[i]) tiles.push(i);
   tiles.reverse();
-  return smooth(city, tiles.map(center), to, water);
+  return smooth(city, tiles.map(center), to, water, deck);
 }
 
-function clearSegment(city: City, a: [number, number], b: [number, number], to: number, water: boolean) {
+function clearSegment(city: City, a: [number, number], b: [number, number], to: number, water: boolean, deck: ReadonlySet<number>) {
     const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * 4);
     for (let k = 1; k < n; k++) {
       const x = a[0] + ((b[0] - a[0]) * k) / n, y = a[1] + ((b[1] - a[1]) * k) / n;
       // keep a little clearance from blocked tiles
       for (const [ox, oy] of [[0, 0], [0.22, 0.22], [-0.22, 0.22], [0.22, -0.22], [-0.22, -0.22]]) {
         const tx = Math.floor(x + ox), ty = Math.floor(y + oy);
-        if (!inb(tx, ty) || !passable(city, idx(tx, ty), to, water)) return false;
+        if (!inb(tx, ty) || !passable(city, idx(tx, ty), to, water, deck)) return false;
       }
     }
     return true;
 }
 
 /** Drop waypoints while the straight line to a later one stays on passable ground. */
-function smooth(city: City, pts: [number, number][], to: number, water: boolean) {
+function smooth(city: City, pts: [number, number][], to: number, water: boolean, deck: ReadonlySet<number>) {
   const out: [number, number][] = [pts[0]];
   let i = 0;
   while (i < pts.length - 1) {
     let j = pts.length - 1;
-    while (j > i + 1 && !clearSegment(city, pts[i], pts[j], to, water)) j--;
+    while (j > i + 1 && !clearSegment(city, pts[i], pts[j], to, water, deck)) j--;
     out.push(pts[j]);
     i = j;
   }
@@ -123,11 +124,11 @@ function smooth(city: City, pts: [number, number][], to: number, water: boolean)
 }
 
 /** Prefer land, but swim across when the river is in the way (or the land detour is much longer). */
-function route(city: City, from: number, to: number) {
+function route(city: City, from: number, to: number, deck:ReadonlySet<number>) {
   if (from === to) return [center(to)];
-  if (clearSegment(city, center(from), center(to), to, false)) return [center(from), center(to)];
-  const land = findPath(city, from, to, false);
-  const any = findPath(city, from, to, true);
+  if (clearSegment(city, center(from), center(to), to, false, deck)) return [center(from), center(to)];
+  const land = findPath(city, from, to, false, deck);
+  const any = findPath(city, from, to, true, deck);
   const len = (p: [number, number][] | null) => {
     if (!p) return Infinity;
     let d = 0;
@@ -162,15 +163,17 @@ export class Crowd {
   private waterMask = new Uint8Array(W * H);
   private obstacles = "";
   private hasTopology = false;
+  private deck:ReadonlySet<number>=new Set();
 
   /** Routes depend only on water and blocking tiles, never on resource ticks or task sync. */
   private syncTopology(city: City) {
     let changed = !this.hasTopology;
+    this.deck=bridgeDeck(city);
     for (let i = 0; i < W * H; i++) {
-      const water = city.t[i] === R ? 1 : isRock(city.t[i]) ? 2 : 0;
+      const water = city.t[i] === R && !this.deck.has(i) ? 1 : isRock(city.t[i]) ? 2 : 0;
       if (this.waterMask[i] !== water) { this.waterMask[i] = water; changed = true; }
     }
-    const obstacles = Object.keys(city.b).filter((i) => !passable(city, Number(i), -1, true)).join(",");
+    const obstacles = Object.keys(city.b).filter((i) => !passable(city, Number(i), -1, true,this.deck)).join(",");
     if (obstacles !== this.obstacles) { this.obstacles = obstacles; changed = true; }
     this.hasTopology = true;
     if (changed) this.paths.clear();
@@ -181,7 +184,7 @@ export class Crowd {
     const k = a + ">" + b;
     const cached=this.paths.get(k);
     if(cached!==undefined)return cached;
-    const path=route(city,a,b);this.paths.set(k,path);return path;
+    const path=route(city,a,b,this.deck);this.paths.set(k,path);return path;
   }
 
   private nearestHome(city: City, to: number) {
@@ -374,7 +377,7 @@ export class Crowd {
             }
             v.t = 1 + Math.random() * 3;
           } else {
-            const step = Math.min(d, WALK * 0.6 * dt * (city.t[tileOf(v.fx, v.fy)] === R ? 0.5 : 1));
+            const step = Math.min(d, WALK * 0.6 * dt * (city.t[tileOf(v.fx, v.fy)] === R && !this.deck.has(tileOf(v.fx,v.fy)) ? 0.5 : 1));
             v.fx += (dx / d) * step; v.fy += (dy / d) * step; v.moving = true;
             const sdx = (dx - dy) / d; if (Math.abs(sdx) > 0.05) v.face = sdx > 0 ? 1 : -1;
           }
@@ -477,7 +480,7 @@ export class Crowd {
   }
 
   private walk(v: Villager, city: City, dt: number) {
-    const swim = city.t[tileOf(v.fx, v.fy)] === R;
+    const swim = city.t[tileOf(v.fx, v.fy)] === R && !this.deck.has(tileOf(v.fx,v.fy));
     let left = (v.run ? RUN : WALK) * (swim ? 0.45 : 1) * (v.carrying ? 0.85 : 1) * dt;
     while (left > 0 && v.pi < v.path.length) {
       const [tx, ty] = v.path[v.pi];

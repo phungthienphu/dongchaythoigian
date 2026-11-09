@@ -1,3 +1,4 @@
+import {bridgeDeck,bridgeGeometry,bridgeReady} from '@/lib/bridges';
 import { drawVillagerArt } from "./villager-art";
 import { drawAnimalArt, drawSoldierArt, drawFutureArt } from "./actor-art";
 import type {EngineRules} from '@/lib/eras';
@@ -107,7 +108,7 @@ function hr(seed: number, n: number) {
 
 /* ---------- render context ---------- */
 type Ctx = CanvasRenderingContext2D;
-type RC = { c: Ctx; v: View; city: City; D: Derived; anim: number; now: number; season: number };
+type RC = { c: Ctx; v: View; city: City; D: Derived; anim: number; now: number; season: number; deck:ReadonlySet<number> };
 type Pt = [number, number];
 
 const P = (v: View, fx: number, fy: number, z = 0): Pt => [v.ox + ((fx - fy) * v.TW) / 2, v.oy + ((fx + fy) * v.TH) / 2 - z];
@@ -645,7 +646,22 @@ function drawFutureBuilding(r:RC,k:BKey,x:number,y:number,lvl:number,i:number){
     drawFutureArt(c, "coal", sx, sy, r.v.s * .85, { time: r.anim, active: running });
     return true;
   }
-  if(k==='ironbridge'||k==='dam'){
+  if(k==='ironbridge'||k==='bridgehead'){
+    const main=k==='ironbridge',span=main?r.city.b[i]?.bridge:Object.entries(r.city.b).find(([,b])=>b.k==='ironbridge'&&b.bridge?.to===i)?.[1].bridge;
+    const alongX=span?Math.floor(span.to/W)===Math.floor(i/W):N4.some(([dx,dy])=>dx!==0&&inb(x+dx,y+dy)&&r.city.t[idx(x+dx,y+dy)]===R);
+    const p=(u:number,v:number,z:number)=>alongX?q(u,v,z):q(v,u,z);
+    concrete(-.47,-.46,.47,.46,0,3);
+    for(const side of [-.38,.38]){
+      const u0=alongX?-.16:side-.09,v0=alongX?side-.09:-.16,u1=alongX?.16:side+.09,v1=alongX?side+.09:.16;
+      concrete(u0,v0,u1,v1,3,main?23:18);
+      line(r,p(-.48,side,7),p(.48,side,7),'#61808a',2);
+      line(r,p(0,side,main?23:18),p(.42,side,7),'#466673',1.5);
+    }
+    poly(c,[p(-.5,-.27,5),p(.5,-.27,5),p(.5,.27,5),p(-.5,.27,5)],'#bdad83');
+    for(const u of [-.4,-.2,0,.2,.4])line(r,p(u,-.27,5),p(u,.27,5),'#8a8069',.7);
+    flag(r,x,y,-.31,-.32,main?24:19,12,'#d7b34e',i);return true;
+  }
+  if(k==='dam'){
     const dam=k==='dam';concrete(-.43,-.33,.43,.33,3,dam?29:14);
     for(const u of [-.28,0,.28]){concrete(u-.04,-.36,u+.04,.36,3,dam?35:24);line(r,q(u-.12,.35,dam?26:14),q(u+.12,.35,dam?26:14),dam?'#5e9eb1':'#334e5d',3);}
     if(dam){for(const u of [-.14,.14])poly(c,[q(u-.05,.35,26),q(u+.05,.35,26),q(u+.05,.48,4),q(u-.05,.48,4)],'#75b8c7');concrete(-.16,-.2,.16,.13,29,42);pane(-.12,.14,32,.24,5);}
@@ -1142,7 +1158,7 @@ function drawSwimmer(r: RC, vl: Villager) {
 
 function drawVillager(r: RC, vl: Villager) {
   if (inWater(r, vl.fx, vl.fy)) { drawSwimmer(r, vl); return; }
-  const [x,y] = P(r.v, vl.fx, vl.fy);
+  const [x,y] = P(r.v, vl.fx, vl.fy,deckHeight(r,vl.fx,vl.fy));
   drawVillagerArt(r.c,x,y,Math.max(r.v.s*1.12,.54),{
     time:r.anim,seed:vl.seed,face:vl.face,era:r.city.era,job:vl.job,
     walking:vl.moving,running:vl.run&&vl.moving,working:vl.state==='work',
@@ -1185,8 +1201,8 @@ export function drawTransportBoat(c:CanvasRenderingContext2D,x:number,y:number,s
   c.restore();
 }
 
-export function drawSoldier(r: Pick<RC, "c" | "v" | "anim">, u: UKey, fx: number, fy: number, face: 1 | -1, walking: boolean, seed: number, fighting = false, barbarian = false) {
-  const [sx, sy] = P(r.v, fx, fy);
+export function drawSoldier(r: Pick<RC, "c" | "v" | "anim"> & {deck?:ReadonlySet<number>}, u: UKey, fx: number, fy: number, face: 1 | -1, walking: boolean, seed: number, fighting = false, barbarian = false) {
+  const [sx, sy] = P(r.v, fx, fy, r.deck?.has(idx(Math.floor(fx),Math.floor(fy)))?5*r.v.s:0);
   drawSoldierArt(r.c, u, sx, sy, Math.max(r.v.s * 1.08, .52), { time: r.anim, face, walking, seed, fighting, hostile: barbarian });
 }
 
@@ -1228,9 +1244,10 @@ function drawCampSite(r: RC, k: Camp) {
 }
 
 /** Draw a figure standing in the river: sunk to the waist with ripples around it. */
-function inWater(r: RC, fx: number, fy: number) {
+function deckHeight(r:RC,fx:number,fy:number){return r.deck.has(idx(Math.floor(fx),Math.floor(fy)))?5*r.v.s:0;}
+function inWater(r: RC, fx: number, fy: number, boat=false) {
   const tx = Math.floor(fx), ty = Math.floor(fy);
-  return inb(tx, ty) && r.city.t[idx(tx, ty)] === R;
+  return inb(tx, ty) && r.city.t[idx(tx, ty)] === R && (boat||!r.deck.has(idx(tx,ty)));
 }
 function wade(r: RC, fx: number, fy: number, draw: () => void) {
   const c = r.c, s = Math.max(r.v.s * 1.45, 0.7);
@@ -1382,12 +1399,12 @@ export function pickHerd(v: View, city: City, anim: number, sx: number, sy: numb
 }
 
 /** Topmost villager under a screen point, if any. */
-export function pickVillager(v: View, list: Villager[], sx: number, sy: number) {
+export function pickVillager(v: View, list: Villager[], sx: number, sy: number,deck:ReadonlySet<number>=new Set()) {
   const s = Math.max(v.s * 1.45, 0.7);
   let best: Villager | null = null, bd = 1e9;
   for (const vl of list) {
     if (!vl.visible || vl.id === null) continue;
-    const [x, y] = P(v, vl.fx, vl.fy);
+    const [x, y] = P(v, vl.fx, vl.fy,deck.has(idx(Math.floor(vl.fx),Math.floor(vl.fy)))?5*v.s:0);
     const d = Math.hypot(sx - x, sy - (y - 8 * s));
     if (d < Math.max(18, 14 * s) && d < bd) { bd = d; best = vl; }
   }
@@ -1397,11 +1414,12 @@ export function pickVillager(v: View, list: Villager[], sx: number, sy: number) 
 /** A building remains clickable beneath an actor's generous touch hit area.
  * Shift/Ctrl/Meta explicitly picks a person when targets overlap. */
 export function pickHomeSoldier(v:View,city:City,now:number,sx:number,sy:number) {
-  return homeSoldiers(city,now).map(s=>{const [x,y]=P(v,s.x,s.y);return {s,d:Math.hypot((sx-x)/Math.max(10,10*v.s),(sy-y+10*v.s)/Math.max(14,18*v.s))};}).filter(p=>p.d<=1).sort((a,b)=>a.d-b.d)[0]?.s ?? null;
+  const deck=bridgeDeck(city);
+  return homeSoldiers(city,now).map(s=>{const [x,y]=P(v,s.x,s.y,deck.has(idx(Math.floor(s.x),Math.floor(s.y)))?5*v.s:0);return {s,d:Math.hypot((sx-x)/Math.max(10,10*v.s),(sy-y+10*v.s)/Math.max(14,18*v.s))};}).filter(p=>p.d<=1).sort((a,b)=>a.d-b.d)[0]?.s ?? null;
 }
 export function pickVillageTarget(v:View,city:City,list:Villager[],anim:number,sx:number,sy:number,preferPerson=false) {
   const building=pickBuilding(v,city,sx,sy);
-  const person=(!building || preferPerson)?pickVillager(v,list,sx,sy):null;
+  const person=(!building || preferPerson)?pickVillager(v,list,sx,sy,bridgeDeck(city)):null;
   if(person)return {type:"person" as const,person};
   if(building)return {type:"building" as const,cell:building};
   const herd=pickHerd(v,city,anim,sx,sy);
@@ -1411,6 +1429,7 @@ export function pickVillageTarget(v:View,city:City,list:Villager[],anim:number,s
 }
 
 export type DrawOpts = {
+  bridgePreview?:{from:number;to:number|null};
   rules?: EngineRules;
   v: View;
   now: number;
@@ -1428,7 +1447,7 @@ export type DrawOpts = {
 const stagingCache=new WeakMap<City,{at:number;tiles:number[]}>();
 export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   const v = o.v;
-  const r: RC = { c, v, city, D, anim: o.anim, now: o.now, season: seasonAt(city, o.now) };
+  const r: RC = { c, v, city, D, anim: o.anim, now: o.now, season: seasonAt(city, o.now),deck:bridgeDeck(city) };
   c.clearRect(0, 0, v.width, v.height);
   const lod = v.TW < 26;
 
@@ -1529,9 +1548,40 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     const q=tp(r,+tile%W,Math.floor(+tile/W)),growth=Math.max(.15,1-(seedling.readyAt-o.now)/(30*60000));
     line(r,q(0,0,0),q(0,0,4+growth*7),'#6a7744',1.5);poly(c,[q(0,0,3),q(-.15,0,6+growth*5),q(0,0,7+growth*6),q(.15,0,6+growth*5)],'#7fba56');
   }
+  if(o.bridgePreview){
+    const {from,to}=o.bridgePreview;
+    for(const i of visible)if(seen[i]&&city.t[i]===G&&!bridgeGeometry(city,from,i).error)outline({x:i%W,y:Math.floor(i/W)},'#8fd8bf','rgba(80,220,165,.24)');
+    if(to!==null){
+      const plan=bridgeGeometry(city,from,to),col=plan.error?'#f18f73':'#edcc7c';
+      outline({x:to%W,y:Math.floor(to/W)},col);
+      c.strokeStyle=col;c.lineWidth=2;c.setLineDash([7,5]);c.beginPath();
+      const a=P(v,from%W+.5,Math.floor(from/W)+.5),b=P(v,to%W+.5,Math.floor(to/W)+.5);c.moveTo(...a);c.lineTo(...b);c.stroke();c.setLineDash([]);
+    }
+  }
   // 3. objects sorted by depth
   type Item = { d: number; f: () => void };
   const items: Item[] = [];
+  for(const [from,b]of buildings(city))if(b.k==='ironbridge'&&b.bridge){
+    const span=b.bridge,alongX=Math.floor(from/W)===Math.floor(span.to/W),ready=bridgeReady(city,from);
+    for(const tile of span.tiles){
+      if(!vis[tile]||!seen[tile]||city.t[tile]!==R)continue;
+      const x=tile%W,y=Math.floor(tile/W),q=tp(r,x,y),p=(u:number,v:number,z:number)=>alongX?q(u,v,z):q(v,u,z);
+      items.push({d:x+y+.9,f:()=>{
+        c.save();if(!ready)c.globalAlpha=b.doneAt ? .65 : .35;
+        poly(c,[p(-.5,-.3,5),p(.5,-.3,5),p(.5,.3,5),p(-.5,.3,5)],ready?'#bdad83':'#9b8c71');
+        poly(c,[p(-.5,.3,5),p(.5,.3,5),p(.5,.3,1),p(-.5,.3,1)],'#435e64');
+        for(const u of [-.4,-.2,0,.2,.4])line(r,p(u,-.3,5),p(u,.3,5),'#827761',.7);
+        for(const side of [-.34,.34]){
+          line(r,p(-.5,side,5),p(.5,side,5),'#3a5660',2);
+          line(r,p(-.5,side,14),p(.5,side,14),'#72949b',1.6);
+          for(const u of [-.5,0]){line(r,p(u,side,5),p(u+.25,side,14),'#547783',1.5);line(r,p(u+.25,side,14),p(u+.5,side,5),'#547783',1.5);}
+        }
+        if(tile===span.tiles[Math.floor(span.tiles.length/2)]){line(r,p(0,-.27,-7),p(0,-.27,5),'#87978e',4);line(r,p(0,.27,-7),p(0,.27,5),'#70827b',4);}
+        if(!ready){line(r,p(-.4,-.3,17),p(.4,.3,17),'#d7a551',2);line(r,p(.4,-.3,17),p(-.4,.3,17),'#d7a551',2);}
+        c.restore();
+      }});
+    }
+  }
   for (const i of visible) {
     const x = i % W, y = Math.floor(i / W);
     if (!seen[i]) continue;
@@ -1572,7 +1622,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
             const [px,py]=tp(r,x,y)(0,0,48);c.fillStyle='#263f45';c.beginPath();c.arc(px,py,7*v.s,0,Math.PI*2);c.fill();c.fillStyle='#ffe18b';c.font=`bold ${Math.max(10,Math.round(12*v.s))}px sans-serif`;c.textAlign='center';c.fillText(b.off?'⏸':'ϟ',px,py+4*v.s);
           }
           if (b.doneAt) {
-            const total = b.relocation?.duration ?? B[b.k].sec * 1000 * 3 ** b.lvl;
+            const total = b.relocation?.duration ?? (b.k==='ironbridge'&&b.bridge&&!b.bridge.ready?b.bridge.tiles.length*120000:B[b.k].sec * 1000 * 3 ** b.lvl);
             drawScaffold(r, x, y, Math.max(0, Math.min(1, 1 - (b.doneAt - o.now) / total)));
           }
           if (b.lvl >= 2) {
@@ -1643,12 +1693,12 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
         const {x:fx,y:fy}=soldier;
         if (!onScreen(fx-.5,fy-.5)) continue;
         items.push({d:fx+fy,f:()=>{
-          if(o.pickedSoldier===soldier.id){const [sx,sy]=P(v,fx,fy);c.strokeStyle="#f0c766";c.lineWidth=2;c.beginPath();c.ellipse(sx,sy,10*v.s,5*v.s,0,0,Math.PI*2);c.stroke();}
+          if(o.pickedSoldier===soldier.id){const [sx,sy]=P(v,fx,fy,deckHeight(r,fx,fy));c.strokeStyle="#f0c766";c.lineWidth=2;c.beginPath();c.ellipse(sx,sy,10*v.s,5*v.s,0,0,Math.PI*2);c.stroke();}
           if(inWater(r,fx,fy)){const [sx,sy]=P(v,fx,fy);drawTransportBoat(c,sx,sy,v.s*.65,r.anim,soldier.face,1);}else drawSoldier(r,soldier.u,fx,fy,soldier.face,soldier.moving,n*.37);
         }});
       }
     }
-    for(const ferry of returningFerries(city,o.now))if(inWater(r,ferry.x,ferry.y)&&seen[idx(Math.floor(ferry.x),Math.floor(ferry.y))]&&onScreen(ferry.x-.5,ferry.y-.5))items.push({d:ferry.x+ferry.y,f:()=>{const [sx,sy]=P(v,ferry.x,ferry.y);drawTransportBoat(c,sx,sy,v.s*.65,r.anim,ferry.face);}});
+    for(const ferry of returningFerries(city,o.now))if(inWater(r,ferry.x,ferry.y,true)&&seen[idx(Math.floor(ferry.x),Math.floor(ferry.y))]&&onScreen(ferry.x-.5,ferry.y-.5))items.push({d:ferry.x+ferry.y,f:()=>{const [sx,sy]=P(v,ferry.x,ferry.y);drawTransportBoat(c,sx,sy,v.s*.65,r.anim,ferry.face);}});
     const beast=wildlifePosition(city,o.now);
     if(beast){const [fx,fy]=beast,ti=idx(Math.floor(fx),Math.floor(fy));if(seen[ti]&&onScreen(fx-.5,fy-.5))items.push({d:fx+fy,f:()=>drawAnimal(r,"boar",fx,fy,1,false,false,.73)});}
     // Barbarians appear only after the warning, on a persisted land route.
@@ -1722,12 +1772,12 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
         d: vl.fx + vl.fy,
         f: () => {
           if (isPicked) {
-            const [sx, sy] = P(v, vl.fx, vl.fy), s2 = Math.max(v.s * 1.45, 0.7);
+            const [sx, sy] = P(v, vl.fx, vl.fy,deckHeight(r,vl.fx,vl.fy)), s2 = Math.max(v.s * 1.45, 0.7);
             c.strokeStyle = "#7fe0ff"; c.lineWidth = 2; c.beginPath(); c.ellipse(sx, sy, 6 * s2, 3 * s2, 0, 0, Math.PI * 2); c.stroke();
           }
           drawVillager(r, vl);
           if (isPicked) {
-            const [sx, sy] = P(v, vl.fx, vl.fy), s2 = Math.max(v.s * 1.45, 0.7);
+            const [sx, sy] = P(v, vl.fx, vl.fy,deckHeight(r,vl.fx,vl.fy)), s2 = Math.max(v.s * 1.45, 0.7);
             c.font = `600 ${Math.max(11, Math.round(8 * s2))}px system-ui, sans-serif`; c.textAlign = "center"; c.textBaseline = "bottom";
             const label=vl.name+(villagersHungry(city)?" · Đói":"");
             const w = c.measureText(label).width + 8;
@@ -1814,7 +1864,7 @@ export function drawThumb(cv: HTMLCanvasElement, city: City, D: Derived, k: BKey
   c.clearRect(0, 0, w, h);
   const TW = w * 0.78, TH = TW / 2;
   const v: View = { TW, TH, s: TW / 64, ox: w / 2, oy: h * 0.72 - TH / 2, width: w, height: h };
-  const r: RC = { c, v, city, D, anim, now: 0, season };
+  const r: RC = { c, v, city, D, anim, now: 0, season, deck:new Set() };
   const q = tp(r, 0, 0);
   poly(c, [q(-0.5, -0.5), q(0.5, -0.5), q(0.5, 0.5), q(-0.5, 0.5)], k === "quarry" ? "#a39272" : "#7fae4c");
   poly(c, [q(0.5, -0.5), q(0.5, 0.5), q(0.5, 0.5, -5), q(0.5, -0.5, -5)], "#6b4a2b");

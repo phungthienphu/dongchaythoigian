@@ -2,7 +2,7 @@
 import { sessionEnded } from '@/lib/session-client';
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { advanceBattle, battleCommandError, commandBattle, type BattleCommand, type BattleSide, type BattleState } from "@/lib/battle";
+import { advanceBattle, battleBridgeTiles, battleCommandError, commandBattle, type BattleCommand, type BattleSide, type BattleState } from "@/lib/battle";
 import type { WarView } from "@/lib/war-view";
 import { derive, UNITS, W, R, type City, type Derived } from "@/lib/engine";
 import { camView, clampCam, drawCity, fitView, focusOn, screenToCell, zoomAt, type Cam, type View } from "./draw";
@@ -180,6 +180,7 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
       const v = camView(f, camera.current);
       crowd.update(rendered,Math.min(.1,Math.max(0,(time-crowdAt)/1000)),Date.now());crowdAt=time;
       drawCity(ctx, rendered, derived, { v, now: Date.now(), anim: time, hover: null, selected: null, tool: null, villagers: crowd.list, picked: EMPTY_PICKED, fx: [], chopping: EMPTY_CHOPPING });
+      const deck=b?battleBridgeTiles(b):new Set<number>();
       const project = (x: number, y: number) => ({ x: v.ox + (x - y) * v.TW / 2, y: v.oy + (x + y) * v.TH / 2 });
       for (const building of b?.buildings ?? []) {
         if (building.k === "watchtower" && !building.burned && !building.inactive) {
@@ -195,13 +196,14 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
       if(b) drawBattleStrikes(ctx,b,project,v.s,b.lastTick+time-snapshotTime);
       for (const g of [...(b?.groups ?? [])].sort((a, z) => a.x + a.y - z.x - z.y)) {
         if (!g.count || g.escaped) continue;
-        const at = project(g.x, g.y), own = g.side === p.side;
+        const at = project(g.x, g.y), onBridge=deck.has(Math.floor(g.y)*W+Math.floor(g.x)), own = g.side === p.side;
         if (at.x < -40 || at.x > v.width + 40 || at.y < -40 || at.y > v.height + 40) continue;
+        if(onBridge)at.y-=5*v.s;
         const radius = Math.max(10, Math.min(19, v.s * 7));
         ctx.fillStyle = own ? "#398aa6" : "#ba5547";
         ctx.beginPath(); ctx.ellipse(at.x, at.y, radius, radius * .68, 0, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = g.id === chosen ? "#ffe08a" : "#f1e4bf"; ctx.lineWidth = g.id === chosen ? 3 : 1; ctx.stroke();
-        if(g.naval&&b?.terrain[Math.floor(g.y)*W+Math.floor(g.x)]===R)drawTransportBoat(ctx,at.x,at.y,v.s*.8,time,g.side==="attacker"?1:-1,g.count);
+        if(g.naval&&!onBridge&&b?.terrain[Math.floor(g.y)*W+Math.floor(g.x)]===R)drawTransportBoat(ctx,at.x,at.y,v.s*.8,time,g.side==="attacker"?1:-1,g.count);
         else drawSoldier(ctx,g,at.x,at.y-6,v.s,time,(b?.strikes??[]).some(e=>e.source===g.id&&b!.lastTick-e.at<650));
         ctx.font = "bold 12px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff"; ctx.fillText(String(g.count), at.x, at.y+9);
         ctx.fillStyle = "#302c25"; ctx.fillRect(at.x - 15, at.y - 44, 30, 4);
