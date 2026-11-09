@@ -10,7 +10,8 @@ Worker mẫu hoạt động, chưa deploy website/API hoặc chuyển dữ liệ
 Staging riêng: `https://dong-song-game-staging.phungthienphu.workers.dev`.
 Web tĩnh đã build/deploy và kiểm tra HTTP + giao diện desktop/mobile. MongoDB
 7.8 đã qua kết nối/CRUD/transaction trên Worker thật với database QA. Native
-OAuth đã có code và unit test; chưa nghiệm thu Google thật hoặc gameplay.
+OAuth đã qua Google thật một browser; chưa nghiệm thu phiên hai browser/socket
+hoặc gameplay.
 Bằng chứng và lệnh chạy: [cloudflare-web-staging.md](./cloudflare-web-staging.md).
 
 Tài liệu này thay hướng triển khai trong `cloudflare-migration-plan.md` và
@@ -125,7 +126,7 @@ là backlog mới, không đánh dấu các task cũ hoàn thành chỉ vì có 
 |---|---|---|---|
 | M00 | Kiểm kê, baseline và bộ workload | Không | Có tài liệu/số đo lịch sử, cần cập nhật |
 | M01 | Build giao diện tĩnh và router API | M00 | Đã kiểm tra staging; API gameplay khóa |
-| M02 | Google OAuth, phiên và kết nối Mongo trên Workers | M00, M01 cho luồng browser | Mongo thật + native auth unit/repository test qua; Google/browser và socket fence chưa nghiệm thu |
+| M02 | Google OAuth, phiên và kết nối Mongo trên Workers | M00, M01 cho luồng browser | Mongo/transaction/repository và Google thật một browser qua; hai browser/socket fence chưa nghiệm thu |
 | M03 | Village DO production, fencing và giao thức batch | M00, hợp đồng M02 | Có prototype/preflight để tái sử dụng |
 | M04 | Tối ưu engine theo sự kiện, có version gate | M00 | Chưa làm; chạy độc lập với đổi hosting |
 | M05 | Chợ, sứ giả, hành quân và kết quả combat | M02, M03 | Business logic cũ có, coordinator mới chưa làm |

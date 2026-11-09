@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 const origin = process.argv[2] ?? 'https://dong-song-game-staging.phungthienphu.workers.dev';
 assert.equal(new URL(origin).protocol, 'https:');
 let requests = 0;
-async function get(path, method = 'GET') {
+async function get(path, method = 'GET', redirect = 'error') {
   requests++;
-  return fetch(new URL(path, origin), { method, redirect: 'error', signal: AbortSignal.timeout(15_000) });
+  return fetch(new URL(path, origin), { method, redirect, signal: AbortSignal.timeout(15_000) });
 }
 const home = await get('/');
 assert.equal(home.status, 200);
@@ -52,4 +52,22 @@ for (const [path, method] of [['/api/city', 'GET'], ['/api/city/batch', 'POST'],
   assert.equal(response.headers.get('cache-control'), 'no-store', path);
   assert.equal((await response.json()).code, 'MIGRATION_NOT_READY');
 }
-console.log(JSON.stringify({ ok: true, origin, assets: assets.length, requests, checks: ['html', 'chunks', 'css', 'fonts', 'icons', 'cache', '404', 'api-fence'] }));
+const checks = ['html', 'chunks', 'css', 'fonts', 'icons', 'cache', '404', 'api-fence'];
+if (process.argv.includes('--auth')) {
+  const me = await get('/api/me');
+  assert.equal(me.status, 200);
+  assert.deepEqual(await me.json(), { user: null, friends: [] });
+  const login = await get('/api/auth/login', 'GET', 'manual');
+  assert.equal(login.status, 303);
+  const target = new URL(login.headers.get('location'));
+  assert.equal(target.origin, 'https://accounts.google.com');
+  assert.equal(target.searchParams.get('redirect_uri'), `${new URL(origin).origin}/api/auth/callback/google`);
+  assert.equal(target.searchParams.get('code_challenge_method'), 'S256');
+  assert.match(login.headers.get('set-cookie'), /HttpOnly; Secure; SameSite=Lax/);
+  const callback = await get('/api/auth/callback/google?code=invalid&state=invalid', 'GET', 'manual');
+  assert.equal(callback.status, 303);
+  assert.equal(callback.headers.get('location'), `${new URL(origin).origin}/?auth=state`);
+  assert.equal((await get('/api/auth/logout', 'POST')).status, 403);
+  checks.push('anonymous-profile', 'oauth-redirect', 'oauth-state', 'logout-csrf');
+}
+console.log(JSON.stringify({ ok: true, origin, assets: assets.length, requests, checks }));
