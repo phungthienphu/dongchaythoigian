@@ -5,5 +5,5 @@
   "triggers": { "crons": ["* * * * *"] },
   "durable_objects": { "bindings": [{ "name": "BATTLES", "class_name": "BattleRoom" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BattleRoom"] }],
-  "vars": { "APP_URL": "https://dongchaythoigian.vercel.app" }
+  "vars": { "APP_URL": "https://dongchaythoigian.phungthienphu.workers.dev" }
 }

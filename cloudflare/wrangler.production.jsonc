@@ -1,0 +1,24 @@
+{
+  "name": "dongchaythoigian",
+  "main": "bridge/index.ts",
+  "compatibility_date": "2026-11-09",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "alias": { "next/headers": "./bridge/headers.ts", "next/server": "./bridge/server.ts" },
+  "durable_objects": { "bindings": [{ "name": "GAME_API", "class_name": "GameApi" }] },
+  "migrations": [{ "tag": "game-api-v1", "new_sqlite_classes": ["GameApi"] }],
+  "assets": {
+    "directory": "web/out", "binding": "ASSETS", "not_found_handling": "404-page",
+    "run_worker_first": ["/api", "/api/*", "/dev", "/dev/*"]
+  },
+  "vars": {
+    "RELEASE_ID": "cloudflare-hosting-v1",
+    "APP_URL": "https://dongchaythoigian.phungthienphu.workers.dev",
+    "MONGODB_DB": "dong_song_thoi_dai",
+    "BATTLE_WORKER_URL": "https://dong-song-battles.phungthienphu.workers.dev",
+    "CITY_BATCH_ENABLED": "true",
+    "NODE_ENV": "production",
+    "GAME_ENABLED": "true"
+  }
+}

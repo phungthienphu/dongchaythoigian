@@ -1,0 +1,28 @@
+{
+  "name": "dong-song-game-staging",
+  "main": "bridge/staging.ts",
+  "compatibility_date": "2026-11-09",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "alias": { "next/headers": "./bridge/headers.ts", "next/server": "./bridge/server.ts" },
+  "durable_objects": { "bindings": [
+    { "name": "VILLAGES", "class_name": "Village" },
+    { "name": "GAME_API", "class_name": "GameApi" }
+  ] },
+  "migrations": [
+    { "tag": "village-qa-v1", "new_sqlite_classes": ["Village"] },
+    { "tag": "game-api-v1", "new_sqlite_classes": ["GameApi"] }
+  ],
+  "assets": {
+    "directory": "web/out", "binding": "ASSETS", "not_found_handling": "404-page",
+    "run_worker_first": ["/api", "/api/*", "/dev", "/dev/*"]
+  },
+  "vars": {
+    "RELEASE_ID": "cloudflare-hosting-qa-v1",
+    "APP_URL": "https://dong-song-game-staging.phungthienphu.workers.dev",
+    "MONGODB_DB": "dong_song_cloudflare_qa",
+    "BATTLE_WORKER_URL": "https://dong-song-battles-qa.phungthienphu.workers.dev",
+    "CITY_BATCH_ENABLED": "true", "NODE_ENV": "production", "GAME_ENABLED": "true"
+  }
+}

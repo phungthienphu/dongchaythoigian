@@ -1,6 +1,32 @@
 # Kế hoạch chuyển game khỏi Vercel sang Cloudflare
 
-Ngày: 09/11/2026. Trạng thái: **web tĩnh đã có staging; chưa chuyển production**.
+Ngày: 09/11/2026. Trạng thái: **đã chuyển hosting production sang Cloudflare; MongoDB vẫn là nguồn dữ liệu chính**.
+
+## Quyết định cutover nhanh ngày 09/11 (thay thứ tự triển khai bên dưới)
+
+Chủ dự án yêu cầu chuyển production ngay, bỏ thời gian chờ 48 giờ. Để mở lại
+toàn bộ gameplay, triển khai web tĩnh + API gốc trong `GameApi` Durable Objects,
+chia instance theo tài khoản đã xác thực. MongoDB tiếp tục lưu tất cả làng và
+giao dịch; giữ CAS, transaction, ledger/ACK và outbox đã có. Không export/import
+làng thật sang SQLite trong đợt này, không reset dữ liệu. Batch 10 giây mở cho
+tất cả người chơi.
+
+Đã backup snapshot nhất quán 8 làng/5 tài khoản và tất cả collection, kiểm tra
+đọc lại BSON. Đã qua 29 request QA đầu cuối, gồm giao dịch chợ lặp, PvP và
+callback kết quả từ BattleRoom thật; production smoke 30 request/19 assets,
+đăng nhập Google thật và tải đúng Nam Quốc Sơn Hà. Combat namespace cũ giữ
+nguyên; cron/callback chuyển sang địa chỉ Cloudflare mới.
+
+Không chờ soak 48 giờ trước cutover. Chưa có bằng chứng tải dài hạn nằm trong
+quota Free. Chuyển quyền sở hữu dữ liệu sang Village SQLite, coordinator mới và
+engine theo sự kiện vẫn là các bước tối ưu tiếp theo; không đánh dấu M03–M09
+của kiến trúc đích đã hoàn tất chỉ vì hosting đã hoạt động.
+
+Lệnh phát hành, backup/rollback và bằng chứng:
+[cloudflare-production-cutover.md](./cloudflare-production-cutover.md).
+
+**Phần kế hoạch bên dưới giữ làm đặc tả kiến trúc SQLite đích và lịch sử gate;
+các mốc chờ 24/48 giờ không còn chặn lần cutover hosting đã được duyệt.**
 
 Worker web đã tạo: **`dongchaythoigian`**, origin
 `https://dongchaythoigian.phungthienphu.workers.dev`.
@@ -283,7 +309,8 @@ Không lấy trang chủ 200, build xanh hoặc ít người dùng làm bằng c
    sang endpoint mới tương thích. Đảm bảo callback cũ retry vẫn chống trùng.
 5. Reconcile các job đến hạn, smoke test đăng nhập/đúng làng/safe action của
    tài khoản được phép. Mở tất cả người chơi khi đạt; không chỉ Nam Quốc Sơn Hà.
-6. Theo dõi chặt >=48 giờ, không triển khai đồng thời thay đổi cân bằng/đời mới.
+6. Theo yêu cầu ngày 09/11, mở production ngay sau kiểm tra tính đúng, không chờ
+   48 giờ. Theo dõi sau phát hành; không triển khai đồng thời cân bằng/đời mới.
 
 **Queue khác origin:** cookie/IndexedDB của `.vercel.app` không tự sang domain
 mới. M02/M06 phải có phương án lấy/đối chiếu queue còn local nếu truy xuất được

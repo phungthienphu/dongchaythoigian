@@ -1,6 +1,7 @@
 import { MongoClient, type Collection } from "mongodb";
 import type { City } from "./engine";
 import type { OnlineCommandBucket } from "./command-metrics";
+import { requestDatabase } from './db-context';
 
 export type CityDoc = {
   _id: string; // player id from the `pid` cookie
@@ -37,9 +38,11 @@ export type UserDoc = {
 };
 
 const g = globalThis as unknown as { _mongo?: Promise<MongoClient> };
-const dbName = () => process.env.MONGODB_DB || "dong_song_thoi_dai";
+const dbName = () => requestDatabase()?.database ?? (process.env.MONGODB_DB || "dong_song_thoi_dai");
 
 export async function mongoClient() {
+  const scoped = requestDatabase();
+  if (scoped) return scoped.client;
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error("Thiếu MONGODB_URI trong .env.local");
   g._mongo ??= new MongoClient(uri).connect().then(async (client) => {

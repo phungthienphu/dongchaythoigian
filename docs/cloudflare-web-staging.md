@@ -2,6 +2,12 @@
 
 Ngày: 09/11/2026. **Không phải bản game production đã chuyển dữ liệu.**
 
+**Cập nhật cuối ngày 09/11:** staging hiện chạy toàn bộ API qua cấu hình
+`cloudflare/wrangler.bridge-qa.jsonc`, dùng Mongo QA và BattleRoom QA riêng.
+Production đã chuyển hosting; xem [biên bản cutover](./cloudflare-production-cutover.md).
+Phần dưới là bằng chứng giai đoạn M01–M03 trước cutover, không phải cấu hình
+staging hiện tại. Không deploy lại `wrangler.staging.jsonc` như bản mới nhất.
+
 ## Địa chỉ và ranh giới
 
 - Production đã đặt chỗ: `https://dongchaythoigian.phungthienphu.workers.dev`;
