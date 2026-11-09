@@ -11,7 +11,7 @@ import { ReadFlights } from "@/lib/read-flights";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, BKEYS, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  dockRelocationPlan, buildingJobs,storageCapacity, availableForQuickAssign, quickAssignBlockedReason, isScout, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
+  dockRelocationPlan, buildingJobs,storageCapacity, availableForQuickAssign, quickAssignBlockedReason, isScout, taskResource, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
   armyCap, armyUsed, buildingCost, trainingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, farmAutoStatus, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -106,7 +106,7 @@ function taskLabel(c: City, p: Person) {
   switch (tk.t) {
     case "work": return `Làm ở ${buildingName(c,c.b[tk.at]?.k ?? "hut")}`;
     case "chop": return "Chặt cây";
-    case "mine": return `Đào ${RN[mineralResource(c.t[tk.at])].toLowerCase()}`;
+    case "mine": return `Đào ${RN[taskResource(c,p)!].toLowerCase()}`;
     case "hunt": return c.herds.find((h) => h.id === tk.herd)?.kind === "boar" ? "Săn lợn rừng" : "Săn hươu";
     case "explore": return "Đi thám hiểm";
     default: return isScout(p) ? "Khám phá · chờ lệnh" : tk.t === "idle" && tk.at !== undefined ? "Đứng theo lệnh" : p.assignment === "manual" ? "Nghỉ · chờ lệnh" : "Rảnh";
@@ -114,6 +114,7 @@ function taskLabel(c: City, p: Person) {
 }
 function haulDetail(p: Person, at: number, storage: City["res"], stock: City["res"],city:City) {
   const h = p.haul;
+  if(!h && (p.task.t==='chop'||p.task.t==='mine'))return `Giữ nhóm ${RN[taskResource(city,p)!].toLowerCase()} · chờ nguồn đã khám phá có đường tới. Tự tìm lại mỗi 15 giây; hãy khám phá thêm hoặc mở lối đi.`;
   if(!h&&p.task.t==='work'){
     const b=city.b[p.task.at],d=b&&B[b.k];
     if(b&&d?.jobs&&!d.prod){

@@ -19,7 +19,7 @@ test('switching a loaded worker to idle deposits the existing cargo once',()=>{
  const c=fixture(),tile=assign(c);settle(c,20_000);assert.equal(applyAction(c,{type:'assign',ids:[c.people[0].id],task:{t:'idle'}},20_000),null);settle(c,40_000);assert.ok(c.res.wood>9&&c.res.wood<10);assert.equal(c.dep[tile],10);assert.equal(c.people[0].haul,undefined);const before=c.res.wood;settle(c,110_000);close(c.res.wood,before-3*70000/HOUR);
 });
 test('finite source partial cargo is never invented and source depletion retargets',()=>{
- const c=fixture(),tile=assign(c);c.dep[tile]=CAP.forest-3;settle(c,31_000);assert.equal(c.res.wood,3);assert.equal(c.t[tile],G);assert.equal(c.people[0].task.t,'idle');
+ const c=fixture(),tile=assign(c);c.dep[tile]=CAP.forest-3;settle(c,31_000);assert.equal(c.res.wood,3);assert.equal(c.t[tile],G);assert.equal(c.people[0].task.t,'chop');assert.ok(c.people[0].gatherRetryAt);
 });
 test('resource-producing buildings also carry output and cannot credit rates directly',()=>{
  const c=fixture(),tile=idx(30,20);c.b[tile]={k:'gather',lvl:1,doneAt:null};assert.equal(applyAction(c,{type:'assign',ids:[c.people[0].id],task:{t:'work',at:tile}},0),null);settle(c,10_000);assert.ok(c.res.food<100000);assert.equal(c.people[0].haul?.phase,'work');assert.equal(c.people[0].haul?.carried,0);

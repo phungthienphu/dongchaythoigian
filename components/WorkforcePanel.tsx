@@ -35,6 +35,6 @@ export default function WorkforcePanel({c,busy,act,pickGroup}:{c:City;busy:boole
    setResult(ok?'Đã áp dụng. Dân mới chờ lệnh; các nhóm giữ việc đã giao.':'Chưa áp dụng được. Kiểm tra thông báo lỗi, nguồn khai thác, chỗ làm và người đang trú ẩn.');if(ok)setEdited(false);
   }}>Áp dụng số dân</button>{edited&&<button disabled={busy} onClick={()=>{setForm(initial());setEdited(false);setResult('');}}>Bỏ chỉnh sửa</button>}</div>
   {result&&<p role="status" className="small">{result}</p>}
-  <p className="small muted">Không tự kéo người khám phá hay người đứng theo lệnh sang việc khác. Muốn giải tán nhóm khám phá, giảm số nhóm hoặc chọn nhóm rồi “Cho nghỉ”. Dân giữ hàng đang mang và nộp kho trước khi đổi việc; khi có địch vẫn tạm trú ẩn rồi trở lại.</p>
+  <p className="small muted">Hết cụm cây hoặc mỏ, dân tự tìm nguồn cùng loại đã khám phá có đường tới. Nếu chưa có nguồn, họ giữ nhóm và chờ; khám phá thêm hoặc mở lối để làm tiếp. Không tự kéo người khám phá hay người đứng theo lệnh sang việc khác. Muốn giải tán nhóm, giảm số nhóm hoặc chọn nhóm rồi “Cho nghỉ”. Dân giữ hàng đang mang và nộp kho trước khi đổi việc; khi có địch vẫn tạm trú ẩn rồi trở lại.</p>
  </section>;
 }

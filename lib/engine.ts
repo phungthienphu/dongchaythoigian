@@ -206,7 +206,7 @@ export type Task =
   | { t: "idle"; at?: number } // at = where they stand and wait
   | { t: "work"; at: number }
   | { t: "chop"; at: number }
-  | { t: "mine"; at: number }
+  | { t: "mine"; at: number; resource?: ResKey }
   | { t: "hunt"; herd: number }
   | { t: "explore"; from: number; to: number; start: number; route?: number[]; seenTo?: number }; // seenTo: progress (0..1) already revealed
 export type TaskInput =
@@ -223,7 +223,7 @@ export type Haul = {
   taskKey: string; workRate?: number; drop?: number;
 };
 export type Refuge = { route: number[]; at: number; arrive: number; pausedAt: number; x: number; y: number; building?: number; returnAt?: number; back?: number; returnProgress?: number };
-export type Person = { assignment?: "manual" | "scout"; refuge?: Refuge; id: number; name: string; task: Task; pos?: number; haul?: Haul }; // pos: tile they last headed to
+export type Person = { assignment?: "manual" | "scout"; gatherRetryAt?: number; refuge?: Refuge; id: number; name: string; task: Task; pos?: number; haul?: Haul }; // pos: tile they last headed to
 export type Herd = { id: number; at: number; kind: "deer" | "boar"; n: number; max: number };
 export type DisasterNotice = { id:string; at:number; kind:"flood"|"earthquake"|"river"|"dock"; phase:"warning"|"impact"|"protected"; msg:string; tiles:number[] };
 export type LogEntry = { caravanId?: string; at: number; msg: string; cls?: "warn" | "good" };
@@ -842,7 +842,8 @@ export function stats(c: City, D: Derived, at: number): Stats {
     if(p.refuge)continue;
     const tk = p.task;
     if (tk.t === "chop" || tk.t === "mine") {
-      const res: ResKey = tk.t === "chop" ? "wood" : mineralResource(c.t[tk.at]);
+      const res = taskResource(c,p)!;
+      if (p.gatherRetryAt !== undefined || (tk.t === "chop" ? c.t[tk.at] !== F : !isRock(c.t[tk.at]) || mineralResource(c.t[tk.at]) !== res)) continue;
       const base = gatheringRate(res);
       const v = base * tools * mult * walkFactor(dropDistance(c, tk.at, res), base * tools * mult);
       rate[res] += v;
@@ -884,7 +885,7 @@ export function quickAssignBlockedReason(c:City) {
 export function taskResource(c:City,p:Person):ResKey|null {
   const tk=p.task;
   if(tk.t==="chop")return "wood";
-  if(tk.t==="mine")return mineralResource(c.t[tk.at]);
+  if(tk.t==="mine")return tk.resource ?? (isRock(c.t[tk.at]) ? mineralResource(c.t[tk.at]) : p.haul?.source?.kind === "tile" && p.haul.source.key === tk.at ? p.haul.resource : undefined) ?? "stone";
   if(tk.t==="hunt")return "food";
   if(tk.t==="work")return RES.find(r=>(B[c.b[tk.at]?.k]?.prod?.[r]??0)>0)??null;
   return null;
@@ -1046,6 +1047,7 @@ function taskError(c: City, tk: TaskInput, adding: number): string | null {
 }
 
 function setTask(c: City, p: Person, tk: TaskInput, now: number) {
+  delete p.gatherRetryAt;
   const exploring = p.task.t === "explore" ? explorerPos(p.task, now) : null;
   const point = haulPosition(p, now) ?? (exploring ? { x: exploring[0], y: exploring[1] } : null);
   const from = point ? idx(Math.min(W - 1, Math.max(0, Math.floor(point.x))), Math.min(H - 1, Math.max(0, Math.floor(point.y)))) : p.pos ?? c.camp;
@@ -1074,7 +1076,7 @@ function setTask(c: City, p: Person, tk: TaskInput, now: number) {
     return;
   }
   if (tk.t === "move") { p.task = { t: "idle", at: tk.to }; if (!p.haul) beginHaul(c, p, now, haulingContext(c, derive(c))); return; }
-  p.task = tk as Task;
+  p.task = tk.t === "mine" ? { ...tk, resource: mineralResource(c.t[tk.at]) } : tk as Task;
   if (!p.haul) beginHaul(c, p, now, haulingContext(c, derive(c)));
 }
 
@@ -1138,8 +1140,35 @@ const HAUL_UNLOAD_MS = 1000;
 type HaulJob = { tile: number; resource: ResKey; rate: number; source: NonNullable<Haul["source"]> };
 type DropRoute = { route: number[]; drop: number; length: number };
 type RouteTree = { prev: Int32Array; rank: Uint16Array; queue: Int32Array; head: number; size: number };
-type HaulContext = { civic:ReturnType<typeof civicContext>; transport:ReturnType<typeof transportNetwork>; pass?: Uint8Array; trees: BoundedCache<string, RouteTree>; drops: BoundedCache<string, DropRoute | null>; paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number; medievalBonus:number };
+type HaulContext = { civic:ReturnType<typeof civicContext>; transport:ReturnType<typeof transportNetwork>; pass?: Uint8Array; sources: Map<ResKey,number[]>; gatherTargets: BoundedCache<string,number|null>; trees: BoundedCache<string, RouteTree>; drops: BoundedCache<string, DropRoute | null>; paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number; medievalBonus:number };
 const taskKey = (p: Person) => JSON.stringify(p.task);
+
+/** Record the ore before any worker can exhaust it. Old in-flight loads keep
+ * their task key so upgrading a save never restarts their current work. */
+function rememberMiningResource(c:City,p:Person) {
+  if (p.task.t !== "mine" || p.task.resource !== undefined) return;
+  const key=taskKey(p),resource=taskResource(c,p)!;
+  p.task={...p.task,resource};
+  if(p.haul?.taskKey===key)p.haul.taskKey=taskKey(p);
+}
+
+/** Share source lists and route decisions within settlement. No source means
+ * wait in the same resource group, with a persisted retry rather than a map
+ * scan per worker per second (including across requests and recovery slices). */
+function nextGatherSource(c:City,p:Person,resource:ResKey,ctx:HaulContext):number|null {
+  const from=p.pos??c.camp,key=`${from}:${resource}`;
+  const matches=(i:number)=>!!c.seen[i]&&!c.b[i]&&(resource==="wood"?c.t[i]===F:isRock(c.t[i])&&mineralResource(c.t[i])===resource);
+  if(ctx.gatherTargets.has(key)){
+    const cached=ctx.gatherTargets.get(key)!;
+    if(cached===null||matches(cached))return cached;
+  }
+  let sources=ctx.sources.get(resource);
+  if(!sources){sources=[];for(let i=0;i<c.t.length;i++)if(matches(i))sources.push(i);ctx.sources.set(resource,sources);}
+  const distance=(i:number)=>(i%W-from%W)**2+(Math.floor(i/W)-Math.floor(from/W))**2;
+  const next=sources.filter(matches).sort((a,b)=>distance(a)-distance(b)||a-b).find(i=>!!haulPath(c,from,i,ctx))??null;
+  ctx.gatherTargets.set(key,next);
+  return next;
+}
 
 /** Tile-centre position along the persisted authoritative route. No client RNG. */
 export function haulPosition(p: Person, now: number): { x: number; y: number; phase: Haul["phase"]; carried: number; resource?: ResKey } | null {
@@ -1255,7 +1284,7 @@ function civicContext(c:City){
 function haulingContext(c: City, D: Derived): HaulContext {
   const active = Object.values(c.b).filter(b => built(b) && !b.flooded);
   const civic=civicContext(c);
-  return { civic,transport:transportNetwork(c,undefined,civic.transport),medievalBonus:medievalBonus(c,undefined,civic.bonus), trees: new BoundedCache<string,RouteTree>(32,884736,tree=>tree.prev.length+tree.rank.length+tree.queue.length), drops: new BoundedCache<string,DropRoute|null>(512,65536,drop=>drop?.route.length??1), paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: (1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length))*(1+medievalBonus(c)) };
+  return { civic,transport:transportNetwork(c,undefined,civic.transport),medievalBonus:medievalBonus(c,undefined,civic.bonus), sources:new Map(),gatherTargets:new BoundedCache<string,number|null>(512,512), trees: new BoundedCache<string,RouteTree>(32,884736,tree=>tree.prev.length+tree.rank.length+tree.queue.length), drops: new BoundedCache<string,DropRoute|null>(512,65536,drop=>drop?.route.length??1), paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: (1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length))*(1+medievalBonus(c)) };
 }
 /** Docks need a cardinal river neighbor; canals cannot float transports. */
 export function dockOnRiver(c:City,tile:number){
@@ -1460,7 +1489,8 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   const tk = p.task;
   if (tk.t === "chop" || tk.t === "mine") {
     if (tk.t === "chop" ? c.t[tk.at] !== F : !isRock(c.t[tk.at])) return null;
-    const resource: ResKey = tk.t === "chop" ? "wood" : mineralResource(c.t[tk.at]);
+    const resource = taskResource(c,p)!;
+    if(tk.t === "mine" && mineralResource(c.t[tk.at]) !== resource)return null;
     const rate = gatheringRate(resource);
     return { tile: tk.at, resource, rate: rate * ctx.tools * ctx.mult, source: { kind: "tile", key: tk.at } };
   }
@@ -1537,12 +1567,17 @@ function returnCargo(c: City, p: Person, at: number, ctx: HaulContext) {
 }
 function beginHaul(c: City, p: Person, at: number, ctx: HaulContext) {
   if(p.refuge)return;
+  if((p.task.t === "chop" || p.task.t === "mine") && (p.gatherRetryAt??0)>at)return;
   let job = haulingJob(c, p, at, ctx);
-  if (!job && (p.task.t === "chop" || p.task.t === "mine")) {
-    const task = p.task;
-    const next = nearestTile(c, task.at, i => !!c.seen[i] && !c.b[i] && (task.t === "chop" ? c.t[i] === F : isRock(c.t[i]) && mineralResource(c.t[i])===(p.haul?.resource??mineralResource(c.t[task.at]))), 4);
-    p.task = next >= 0 ? { t: task.t, at: next } : { t: "idle" };
-    job = haulingJob(c, p, at, ctx);
+  if (p.task.t === "chop" || p.task.t === "mine") {
+    rememberMiningResource(c,p);
+    if(!job || !haulPath(c,p.pos??c.camp,job.tile,ctx)){
+      const next=nextGatherSource(c,p,taskResource(c,p)!,ctx);
+      if(next===null){p.gatherRetryAt=at+15_000;return;}
+      p.task={...p.task,at:next};
+      job=haulingJob(c,p,at,ctx);
+    }
+    delete p.gatherRetryAt;
   }
   if (!job && p.task.t === "hunt") {
     const origin = herdById(c, p.task.herd)?.at ?? p.pos ?? c.camp;
@@ -1666,7 +1701,7 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: Res, smelt:
       const sourceTile = h.source?.kind === "tile" ? h.source.key : undefined;
       const beforeTerrain = sourceTile === undefined ? undefined : c.t[sourceTile];
       h.carried = takeCargo(c, h, at);
-      if (sourceTile !== undefined && beforeTerrain !== undefined && isRock(beforeTerrain) && beforeTerrain !== c.t[sourceTile]) { ctx.pass = undefined; ctx.trees.clear(); ctx.drops.clear(); ctx.paths.clear(); }
+      if (sourceTile !== undefined && beforeTerrain !== undefined && isRock(beforeTerrain) && beforeTerrain !== c.t[sourceTile]) { ctx.pass = undefined; ctx.trees.clear(); ctx.drops.clear(); ctx.paths.clear(); ctx.gatherTargets.clear(); }
       if (h.carried > 0) returnCargo(c, p, at, ctx);
       else { delete p.haul; beginHaul(c, p, at, ctx); }
     } else if (h.phase === "return") {
@@ -2249,6 +2284,7 @@ export function settle(c: City, now: number, budget?: SettlementBudget) {
   let ticks = 0;
   let D = derive(c), st = stats(c, D, t), dirty = false;
   let hauling = haulingContext(c, D);
+  for(const p of c.people)rememberMiningResource(c,p);
   if(updateRefuges(c,t))dirty=true;
   refreshHauling(c, t, hauling);
   for (const p of c.people) if (!p.haul) beginHaul(c, p, t, hauling);
