@@ -1149,7 +1149,7 @@ const HAUL_UNLOAD_MS = 1000;
 type HaulJob = { tile: number; resource: ResKey; rate: number; source: NonNullable<Haul["source"]> };
 type DropRoute = { route: number[]; drop: number; length: number };
 type RouteTree = { prev: Int32Array; rank: Uint16Array; queue: Int32Array; head: number; size: number };
-type HaulContext = { bridges:ReadonlySet<number>; civic:ReturnType<typeof civicContext>; transport:ReturnType<typeof transportNetwork>; pass?: Uint8Array; sources: Map<ResKey,number[]>; gatherTargets: BoundedCache<string,number|null>; trees: BoundedCache<string, RouteTree>; drops: BoundedCache<string, DropRoute | null>; paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number; medievalBonus:number };
+type HaulContext = { sight:Set<number>; bridges:ReadonlySet<number>; civic:ReturnType<typeof civicContext>; transport:ReturnType<typeof transportNetwork>; pass?: Uint8Array; sources: Map<ResKey,number[]>; gatherTargets: BoundedCache<string,number|null>; trees: BoundedCache<string, RouteTree>; drops: BoundedCache<string, DropRoute | null>; paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number; medievalBonus:number };
 const taskKey = (p: Person) => JSON.stringify(p.task);
 
 /** Record the ore before any worker can exhaust it. Old in-flight loads keep
@@ -1294,7 +1294,7 @@ function civicContext(c:City){
 function haulingContext(c: City, D: Derived): HaulContext {
   const active = Object.values(c.b).filter(b => built(b) && !b.flooded);
   const civic=civicContext(c);
-  return { bridges:bridgeDeck(c),civic,transport:transportNetwork(c,undefined,civic.transport),medievalBonus:medievalBonus(c,undefined,civic.bonus), sources:new Map(),gatherTargets:new BoundedCache<string,number|null>(512,512), trees: new BoundedCache<string,RouteTree>(32,884736,tree=>tree.prev.length+tree.rank.length+tree.queue.length), drops: new BoundedCache<string,DropRoute|null>(512,65536,drop=>drop?.route.length??1), paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: (1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length))*(1+medievalBonus(c)) };
+  return { sight:new Set(),bridges:bridgeDeck(c),civic,transport:transportNetwork(c,undefined,civic.transport),medievalBonus:medievalBonus(c,undefined,civic.bonus), sources:new Map(),gatherTargets:new BoundedCache<string,number|null>(512,512), trees: new BoundedCache<string,RouteTree>(32,884736,tree=>tree.prev.length+tree.rank.length+tree.queue.length), drops: new BoundedCache<string,DropRoute|null>(512,65536,drop=>drop?.route.length??1), paths: new BoundedCache<string,number[]|null>(256,32768,path=>path?.length??1), D, tools: 1 + 0.25 * active.filter(b => b.k === "forge").reduce((n,b) => n+b.lvl, 0), mult: (1 + 0.1 * Math.min(3, active.filter(b => b.k === "market").length))*(1+medievalBonus(c)) };
 }
 /** Docks need a cardinal river neighbor; canals cannot float transports. */
 export function dockOnRiver(c:City,tile:number){
@@ -1683,6 +1683,15 @@ function refreshHauling(c: City, at: number, ctx: HaulContext) {
  * exactly once, at unload, never by the rates displayed in stats(). */
 function stepHauling(c: City, at: number, ctx: HaulContext, storage: Res, smelt: number, milling: number) {
   for (const p of c.people) {
+    // Workers also explore the ground they actually reach. Never reveal the
+    // planned route ahead; the same persisted ticks drive local prediction and
+    // server settlement. Share sight checks across workers on the same tile.
+    const position=p.refuge?refugePosition(p,at):p.haul?haulPosition(p,at):null;
+    const tile=position?idx(Math.max(0,Math.min(W-1,Math.floor(position.x))),Math.max(0,Math.min(H-1,Math.floor(position.y)))):p.pos??c.camp;
+    if(!ctx.sight.has(tile)){
+      ctx.sight.add(tile);
+      if(reveal(c,tile,2)){ctx.sources.clear();ctx.gatherTargets.clear();}
+    }
     if(p.refuge)continue;
     if (!p.haul) { beginHaul(c, p, at, ctx); continue; }
     const h = p.haul;
