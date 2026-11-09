@@ -1,6 +1,6 @@
 # Điều chỉnh tháp canh ngày 09/11/2026
 
-Người chơi phản ánh voi bị hạ quá nhanh và trụ có tầm bắn quá xa. Bản này giảm khả năng phủ bản đồ và sát thương duy trì của trụ trong trận xâm lược, đồng thời tạo vai trò chịu tên cho voi trước thời thuốc súng.
+Người chơi phản ánh voi bị hạ quá nhanh và trụ có tầm bắn quá xa. Bản này giảm khả năng phủ bản đồ và sát thương duy trì của trụ trong trận xâm lược, đồng thời tạo vai trò chịu tên cho voi trước thời Công nghiệp.
 
 | Chỉ số | Trước | Sau |
 | --- | --- | --- |
