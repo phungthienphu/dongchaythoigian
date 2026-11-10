@@ -1,13 +1,13 @@
 # UI làng: triển khai và kiểm thử ngày 10/11/2026
 
-Đã tích hợp UI mới vào `Game`, kiểm thử local và build thành công cho Cloudflare. Chưa push hoặc triển khai production trong task này. Không cần env, migration hay cấu hình dịch vụ mới cho phần UI.
+Đã tích hợp UI mới vào `Game`, kiểm thử local và build thành công cho Cloudflare. Trạng thái bản phát hành đang chạy được xác định qua release ID tại `/api/health`. Không cần env, migration hay cấu hình dịch vụ mới cho phần UI.
 
 ## Người chơi thấy gì thay đổi?
 
 | Khu vực | Kết quả |
 | --- | --- |
 | Điều hướng | Năm mục cố định: Xây dựng, Dân làng, Quân đội, Thế giới, Quản lý. Một bảng chính; bảng nhỏ có nút mở rộng trên mobile. |
-| Tài nguyên | HUD mobile giữ thực, gỗ, dân; Tất cả mở các tài nguyên còn lại. Chạm từng tài nguyên xem kho, số thực nhận/đã chi, người chờ nộp. Công suất dự kiến nằm trong chi tiết riêng. |
+| Tài nguyên | Thanh vàng dưới mỗi tài nguyên thể hiện tỷ lệ đầy kho; đầy thì kín thanh, cạn thì rỗng. HUD mobile giữ thực, gỗ, dân; Tất cả mở các tài nguyên còn lại. Chạm từng tài nguyên xem kho, số thực nhận/đã chi, người chờ nộp. Công suất dự kiến nằm trong chi tiết riêng. |
 | Cần chú ý | Gộp đồng bộ lỗi, bị đánh, đói, thiên tai, kho chật, ruộng bạc màu, nhà hỏng, ô nhiễm và tin mới. Có đường tới đối tượng liên quan. Đọc tin không xóa cảnh báo nguy hiểm còn hiệu lực. |
 | Công trình | Tìm tên/công dụng không dấu, lọc thời đại/công dụng, tối đa 12 thẻ/trang. Xem giá, vật liệu còn thiếu, giới hạn, vị trí và thời gian trước khi đặt. Tên khớp tìm kiếm được ưu tiên. |
 | Dân | Phân công và Từng người tách tab; danh sách tìm/lọc và tối đa 30 hàng/trang. Giữ số phân công đang nhập khi đổi tab; chi tiết vận chuyển chỉ mở khi cần. |
@@ -32,6 +32,7 @@ Browser QA dùng `/dev/ui` và `/dev/selection`, dữ liệu giả lập local. 
 | Ca trình duyệt | Kết quả quan sát |
 | --- | --- |
 | 375×812 | HUD, cả 5 mục điều hướng, nút đóng/mở rộng bảng truy cập được. Danh mục và chi tiết giá/giới hạn đọc được; thế giới và menu khám phá dùng được. |
+| Thanh mức đầy kho | Khôi phục thanh vàng thay cho chấm sau phản hồi người chơi. Đo DOM: kho đầy 86/86px, kho cạn 0px; kho còn một phần có độ dài tương ứng. Thanh tự co theo ô tài nguyên trên mobile, kiểm tra ở 320px và 375px. |
 | 1280×600 | HUD đủ tài nguyên, bảng phải và điều hướng không đè nhau; tên làng đọc được. |
 | 844×390 | Cả 5 nút chính và nút đóng bảng nằm trong viewport; trang không tràn ngang. |
 | 768×1024 | Bảng phải không che thanh chú ý: cạnh phải thanh chú ý 304px, cạnh trái bảng 322px. Trang không tràn ngang. |

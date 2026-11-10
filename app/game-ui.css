@@ -20,11 +20,13 @@
 .ui-game .resource-pill { position:relative; display:flex; align-items:center; gap:5px; padding:6px 8px; background:transparent; border:1px solid transparent; border-radius:4px; text-align:left; flex:1 0 auto; }
 .resource-pill:hover { border-color:var(--ui-line); }
 .resource-pill .ic { background:none; width:24px; height:24px; flex:none; }
-.resource-pill>span:not(.ic):not(.resource-mark) { display:grid; gap:1px; }
+.resource-pill>span:not(.ic) { display:grid; gap:1px; }
+.resource-pill .resource-reading { min-width:0; flex:0 1 86px; grid-template-columns:minmax(0,1fr); }
+.resource-meter { display:block; width:100%; height:4px; margin-top:3px; overflow:hidden; border-radius:3px; background:#394b3d; }
+.resource-meter>i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#b4842c,#f3ce84); }
 .resource-pill small { color:var(--ui-muted); font-size:11px; white-space:nowrap; }
 .resource-pill b { font-size:15px; line-height:1.3; font-variant-numeric:tabular-nums; }
 .resource-pill em { font-style:normal; font-size:11px; color:var(--ui-muted); font-weight:400; }
-.resource-mark { color:var(--ui-gold); font-size:7px; align-self:flex-start; }
 .resource-pill.is-full b { color:#f3ce84; }
 .resource-pill.is-empty b { color:#ffaf92; }
 .ui-game .resource-more { display:flex; flex-direction:column; justify-content:center; align-items:center; padding:4px 8px; min-width:44px; border:0; background:transparent; font-size:22px; line-height:1; }
@@ -240,6 +242,11 @@
   .ui-game .workforce-row { grid-template-columns:minmax(0,1fr) 58px 82px; gap:6px; }
   .ui-game .filter-chips button { min-height:44px; }
   .ui-game .era-offline-summary { left:10px; max-width:calc(100vw - 20px); bottom:calc(var(--nav-height) + 64px); }
+}
+@media(max-width:360px) {
+  .ui-game .resource-pill { gap:3px; padding-inline:2px; }
+  .resource-pill .ic { width:18px; height:18px; }
+  .resource-pill b { font-size:13px; }.resource-pill small { font-size:9px; }
 }
 @media(max-height:600px) and (min-width:681px) {
   .ui-game .game-panel { bottom:80px; top:calc(var(--hud-top-height,70px) + 8px); }
