@@ -21,7 +21,9 @@ export default function EraHarness(){
     const action=JSON.parse(init?.body as string) as Action,error=applyAction(c,action,now,LOCAL_RULES);save();
     return Response.json({...(error?{error}:{}),state:structuredClone(c),serverNow:now},{status:error?400:200});
    }
-   if(path==='/api/me')return Response.json({user:null,friends:[]});
+   if(path==='/api/me')return Response.json({user:{id:'eras-local',name:'Người chơi thử',email:'',friendCode:'LOCAL1',hasCity:true},friends:[]});
+   if(path==='/api/battles')return Response.json({battles:[],enabled:false,serverNow:now});
+   if(path==='/api/market')return Response.json({orders:[],caravans:[],playerId:'eras-local',enabled:true,serverNow:now});
    if(path==='/api/diplomacy')return Response.json({messages:[],serverNow:now});
    if(path==='/api/leaderboard')return Response.json({rows:[]});
    if(path==='/api/world')return Response.json({nations:[]});

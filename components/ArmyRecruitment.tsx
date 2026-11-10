@@ -1,7 +1,8 @@
 'use client';
-import {useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {B,ERA_NAMES,MAX_TRAIN_BATCH,UKEYS,UNITS,W,buildingName,costText,trainingLanes,trainingPlan,type Action,type City,type UKey} from '@/lib/engine';
 import type {EngineRules} from '@/lib/eras';
+import UnitPortrait from './UnitPortrait';
 
 const duration=(ms:number)=>{const seconds=Math.max(0,Math.ceil(ms/1000));return seconds>=3600?`${Math.floor(seconds/3600)} giờ ${Math.floor(seconds%3600/60)} phút`:seconds>=60?`${Math.floor(seconds/60)} phút ${seconds%60} giây`:`${seconds} giây`;};
 type Props={city:City;now:number;busy:boolean;act:(action:Action)=>Promise<boolean>;rules:EngineRules};
@@ -30,14 +31,19 @@ function RecruitUnit({city,now,busy,act,rules,u}:Props&{u:UKey}){
 
 export default function ArmyRecruitment(props:Props){
  const lanes=trainingLanes(props.city),next=Math.min(...props.city.queue.map(q=>q.doneAt)),last=Math.max(...props.city.queue.map(q=>q.doneAt));
+ const [chosen,setChosen]=useState<UKey|null>(null);
+ const form=useRef<HTMLUListElement>(null);
+ useEffect(()=>{if(chosen){form.current?.scrollIntoView({block:'start'});form.current?.focus({preventScroll:true});}},[chosen]);
  return <>
-  <p className="small muted">Mỗi trại có hàng tuyển riêng; cấp 1/2/3 tuyển với tốc độ ×1/×1,5/×2. Hậu cần và quân y tuyển tại cơ sở riêng. Tài nguyên trừ khi nhận lệnh; quân chờ tuyển vẫn chiếm chỗ và có khẩu phần.</p>
-  <ul className="units train">{UKEYS.filter(u=>UNITS[u].era<=props.rules.maxEra).map(u=><RecruitUnit key={u} {...props} u={u}/>)}</ul>
   {!!lanes.length&&<section aria-label="Các hàng tuyển quân"><h3>Đang tuyển {props.city.queue.length} quân</h3><p className="small">Tiếp theo sau {duration(next-props.now)} · tất cả xong sau {duration(last-props.now)} nếu các cơ sở tiếp tục hoạt động và có lối ra.</p>
    {lanes.map(lane=>{const first=lane.orders[0],b=lane.source===undefined?undefined:props.city.b[lane.source],name=lane.source===undefined?'Hàng tuyển cũ':`${b?buildingName(props.city,b.k):'Cơ sở không còn'} (${lane.source%W}, ${Math.floor(lane.source/W)})`;
     const started=first.startedAt??first.doneAt-UNITS[first.u].sec*1000,progress=first.paused==='exit'?1:Math.max(0,Math.min(1,(props.now-started)/Math.max(1,first.doneAt-started)));
     return <div key={lane.source??'legacy'}><p className="small"><b>{name}</b> · {lane.orders.length} quân · {UNITS[first.u].n}{first.paused==='inactive'?' · Tạm dừng: sửa công trình hoặc chờ hết ngập.':first.paused==='exit'?' · Chờ mở lối ra.':` · xong sau ${duration(first.doneAt-props.now)}`}</p><progress aria-label={`Tiến độ tuyển tại ${name}`} max={1} value={progress} style={{width:'100%',accentColor:'var(--accent)'}}/></div>;
    })}
   </section>}
+  {!lanes.length&&<p className="small muted">Chưa có quân đang tuyển.</p>}
+  {chosen&&<ul ref={form} tabIndex={-1} aria-label={`Tuyển ${UNITS[chosen].n}`} className="units train recruit-form"><RecruitUnit key={chosen} {...props} u={chosen}/></ul>}
+  <div className="recruitment-types" role="group" aria-label="Chọn loại quân để tuyển">{UKEYS.filter(u=>UNITS[u].era<=props.rules.maxEra).sort((a,b)=>UNITS[a].era-UNITS[b].era).map(u=><button key={u} aria-pressed={chosen===u} onClick={()=>setChosen(chosen===u?null:u)}><UnitPortrait unit={u}/><span>{UNITS[u].n}</span><small>{UNITS[u].era>props.city.era?`Mở ở ${ERA_NAMES[UNITS[u].era]}`:`${props.city.army[u]??0} ở nhà · ${UNITS[u].space} chỗ/quân`}</small></button>)}</div>
+  <details className="ui-details"><summary>Cách tuyển & hàng đợi</summary><p className="small">Mỗi trại có hàng tuyển riêng; cấp 1/2/3 tuyển với tốc độ ×1/×1,5/×2. Hậu cần và quân y tuyển tại cơ sở riêng. Tài nguyên trừ khi nhận lệnh; quân chờ tuyển vẫn chiếm chỗ và có khẩu phần.</p></details>
  </>;
 }

@@ -24,7 +24,7 @@ export function EraCivicBuilding({city,building:b,tile,now}:{city:City;building:
  {(b.k==='dam'||b.k==='green')&&<p>{b.lvl>0?'Kỳ quan đã khánh thành; khi hư hại cần sửa để khôi phục hiệu ứng.':finalWonderError(city,b.k,now)??'Đủ điều kiện khởi công.'}</p>}
  </section>;
 }
-export default function EraCivicPanel({city:c,now,busy,act,onLocate}:{city:City;now:number;busy:boolean;act:(a:Action)=>unknown;onLocate?:(tile:number)=>void}){
+export default function EraCivicPanel({city:c,now,busy,act,onLocate,view='all'}:{city:City;now:number;busy:boolean;act:(a:Action)=>unknown;onLocate?:(tile:number)=>void;view?:'all'|'development'|'operations'}){
  if(c.era<4)return null;
  const has=(k:string)=>Object.values(c.b).some(b=>b.k===k&&active(b));
  const m=c.modern,s=c.industry,d=c.medieval?.drought;
@@ -33,14 +33,18 @@ export default function EraCivicPanel({city:c,now,busy,act,onLocate}:{city:City;
  ]:c.era===5?[
   ['Có nguồn than',has('coalmine')||has('charcoal')],['Nộp than vào kho',(s?.coalDelivered??0)>0],['Vận hành xưởng công nghiệp',!!s?.processed],['Xây trạm xử lý nước',has('treatment')],['Đưa ô nhiễm dưới 30',(s?.pollution??0)<30],['Hoàn thành Cầu Sắt Đại Hà',has('ironbridge')],
  ]:[['Phát điện',(m?.supply??0)>0],['Cấp điện cho thiết bị',Object.values(m?.allocation??{}).some(f=>f>0)],['Vận hành dịch vụ đô thị',has('hospital')||has('university')],['Chọn và hoàn thành kỳ quan cuối',!!m?.completedAt]];
- return <section className="civic-panel"><h3>Vận hành thành phố</h3><p className="small">Từ Trung đại, sức ăn và công cụ giữ mức thời Sắt: mỗi dân {upkeepRates(c.era).civilian.food/6} thực/10 phút; mỗi quân {upkeepRates(c.era).soldier.food/6}. Nhà mới xây cấp 1; nâng Đình theo thời, các nhà thường tối đa cấp 3.</p>
- <ol>{quests.map(([label,done])=><li key={String(label)}>{done?'✓':'○'} {label}</li>)}</ol>
+ return <section className="civic-panel">
+ {view!=='operations'&&<><h3>Mục tiêu thời đại</h3><ol className="era-checklist">{quests.filter(([,done])=>!done).map(([label])=><li key={String(label)}>○ {label}</li>)}</ol>{quests.every(([,done])=>done)&&<p className="ok">Đã hoàn thành các mục tiêu vận hành của thời đại.</p>}<details className="ui-details"><summary>Đã đạt · {quests.filter(([,done])=>done).length}/{quests.length}</summary><ol>{quests.filter(([,done])=>done).map(([label])=><li key={String(label)}>✓ {label}</li>)}</ol></details></>}
+ {view!=='development'&&<>
  {d&&<p role="status">{inDrought(c,now)?`Hạn đang diễn ra, còn ${number((d.end-now)/HOUR)} giờ` : now<d.start?`Cảnh báo hạn sau ${number((d.start-now)/HOUR)} giờ`:'Đợt hạn đã kết thúc'}. Giếng bảo vệ 4 ô; hồ có nước và đủ thợ bảo vệ 6 ô.</p>}
  {c.modern?.floodForecast&&c.modern.floodForecast.at>now&&c.modern.floodForecast.major&&<p role="status">Lũ lớn có thể tới sau {number((c.modern.floodForecast.at-now)/HOUR)} giờ, thời gian ngập tăng 50%. Vòng đê kín và hồ điều hòa vẫn bảo vệ.</p>}
  {s&&<PollutionPanel city={c} now={now} onLocate={onLocate}/>}
- {m&&<><h4>Điện: {number(m.supply)} / {number(m.demand)} MW</h4><p>Nguồn sạch: {number(m.clean)} MW ({m.supply?number(m.clean/m.supply*100):0}%). Thiếu điện chia theo ưu tiên, cùng nhóm chia tỷ lệ; nhà cũ không cần điện.</p><ol>{m.priority.map((group,i)=><li key={group}>{groups[group]} {i>0&&<button disabled={busy} onClick={()=>{const priority=[...m.priority];[priority[i-1],priority[i]]=[priority[i],priority[i-1]];act({type:'setPowerPriority',priority});}}>Ưu tiên cao hơn</button>}</li>)}</ol>
+ {m&&<><h4>Điện: {number(m.supply)} / {number(m.demand)} MW</h4><p>Nguồn sạch: {number(m.clean)} MW ({m.supply?number(m.clean/m.supply*100):0}%). Thiếu điện chia theo ưu tiên, cùng nhóm chia tỷ lệ; nhà cũ không cần điện.</p><details className="ui-details"><summary>Ưu tiên & thiết bị dùng điện</summary><ol>{m.priority.map((group,i)=><li key={group}>{groups[group]} {i>0&&<button disabled={busy} onClick={()=>{const priority=[...m.priority];[priority[i-1],priority[i]]=[priority[i],priority[i-1]];act({type:'setPowerPriority',priority});}}>Ưu tiên cao hơn</button>}</li>)}</ol>
  {Object.entries(c.b).filter(([,b])=>B[b.k].supply||B[b.k].demand).map(([tile,b])=><p key={`device:${tile}`}><button onClick={()=>onLocate?.(+tile)}>Xem {B[b.k].n}</button> <span className="small">{b.off?'Đang tắt':b.burned||b.flooded?'Cần sửa':B[b.k].supply?`${number(m.generation[tile]??0)} MW phát`:`${number((m.allocation[tile]??0)*100)}% điện`}</span></p>)}
  {!!Object.keys(m.allocation).length&&<ul>{Object.entries(m.allocation).map(([tile,f])=><li key={tile}>{B[c.b[tile].k].n} ({+tile%96+1},{Math.floor(+tile/96)+1}): {number(f*100)}% điện</li>)}</ul>}
+ </details></>}
+ </>}
+ {m&&view!=='operations'&&<>
  <h4>Hai hướng hoàn thành</h4><p><b>Đập Sông Mẹ:</b> +150 MW sạch, bảo vệ toàn làng khỏi hạn/ngập; phù sa ruộng chỉ còn ×1,5.</p><p><b>Thành Phố Sông Xanh:</b> giảm 50% phát thải sản xuất, chống hạn, bảo vệ ngập trong vùng hồ điều hòa, giữ phù sa ×2; tiếp tục tự cung cấp điện.</p>
  {(['dam','green'] as const).map(k=><details key={k}><summary>{B[k].n} · {finalWonderError(c,k,now)?'Xem điều kiện còn thiếu':'Đủ điều kiện công trình'}</summary><FinalWonderRequirements city={c} kind={k} now={now} onLocate={onLocate}/></details>)}
  {m.completedAt!==undefined&&<div role="status" className="ok"><h3>🏆 Khánh thành {B[m.choice!].n}</h3><p>Thành phố đã hoàn thành nhánh phát triển. Anh vẫn có thể xây dựng, giao thương và tham gia thế giới.</p></div>}

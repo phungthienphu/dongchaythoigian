@@ -16,7 +16,7 @@ export default function WorkforcePanel({c,busy,act,pickGroup}:{c:City;busy:boole
  const ids=(key:typeof keys[number])=>c.people.filter(p=>key==='scouts'?isScout(p):!isScout(p)&&taskResource(c,p)===key).map(p=>p.id);
  return <section className="workforce" aria-label="Phân công số dân">
   <h3>Phân công số dân</h3>
-  <p className="small muted">Nhập tổng số người muốn giao cho từng việc, rồi áp dụng một lần. Nhóm khám phá được giữ riêng; bấm chọn nhóm rồi bấm bản đồ để đi tiếp.</p>
+  <p className="small muted">Đặt số người cho từng việc, rồi áp dụng một lần.</p>
   <p role="status" className="small">{c.manualWorkforce?'Đang phân công theo số dân · dân mới chờ lệnh':c.auto?.on?'Đang bật tự động · áp dụng số dân sẽ tắt tự động':'Chưa đặt số dân cố định'} · {free} dân có thể nhận việc{other>0?` · ${other} người giữ lệnh/dịch vụ khác`:''}.</p>
   <div className="workforce-rows">{keys.filter(r=>r!=='coal'||c.era>=5).map(r=>{
    const count=r==='scouts'?current.scouts:current.counts[r],label=r==='scouts'?'Khám phá':RN[r];
@@ -35,6 +35,6 @@ export default function WorkforcePanel({c,busy,act,pickGroup}:{c:City;busy:boole
    setResult(ok?'Đã áp dụng. Dân mới chờ lệnh; các nhóm giữ việc đã giao.':'Chưa áp dụng được. Kiểm tra thông báo lỗi, nguồn khai thác, chỗ làm và người đang trú ẩn.');if(ok)setEdited(false);
   }}>Áp dụng số dân</button>{edited&&<button disabled={busy} onClick={()=>{setForm(initial());setEdited(false);setResult('');}}>Bỏ chỉnh sửa</button>}</div>
   {result&&<p role="status" className="small">{result}</p>}
-  <p className="small muted">Hết cụm cây hoặc mỏ, dân tự tìm nguồn cùng loại đã khám phá có đường tới. Nếu chưa có nguồn, họ giữ nhóm và chờ; khám phá thêm hoặc mở lối để làm tiếp. Không tự kéo người khám phá hay người đứng theo lệnh sang việc khác. Muốn giải tán nhóm, giảm số nhóm hoặc chọn nhóm rồi “Cho nghỉ”. Dân giữ hàng đang mang và nộp kho trước khi đổi việc; khi có địch vẫn tạm trú ẩn rồi trở lại.</p>
+  <details className="ui-details"><summary>Giữ nhóm, đổi việc & nguồn đã cạn</summary><p className="small muted">Hết cụm cây hoặc mỏ, dân tự tìm nguồn cùng loại đã khám phá có đường tới. Nếu chưa có nguồn, họ giữ nhóm và chờ; khám phá thêm hoặc mở lối để làm tiếp. Không tự kéo người khám phá hay người đứng theo lệnh sang việc khác. Muốn giải tán nhóm, giảm số nhóm hoặc chọn nhóm rồi “Cho nghỉ”. Dân giữ hàng đang mang và nộp kho trước khi đổi việc; khi có địch vẫn tạm trú ẩn rồi trở lại.</p></details>
  </section>;
 }

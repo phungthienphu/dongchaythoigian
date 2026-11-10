@@ -11,7 +11,7 @@ import EraCivicPanel,{EraCivicBuilding} from './EraCivicPanel';
 import { ReadFlights } from "@/lib/read-flights";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  B, BKEYS, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
+  B, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
   dockRelocationPlan, buildingJobs,storageCapacity, availableForQuickAssign, quickAssignBlockedReason, isScout, taskResource, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
   armyCap, armyUsed, barracksCapacity, buildingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   homeSoldiers, armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, farmAutoStatus, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
@@ -19,7 +19,7 @@ import {
 } from "@/lib/engine";
 import {mapRotationShortcut} from "./map-shortcuts";
 import {captureMapTurn,paintMapTurn,type MapTurn} from "./map-transition";
-import { projectWorld, rotateCam, screenToWorld, MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
+import { projectWorld, rotateCam, screenToWorld, MAX_ZOOM, camView, clampCam, drawCity, fitView, focusOn, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import {drawSelectionBox,inSelection,selectionMoved,type SelectionDrag} from './map-selection';
 import { Crowd } from "./villagers";
 import { ERAS as ERA_ROADMAP, RELEASED_ERA } from "@/lib/eras";
@@ -44,7 +44,6 @@ import ArmyRecruitment from "./ArmyRecruitment";
 import EconomySummary from './EconomySummary';
 import FarmGroupCare from './FarmGroupCare';
 import FarmWorkers from './FarmWorkers';
-import {recentResourceFlow} from '@/lib/resource-history';
 import BattleReports from "./BattleReports";
 import DiplomacyMessages, { diplomacyText } from "./DiplomacyMessages";
 import { useDiplomacy } from "./useDiplomacy";
@@ -67,11 +66,24 @@ import { BATCH_DELAY_MS, type BatchRequest, type BatchResponse, type CitySync } 
 import { SESSION_ENDED_EVENT, SESSION_ENDED_MESSAGE } from "@/lib/session-client";
 import type { Nation } from "@/lib/world";
 
+import {Icon} from "./GameIcon";
+import GameHUD, {ResourceDetails} from "./GameHUD";
+import GamePanel from "./GamePanel";
+import ContextCard from "./ContextCard";
+import BuildingCatalog from "./BuildingCatalog";
+import EraRequirements from "./EraRequirements";
+import PeopleDirectory from "./PeopleDirectory";
+import UnitPortrait from "./UnitPortrait";
+import VillageAttention from "./VillageAttention";
+import {villageAttention, type AttentionTarget} from "@/lib/game-attention";
+import {useUnreadBattleReports} from "./useUnreadBattleReports";
+import {PANEL_LABELS, panelGroup, type GamePanelKey} from "@/lib/game-ui";
+
 const VISIT_VIEW = { hover: null, selected: null, tool: null, picked: new Set<number>() };
 
 type Cell = { x: number; y: number };
 type Row = { name: string; score: number; era: number; pop: number; temple: boolean; me: boolean };
-type Panel = "market" | "shop" | "army" | "people" | "era" | "log" | "rank" | "control" | "friends";
+type Panel = GamePanelKey;
 type Me = { user: { id: string; name: string; picture?: string; email: string; friendCode: string; hasCity: boolean } | null; friends: { id: string; name: string; picture?: string; online: boolean; city: { id: string; name: string; era: number; pop: number; score: number } | null }[] };
 
 function fmtDur(ms: number) {
@@ -154,33 +166,6 @@ function sameTarget(p: Person, tk: TaskInput) {
 }
 
 /* ---------- icons ---------- */
-const ICON = {
-  food: <svg viewBox="0 0 24 24"><path d="M3 12h18a9 9 0 0 1-18 0z" fill="#c98b4a" /><path d="M5 12c1-3 3.5-4.5 7-4.5S18 9 19 12z" fill="#f4ecd6" /></svg>,
-  wood: <svg viewBox="0 0 24 24"><rect x="3" y="8" width="16" height="8" rx="4" fill="#8a5a2b" /><ellipse cx="19" cy="12" rx="2.6" ry="4" fill="#e0b27a" /></svg>,
-  stone: <svg viewBox="0 0 24 24"><path d="M4 17l3-8 6-3 6 5 1 6z" fill="#b9b2a2" /><path d="M13 6l6 5 1 6h-7z" fill="#948d7e" /></svg>,
-  copper: <svg viewBox="0 0 24 24"><path d="M3 16l4-6h10l4 6z" fill="#d9813a" /><path d="M7 10h10l-2-3H9z" fill="#f0a868" /></svg>,
-  gold: <svg viewBox="0 0 24 24"><path d="M3 17l4-8h10l4 8z" fill="#f1c64f"/><path d="M7 9l3-3h7v3z" fill="#fff1a1"/></svg>,
-  diamond: <svg viewBox="0 0 24 24"><path d="M3 9l5-5h8l5 5-9 12z" fill="#70dbe7"/><path d="M3 9h18M8 4l4 17 4-17" fill="none" stroke="#e6ffff"/></svg>,
-  coal: <svg viewBox="0 0 24 24"><path d="M3 17l3-9 9-3 6 10-5 5H7z" fill="#455158"/><path d="M6 8l7 4 2-7" fill="#77888b"/></svg>,
-  pop: <svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="3.5" fill="#f1c9a0" /><path d="M5 21c0-5 3-8 7-8s7 3 7 8z" fill="#c9503e" /></svg>,
-  build: <svg viewBox="0 0 24 24"><path d="M4 20l8-8" stroke="#8a5a2b" strokeWidth="2.5" strokeLinecap="round" /><rect x="10" y="4" width="10" height="6" rx="1" fill="#d6a03f" transform="rotate(45 15 7)" /></svg>,
-  army: <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z" fill="#b04130" /><path d="M12 6l4 1.7V11c0 3-1.7 5-4 6.3z" fill="#e2b240" /></svg>,
-  shop: <svg viewBox="0 0 24 24"><path d="M3 10h18l-2-5H5z" fill="#c94c38" /><path d="M5 10h14v9H5z" fill="#d9b98a" /><path d="M10 13h4v6h-4z" fill="#6b4526" /></svg>,
-  era: <svg viewBox="0 0 24 24"><path d="M4 20h16l-3-6h-3l-2-4-2 4H7z" fill="#d6a03f" /><path d="M12 3v7" stroke="#f0c766" strokeWidth="2" /></svg>,
-  log: <svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2" fill="#e8d8b0" /><path d="M8 8h8M8 12h8M8 16h5" stroke="#8a6a42" strokeWidth="1.6" /></svg>,
-  world: <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#2f6f8f" /><path d="M6 9c2-1 3 1 5 0s2-3 4-2 2 3 1 4-3 0-3 2 1 3-1 4-4-1-5-3-3-2-1-5z" fill="#7fae4c" /></svg>,
-  friends: <svg viewBox="0 0 24 24"><circle cx="8.5" cy="8" r="3" fill="#f1c9a0" /><circle cx="15.5" cy="8" r="3" fill="#d9a77a" /><path d="M2.5 19c0-4 2.7-6 6-6s6 2 6 6z" fill="#3f6fb0" /><path d="M9.5 19c0-4 2.7-6 6-6s6 2 6 6z" fill="#5c9a8a" /></svg>,
-  rank: <svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z" fill="#e2b240" /><path d="M10 14h4v3h3v3H7v-3h3z" fill="#b4842c" /></svg>,
-};
-type IconKey = keyof typeof ICON;
-const Icon = ({ k }: { k: IconKey }) => <span className="ic" aria-hidden="true">{ICON[k]}</span>;
-
-function Thumb({ city, D, k }: { city: City; D: Derived; k: BKey }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (ref.current) drawThumb(ref.current, city, D, k); }, [k, city.era]);
-  return <canvas ref={ref} className="thumb" aria-hidden="true" />;
-}
 
 function Stepper({ value, max, onChange, label }: { value: number; max: number; onChange: (n: number) => void; label: string }) {
   return (
@@ -407,7 +392,15 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [assignN, setAssignN] = useState(1);
   const [send, setSend] = useState<Troops>({});
   const [panel, setPanel] = useState<Panel | null>(null);
-  const [shopEra, setShopEra] = useState(1);
+  const [shopEra, setShopEra] = useState(0);
+  const [shopFocus,setShopFocus]=useState<BKey|null>(null);
+  const [resourceFocus,setResourceFocus]=useState<ResKey|null>(null);
+  const [peopleTab,setPeopleTab]=useState<'assign'|'directory'>('assign');
+  const [armyTab,setArmyTab]=useState<'home'|'recruit'|'march'>('home');
+  const [eraTab,setEraTab]=useState<'development'|'operations'>('development');
+  const [largeText,setLargeText]=useState(false);
+  useEffect(()=>{try{setLargeText(localStorage.getItem('dong-ui-large-text')==='true');}catch{}},[]);
+  useEffect(()=>{try{localStorage.setItem('dong-ui-large-text',String(largeText));}catch{}},[largeText]);
   const [msg, setMsg] = useState<{ text: string; err?: boolean } | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [me, setMe] = useState<Me>({ user: null, friends: [] });
@@ -461,6 +454,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
   useEffect(()=>{if(tool||picked.size||pickedSoldier||guardEditing||planting||visiting){setBridgeFrom(null);setBridgeTarget(null);}},[tool,picked,pickedSoldier,guardEditing,planting,visiting]);
   useEffect(()=>{if(visiting||worldOpen||battleOpen||guardEditing||planting||tool){selectionDrag.current=null;setRegionMode(null);setPickedSoldiers(new Set());}},[visiting,worldOpen,battleOpen,guardEditing,planting,tool]);
+
+  useEffect(()=>{if(panel!=='shop')setShopFocus(null);if(!panel)return;setMsg(m=>m?.err?m:null);setTool(null);setGuardEditing(false);setRegionMode(null);setBridgeFrom(null);setBridgeTarget(null);setDockMove(null);setDockTarget(null);setPlanting(false);},[panel]);
 
   const now = () => Date.now() + offsetRef.current;
   const bump = () => setVersion((v) => v + 1);
@@ -606,7 +601,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if (actionQueue.current && (actionQueue.current.isPending || generation !== actionQueue.current.version)) return;
     accept(data);
     setRecoveryProgress(undefined);
-    setShopEra(data.state.era);
+    setShopEra(0);
     setNeedsName(false);
     setLoading(false);
     } catch { if (!sessionEndedRef.current) { setLoadError("Kết nối tạm gián đoạn. Bạn có thể thử tải lại để tiếp tục từ tiến trình đã lưu."); setMsg({text:"Mất kết nối khi tải làng. Hãy thử tải lại.",err:true}); setLoading(false); } }
@@ -630,6 +625,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if(queue instanceof BatchedCityQueue&&queue.isPending)void queue.flush().then(()=>loadCity());else void loadCity();
     void diplomacy.refresh(); void market.refresh();
   });
+  const unreadReports=useUnreadBattleReports(war.wars,me.user?.id,panel==='log');
   useEffect(()=>{if(panel==="log")void diplomacy.refresh();},[panel,diplomacy.refresh]);
 
   const sharedLocations=diplomacy.messages.filter(m=>m.side==="host"&&m.decision==="accepted").map(m=>m.id).join("|");
@@ -941,6 +937,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
   const trackCaravan = (id:string) => { setMarketTarget(id);setPanel("market");setWorldOpen(false); };
   const openPanel = (p: Panel | null) => setPanel((cur) => (cur === p ? null : p));
+  const locateTile=(tile:number)=>{setWorldOpen(false);setSelected({x:tile%W,y:Math.floor(tile/W)});setPanel(null);focusOn(fitRef.current,camRef.current,tile%W+.5,Math.floor(tile/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));};
 
   const onClick = async (e: React.MouseEvent) => {
     const drag = dragRef.current;
@@ -1031,7 +1028,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       return;
     }
     setPicked(new Set());
-    setHerdSel(null);
+    setHerdSel(null);setPanel(null);
     viewRef.current.selected = cell;
     setSelected(cell);
     setAssignN(1);
@@ -1053,7 +1050,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     setSelected(null);
     setPicked(new Set());
     if (k) setPanel(null);
-    setMsg(k ? { text: `${buildingName(cityRef.current!, k)} (${costText(buildingCost(k, cityRef.current!.era))}, ${fmtDur(buildMs(k, 1))}): ${B[k].d} Chuột phải hoặc Esc để bỏ chọn.` } : null);
+    setMsg(k ? { text: `${buildingName(cityRef.current!, k)} · ${costText(buildingCost(k, cityRef.current!.era))} · ${fmtDur(buildMs(k, 1))}. Chọn ô xanh để xây; Esc để hủy.` } : null);
   };
 
   useEffect(() => {
@@ -1071,9 +1068,9 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           setDefenseOrientation(axis==='x'?'y':'x');
         }
       }
-      if (e.key !== "Escape") return;
+      if (e.key !== "Escape" || document.querySelector("dialog[open]")) return;
       selectionDrag.current=null;setRegionMode(null);setPickedSoldiers(new Set());
-      setBridgeFrom(null);setBridgeTarget(null);setDockMove(null);setDockTarget(null);setPlanting(false);setFinalReview(null);setPickedSoldier(null); setGuardEditing(false); setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
+      setBridgeFrom(null);setBridgeTarget(null);setDockMove(null);setDockTarget(null);setPlanting(false);setFinalReview(null);setPickedSoldier(null); setGuardEditing(false); setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);setMsg(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1107,18 +1104,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   if (!c || !D) return <MapLoadingScreen progress={recoveryProgress} error={loadError ?? 'Chưa tải được dữ liệu làng. Hãy thử lại.'} onRetry={() => void loadCity()}/>;
 
   const st = stats(c, D, t), upkeep=upkeepRates(c.era);
-  const resourceFlow=recentResourceFlow(c,t);
   const si = seasonIndexAt(c, t), season = si % 4;
   const nextSeasonIn = c.t0 + (si + 1) * SEASON_MS - t;
-  const busyN = busyBuilders(c), maxB = builders(c);
   const idle = c.people.filter(availableForQuickAssign);
   const birthRate=POP_GROWTH_PER_HOUR*(1+(c.res.wood>0?st.fires:0))*pollutionBirth(c)*serviceBonus(c).birth;
   const populationStatus = c.battleId ? "Tạm dừng do trận đánh" : c.res.food <= 0 ? "Dân đang đói" : (c.hunger?.stressMs??0)>0 ? "Đang hồi phục sau đói · chưa tăng dân" : c.people.length >= st.housing ? "Cần thêm nhà" : birthRate<=0?"Ô nhiễm ngăn sinh dân": `+1 dân sau ${fmtDur((1-c.popAcc) / birthRate * HOUR)}`;
-  const hasFoodWorker = c.people.some(p => p.task.t === "hunt" || p.task.t === "work" && ["gather","farm","estate","wheel"].includes(c.b[p.task.at]?.k ?? ""));
-  const goal = c.era>=4?{text:`${ERA_NAMES[c.era]} · xem nước, sản xuất và mục tiêu phát triển.`,panel:"era" as Panel}:!hasFoodWorker ? { text: "1. Kiếm thức ăn: bấm Trại hái lượm → Giao người rảnh, hoặc chọn dân rồi bấm đàn thú.", panel: "people" as Panel }
-    : c.people.length >= st.housing ? { text: "2. Tăng dân: mở Cửa hàng → xây Lều. Còn chỗ ở và đủ ăn thì khoảng 1 phút có thêm dân.", panel: "shop" as Panel }
-    : !c.people.some(p => p.task.t === "chop") ? { text: "3. Lấy gỗ: chọn dân rảnh → bấm rừng. Gom khoảng 10 giây rồi dân mang 10 gỗ về nộp.", panel: "people" as Panel }
-    : { text: `Làng đang phát triển · ${populationStatus}. Bấm Dân làng để xem từng chuyến hàng.`, panel: "people" as Panel };
   const cap = armyCap(c), used = armyUsed(c), homePower = troopPower(c.army);
 
   let status: { text: string; err?: boolean } | null = msg;
@@ -1156,22 +1146,25 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const sendPower = troopPower(send);
   const hallLv = hallLevel(c), control = hasControl(c);
   const groups = new Map<string, Person[]>();
-  for (const p of c.people) { const k = taskLabel(c, p); groups.set(k, [...(groups.get(k) ?? []), p]); }
+  if(panel==='control')for (const p of c.people) { const k = taskLabel(c, p); const group=groups.get(k);if(group)group.push(p);else groups.set(k,[p]); }
 
-  const bubbles: { k: Panel; icon: IconKey; label: string; badge?: number | string }[] = [
-    { k: "shop", icon: "shop", label: "Cửa hàng" },
-    { k: "army", icon: "army", label: "Quân đội", badge: troopCount(c.army) || undefined },
-    { k: "people", icon: "pop", label: "Dân làng", badge: idle.length ? `${idle.length} rảnh` : undefined },
-    { k: "era", icon: "era", label: "Thời đại", badge: reqMet(c,rules) ? "!" : undefined },
-    { k: "log", icon: "log", label: "Thông báo", badge: readNotice.key===noticeKey ? notices.filter(l=>l.at>readNotice.at).length||undefined : undefined },
-    { k: "rank", icon: "rank", label: "Xếp hạng" },
-    { k: "market", icon: "shop", label: "Chợ", badge: market.newOrders ? "Có hàng mới" : market.data?.caravans.filter(c=>c.mine&&c.status!=="completed").length || undefined },
-    { k: "friends", icon: "friends", label: "Bạn bè", badge: me.friends.filter((f) => f.online).length || undefined },
-    ...(hallLv ? [{ k: "control" as Panel, icon: "era" as IconKey, label: "Đình làng", badge: c.raid ? "!" : undefined }] : []),
-  ];
+  const unreadCount=(readNotice.key===noticeKey?notices.filter(l=>l.at>readNotice.at).length:0)+unreadReports;
+  const effectiveSaveStatus:SaveStatus=actionQueue.current instanceof OptimisticCityQueue?(saving?'sending':'saved'):saveStatus;
+  const activeWars=war.wars.filter(w=>w.status!=='completed'&&w.status!=='cancelled');
+  const attention=villageAttention(c,st.storage,effectiveSaveStatus,war.wars,unreadCount,t);
+  const handleAttention=(target:AttentionTarget)=>{
+    if(target.kind==='tile'){locateTile(target.tile);return;}
+    if(target.kind==='resource'){setResourceFocus(target.resource);setPanel('resources');return;}
+    if(target.kind==='shop'){setShopFocus('gather');setShopEra(1);setPanel('shop');return;}
+    if(target.kind==='era')setEraTab('operations');
+    if(target.kind==='people')setPeopleTab('assign');
+    if(target.kind==='battle'){void externalCity(async()=>{setBattleOpen(target.id);setPanel(null);}).catch(e=>setMsg({text:e.message,err:true}));return;}
+    if(target.kind==='sync'){if(effectiveSaveStatus==='readonly'){setPanel('manage');setMsg({text:'Tab này chỉ xem. Hãy quay lại tab đang điều khiển làng.',err:true});return;}const q=actionQueue.current;if(q instanceof BatchedCityQueue)void q.refresh().then(()=>q.flush()).catch(e=>setMsg({text:e.message,err:true}));return;}
+    setPanel(target.kind);
+  };
 
   return (
-    <main className={"game" + (visiting ? " visiting" : "")}>
+    <main className={"game ui-game" + (visiting ? " visiting" : "") + (largeText?" large-text":"")} data-panel={panel??undefined} data-overlay={worldOpen||!!battleOpen?true:undefined}>
       <div className="mapframe" ref={frameRef}>
         <canvas
           ref={canvasRef}
@@ -1187,64 +1180,10 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         />
       </div>
 
-      {!worldOpen&&!battleOpen&&!visitRef.current&&<DisasterNotifications city={c} onLocate={tile=>{setWorldOpen(false);setSelected({x:tile%W,y:Math.floor(tile/W)});setPanel(null);focusOn(fitRef.current,camRef.current,tile%W+.5,Math.floor(tile/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));}} onHistory={()=>setPanel("log")}/>}
+      <GameHUD city={c} stats={st} name={name} season={season} year={Math.floor(si/4)+1} unread={unreadCount} ref={hudRef} onPanel={p=>openPanel(p)} onResource={r=>{setResourceFocus(r??null);setPanel("resources");}} onHelp={()=>setHelpOpen(true)}/>
+      {!visiting&&!worldOpen&&!battleOpen&&<VillageAttention items={attention} onOpen={()=>setPanel('attention')} onAction={handleAttention}/>}
 
-      <header className="hud-top" ref={hudRef}>
-        <div className="brand">
-          <div className="titlerow">
-            <h1>{name}</h1>
-            <button onClick={()=>setHelpOpen(true)}>Cách chơi</button>
-            {!visiting&&<button onClick={()=>setEconomyOpen(true)}>Thu chi</button>}
-            {me.user ? (
-              <button className="acct" onClick={() => openPanel("friends")} title={me.user.email}>
-                {me.user.picture ? <img src={me.user.picture} alt="" referrerPolicy="no-referrer" /> : <span className="av">{me.user.name[0]}</span>}
-                <span>{me.user.name}</span>
-              </button>
-            ) : <a className="google small" href="/api/auth/login">Đăng nhập Google</a>}
-          </div>
-          <div className="when">
-            <span className="era">{ERA_NAMES[c.era]}</span>
-            <span className={"date" + (season === 2 ? " flood" : "")}>
-              Năm {Math.floor(si / 4) + 1} · {SEASONS[season]}{season === 2 ? " (lũ)" : ""} · còn {fmtDur(nextSeasonIn)}
-            </span>
-          </div>
-          <FrontierStatus city={c} now={t}/>
-        </div>
-        <div className="chips">
-          <div className="chip" tabIndex={0} title={`Dân số hiện tại / sức chứa nhà ở. Đầy chỗ thì dân ngừng tăng; xây hoặc nâng cấp nhà. Mỗi dân tiêu hao ${upkeep.civilian.food/6} lương thực / 10 phút và ${upkeep.civilian.wood} gỗ / giờ ở thời đại này, kể cả khi rảnh. Thiếu ăn thì ngừng tăng dân; mỗi 10 phút thiếu ăn mất 1 dân, từ mức đói 30 phút có thể chết đói. Ăn đủ giảm dần mức đói; hồi phục xong mới tăng dân.`}>
-            <Icon k="pop" />
-            <div className="cv">
-              <span className="v">{c.people.length}<small>/{st.housing}</small></span>
-              <span className={"d" + (c.people.length >= st.housing ? " down" : "")} title={populationStatus}>{populationStatus}</span>
-            </div>
-          </div>
-          <div className="chip" tabIndex={0} title="Số thợ xây đang bận / tổng số thợ xây. Ví dụ 0/2 nghĩa là có thể xây hoặc nâng cấp đồng thời thêm 2 công trình.">
-            <Icon k="build" />
-            <div className="cv"><span className="v">{busyN}/{maxB}</span><span className="d">đang bận</span></div>
-          </div>
-          <div className="chip" tabIndex={0} title={`Số quân đang ở làng / sức chứa trại lính. Mỗi quân tiêu hao ${upkeep.soldier.food/6} lương thực / 10 phút và ${upkeep.soldier.wood} gỗ / giờ ở thời đại này. Quân đã mang lương thực hành quân không bị trừ khẩu phần lần nữa tại kho. Dòng ⚔ là tổng sức tấn công của quân ở nhà.`}>
-            <Icon k="army" />
-            <div className="cv"><span className="v">{troopCount(c.army)}<small>/{cap}</small></span><span className="d">⚔ {fmt(homePower)}</span></div>
-          </div>
-          {RES.filter(r=>r!=="coal"||c.era>=5).map((r) => {
-            const rate = r === "copper" ? st.copperRate : r === "wood" ? st.rate.wood - st.woodUse : r === "stone" ? st.rate.stone-st.stoneUse : st.rate[r];
-            const pct = Math.min(100, (c.res[r] / st.storage[r]) * 100);
-            const waiting = c.people.some(p => p.haul?.resource === r && p.haul.carried > 0 && st.storage[r]-c.res[r] < p.haul.carried);
-            return (
-              <div className="chip" key={r} tabIndex={0} title={`${RN[r]} trong kho: ${fmt(c.res[r])} / ${fmt(st.storage[r])} sức chứa. Thanh ngang biểu thị mức đầy kho. Dòng Đã nhận là hàng thực sự nộp kho gần đây; mở Thu chi để xem chi phí và công suất dự kiến.${r === "food" ? ` Nuôi ${st.upkeep.civilians} dân và ${st.upkeep.foodSoldiers} quân chưa có dự trữ: ${Number((st.upkeep.food/60).toFixed(2))} thực/phút (${st.upkeep.food/6} thực/10 phút). Trại hái lượm dùng thêm tối đa ${st.gatherFoodUse/60} thực/phút khi sản xuất (2 thực/phút mỗi trại được kênh có nước tưới trong 1 ô, nếu không là 4), cộng riêng với sức ăn dân/quân. Trừ dần cả khi offline; khẩu phần hành quân đã trả không bị tính lần nữa.` : r === "wood" ? ` Dân và quân dùng ${st.upkeep.wood} gỗ/giờ cho sinh hoạt và bảo dưỡng, kể cả quân đi xa; bếp dùng ${st.fireWoodUse/6} gỗ/10 phút, lò đúc dùng thêm tối đa ${(st.woodUse-st.fireWoodUse-st.wheelWoodUse)/60} gỗ/phút, cối nước dùng thêm tối đa ${st.wheelWoodUse/60} gỗ/phút khi sản xuất. Xây, nâng cấp và luyện quân còn trừ riêng chi phí. Hết gỗ, lò đúc và cối nước tạm ngừng sản xuất; dân vẫn giữ việc.` : r === "stone" ? ` Lò đúc tiêu hao tối đa ${st.stoneUse/60} đá/phút; thiếu gỗ hoặc đá thì giảm/ngừng đúc. Xây dựng và nâng cấp còn trừ chi phí riêng.` : " Xây dựng, nâng cấp và luyện quân có thể tiêu tốn tài nguyên."}` }>
-                <Icon k={r} />
-                <div className="cv">
-                  <span className={"v" + (pct >= 100 ? " full" : "")}>{fmt(c.res[r])}<small>/{fmt(st.storage[r])}</small></span>
-                  <span className="bar"><i style={{ width: pct + "%" }} /></span>
-                  <span title={`Hàng đã nộp kho: ${fmt(resourceFlow.received[r])}; đã chi: ${resourceFlow.spent[r].toLocaleString('vi-VN',{maximumFractionDigits:1})}, trong ${(resourceFlow.elapsedMs/60000).toLocaleString('vi-VN',{maximumFractionDigits:1})} phút gần nhất. Công suất ròng dự kiến: ${fmt(rate)}/giờ, chưa phản ánh đầy đủ vận chuyển và chăm đất. Mở Thu chi để xem chi tiết.`} className="d">{waiting ? "Kho chật · dân chờ nộp" : resourceFlow.elapsedMs>0?`Đã nhận +${fmt(resourceFlow.received[r])} · ${(resourceFlow.elapsedMs/60000).toLocaleString('vi-VN',{maximumFractionDigits:1})}ph`:'Đang đo thực nhận'}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </header>
-
-      <div className="zoom" role="group" aria-label="Điều khiển bản đồ">
+      <details className="camera-tools"><summary aria-label="Mở điều khiển bản đồ">⌖ <span>Bản đồ</span></summary><div className="zoom" role="group" aria-label="Điều khiển bản đồ">
         {!visiting&&!c.battleId&&<><button className="region-toggle" aria-pressed={regionMode==='soldiers'} onClick={()=>{pickTool(null);setPicked(new Set());setPickedSoldier(null);setSelected(null);setGuardEditing(false);setPanel(null);setSoldierType(null);setRegionMode(regionMode==='soldiers'?null:'soldiers');}}>Chọn lính</button><button className="region-toggle" aria-pressed={regionMode==='people'} onClick={()=>{pickTool(null);setPicked(new Set());setPickedSoldier(null);setSelected(null);setGuardEditing(false);setPanel(null);setRegionMode(regionMode==='people'?null:'people');}}>Chọn dân</button></>}
         <button onClick={() => zoomBy(1.5)} aria-label="Phóng to">+</button>
         <button onClick={() => zoomBy(1 / 1.5)} aria-label="Thu nhỏ">−</button>
@@ -1253,10 +1192,10 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         <span className="map-bearing" aria-live="polite" aria-label={`Góc nhìn ${mapRotation*90} độ`}>{mapRotation*90}°</span>
         <button onClick={focusHome} aria-label="Về trại" title="Về trại">⌂</button>
         <button onClick={() => { rotationFadeRef.current=null; camRef.current = { zoom: 1, px: 0, py: 0, rotation:camRef.current.rotation }; }} aria-label="Xem toàn bản đồ" title="Xem toàn bản đồ">⤢</button>
-      </div>
+      </div></details>
 
-      {herd && herdTask && (
-        <div className="hud-card">
+      {!panel && herd && herdTask && (
+        <ContextCard key={herd.id} selectingLocation={dockMove!==null&&!dockTarget||bridgeFrom!==null&&!bridgeTarget}>
           <button className="x" onClick={() => setHerdSel(null)} aria-label="Đóng">×</button>
           <h2>{herd.kind === "deer" ? "Đàn hươu" : "Đàn lợn rừng"}</h2>
           <p className="small">Còn <b>{Math.floor(herd.n)}</b>/{herd.max} con · mỗi con cho khoảng 50 thịt · tự sinh sôi lại theo thời gian.</p>
@@ -1274,13 +1213,14 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               ))}
             </ul>
           )}
-        </div>
+        </ContextCard>
       )}
 
       {/* selection card */}
-      {selected && (sel || selTask || selCamp) && (
-        <div className="hud-card">
+      {!panel && selected && (sel || selTask || selCamp) && (
+        <ContextCard key={selI} selectingLocation={dockMove!==null&&!dockTarget||bridgeFrom!==null&&!bridgeTarget}>
           <button className="x" onClick={() => setSelected(null)} aria-label="Đóng">×</button>
+          {msg?.err&&<div className="inline-warning" role="alert">{msg.text}</div>}
           {selCamp ? (
             <>
               <h2>Trại man rợ</h2>
@@ -1310,12 +1250,14 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           ) : sel ? (
             <>
               <h2>{buildingName(c, sel.k)}{sel.lvl ? ` · cấp ${sel.lvl}` : ""}</h2>
+              <details className="ui-details"><summary>Công năng & thông số</summary>
               <p className="muted small">Kiến trúc {ERA_NAMES[c.era].toLowerCase()} · Lên thời đại tự đổi kiến trúc, không tự tăng cấp. Bấm nâng cấp để tăng công năng và trang bị; cấp tối đa theo Đình làng.</p>
               <p className="muted small">{B[sel.k].d}</p>
               {(sel.k==='wall'||sel.k==='gate')&&<DefenseOrientation value={sel.orientation??'auto'} axis={defenseAxis(c,selI)} disabled={busy} onChange={orientation=>{void act({type:'orientDefense',x:selI%W,y:Math.floor(selI/W),orientation});}}/>}
               {sel.k==='watchtower'&&<p className="small">{towerStats(sel.lvl||1).damage} sát thương/phát · mỗi {towerStats(sel.lvl||1).attackMs/1000} giây 1 phát · tầm {towerStats(sel.lvl||1).range} ô. Đã đặt {buildAvailability(c,'watchtower').count}/{buildAvailability(c,'watchtower').limit} trụ. {sel.lvl>0&&!sel.burned&&!sel.flooded&&(defendingTowers(c).has(selI)?'Trong hạn mức phòng thủ.':'Trụ dự phòng: vượt hạn mức tham chiến thời đại.')} Khi có dư trụ, ưu tiên cấp cao rồi gần Đình/điểm tập kết. Trụ tham chiến được chốt lúc bắt đầu trận.</p>}
               {sel.k==='smelter'&&sel.lvl>=1&&<p className="small">Đủ 3 thợ: tối đa {B.smelter.prod!.copper!*GATHER_SPEED*LVL_MULT[sel.lvl]/60} đồng/phút trước thời gian vận chuyển; dùng {B.smelter.use!.wood!*LVL_MULT[sel.lvl]/60} gỗ + {B.smelter.use!.stone!*LVL_MULT[sel.lvl]/60} đá/phút. Nuôi 3 thợ thêm {3*upkeep.civilian.food/60} thực/phút và {3*upkeep.civilian.wood} gỗ/giờ. Giá bán do người chơi quyết định; tính cả các chi phí này khi định giá.</p>}
               {sel.k==='gather'&&sel.lvl>=1&&<p className="small">Phí vận hành: {gatherFoodPerHour(c,D,selI)/60} thực/phút khi sản xuất. {gatherFoodPerHour(c,D,selI)===120?'Đang được kênh có nước tưới.':'Chưa có kênh có nước tưới trong 1 ô; sát sông hoặc kênh cạn vẫn tính 4 thực/phút.'} Cộng riêng với sức ăn dân; không thu lúc đi giao hàng hoặc chờ kho đầy.</p>}
+              </details>
               {sel.k==='wheel'&&sel.lvl>=1&&c.res.wood<=0&&<p className="err small">Cối nước hết gỗ, tạm ngừng sản xuất. Bổ sung gỗ để dân tự làm tiếp; hàng đang mang vẫn được nộp kho.</p>}
               {sel.k==='canal'&&sel.lvl>=1&&<p className={D.wet[selI]?'small':'err small'}>{D.wet[selI]?'Kênh đang có nước, tưới cho đất xung quanh.':'Kênh cạn: mất đường nối tới sông, không còn tưới đất. Nối lại kênh để có nước hoặc dùng Phá dỡ bên dưới để gỡ từng đoạn.'}</p>}
               {sel.doneAt && <p className="small">{sel.relocation ? "Đang chuyển bến" : sel.k==='ironbridge'&&sel.bridge&&!sel.bridge.ready ? "Đang nối nhịp cầu" : sel.lvl === 0 ? "Đang xây" : sel.storageUpgrade ? `Đang nâng ngăn ${RN[sel.storageUpgrade]}` : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
@@ -1348,11 +1290,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
             </div>
           )}
           {onTarget.length > 0 && (
-            <ul className="people compact">
+            <details className="ui-details"><summary>{onTarget.length} người đã giao · xem trạng thái</summary><ul className="people compact">
               {onTarget.map((p) => (
                 <li key={p.id}><span>{p.name}<HungryVillager city={c} person={p}/><small className="haul-detail">{haulDetail(p,t,st.storage,c.res,c)}</small></span><button className="link" onClick={()=>focusPerson(p)}>Tìm người</button><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
               ))}
-            </ul>
+            </ul></details>
           )}
           {sel && selected && (
             <div className="actions">
@@ -1391,36 +1333,24 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                   Lên cấp {sel.lvl + 1} ({costText(levelCost(sel.k, sel.lvl + 1, c.era))}, {fmtDur(buildMs(sel.k, sel.lvl + 1))})
                 </button>
               )}
-              <DemolitionPanel key={selI} city={c} tile={selI} now={t} disabled={busy} onConfirm={async()=>{
+              <details className="ui-details"><summary>Phá dỡ & hoàn vật liệu</summary><DemolitionPanel key={selI} city={c} tile={selI} now={t} disabled={busy} onConfirm={async()=>{
                 const ok=await act({type:"demolish",...selected});
                 if(ok){setSelected(null);setMsg({text:"Đã phá dỡ và hoàn vật liệu vào kho. Chi tiết trong Thông báo."});}
                 return ok;
-              }}/>
+              }}/></details>
 
             </div>
           )}
-        </div>
+        </ContextCard>
       )}
 
-      {(c.raid || c.raidEncounter) && (
-        <div className="raidbar" role="alert">
-          <b>⚠ Man rợ ⚔ {c.raid?.power ?? c.raidEncounter!.power} · {raidPhase(c,t)==="warning"?"đang chuẩn bị tấn công":raidPhase(c,t)==="enter"?"đang tiến vào làng":raidPhase(c,t)==="fight"?"đang giao chiến":"đang rút lui"}</b>
-          <span>{raidPhase(c,t)==="warning" ? `tới sau ${fmtDur(c.raid!.at-t)} · ${civiliansInDanger(c,t)?"dân đang tìm chỗ trú":"dân tiếp tục làm việc; tự trú khi còn 60 giây"}` : "Dân giữ chỗ trú tới khi toán quân rút khỏi làng"} · quân ở nhà ⚔ {fmt(homePower)}</span>
-          {c.raid && raidPhase(c,t)==="warning" && (control ? (
-            <button className="primary" disabled={busy || !!c.alarm} onClick={() => act({ type: "alarm" })}>{c.alarm ? "Đã đánh kẻng" : "Đánh kẻng"}</button>
-          ) : <span className="muted small">Đình làng cấp 3 mới đánh kẻng được</span>)}
-        </div>
-      )}
 
       {armyManagement&&!visiting&&<ArmyManagement city={c} now={t} busy={busy} act={act} onClose={()=>setArmyManagement(false)}/>}
       {economyOpen&&!visiting&&<EconomySummary city={c} now={t} stats={st} onClose={()=>setEconomyOpen(false)}/>}
       {finalReview&&<FinalWonderReview city={c} kind={finalReview} now={t} onClose={()=>setFinalReview(null)} onConfirm={()=>{finalConfirmed.current=finalReview;pickTool(finalReview);setFinalReview(null);}} onLocate={tile=>{setFinalReview(null);setSelected({x:tile%W,y:Math.floor(tile/W)});setPanel(null);focusOn(fitRef.current,camRef.current,tile%W+.5,Math.floor(tile/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));}}/>}
       <div className="hud-bottom">
         {planting&&<button onClick={()=>setPlanting(false)}>Kết thúc trồng cây</button>}
-        {c.era>=4&&<button onClick={()=>openPanel('era')}>{c.modern?`⚡ ${fmt(c.modern.supply)}/${fmt(c.modern.demand)} MW · `:''}{c.industry?`Ô nhiễm ${fmt(c.industry.pollution)}/100 · Cách giảm`:'Quản lý nước và Trung đại'}</button>}
-        <HungerNotice city={c} onFindFood={()=>openPanel("people")}/>
-        {!tool && !regionMode && !picked.size && <button className="next-step" onClick={() => openPanel(goal.panel)}>{goal.text}</button>}
-        {regionMode&&<div className="pickbar"><b>{regionMode==='soldiers'?`${pickedSoldiers.size} lính`:`${picked.size} dân`} đã chọn</b>{regionMode==='soldiers'&&<TroopTypePicker counts={c.army} filter={soldierType} onChoose={(type,additive)=>{setSoldierType(type);const ids=homeSoldiers(c,now()).filter(s=>!type||s.u===type).map(s=>s.id);setPickedSoldiers(old=>new Set([...(additive?old:[]),...ids]));}}/>}<span>Kéo khung để chọn · Shift để chọn thêm · bấm đất để {regionMode==='soldiers'?'dàn quân gác quanh điểm bấm':'di chuyển'}. Tắt chế độ để kéo bản đồ.</span>{regionMode==='people'&&picked.size>0&&<button onClick={()=>setRegionMode(null)}>Giao việc</button>}<button onClick={()=>{selectionDrag.current=null;setRegionMode(null);setPickedSoldiers(new Set());setPicked(new Set());}}>Bỏ chọn</button></div>}
+        {regionMode&&<div className="pickbar"><b>{regionMode==='soldiers'?`${pickedSoldiers.size} lính`:`${picked.size} dân`} đã chọn</b>{regionMode==='soldiers'&&<details className="command-help"><summary>Chọn theo loại quân</summary><TroopTypePicker counts={c.army} filter={soldierType} onChoose={(type,additive)=>{setSoldierType(type);const ids=homeSoldiers(c,now()).filter(s=>!type||s.u===type).map(s=>s.id);setPickedSoldiers(old=>new Set([...(additive?old:[]),...ids]));}}/></details>}<details className="command-help"><summary>Cách chọn & ra lệnh</summary><p>Kéo khung để chọn · Shift để chọn thêm · bấm đất để {regionMode==='soldiers'?'dàn quân gác quanh điểm bấm':'di chuyển'}. Tắt chế độ để kéo bản đồ.</p></details>{regionMode==='people'&&picked.size>0&&<button onClick={()=>setRegionMode(null)}>Giao việc</button>}<button onClick={()=>{selectionDrag.current=null;setRegionMode(null);setPickedSoldiers(new Set());setPicked(new Set());}}>Bỏ chọn</button></div>}
         {!regionMode&&picked.size > 0 && (
           <div className="pickbar">
             <b>{picked.size} người đã chọn</b>
@@ -1434,7 +1364,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         {tool && (
           <div className="pickbar">
             <b>Đang xây {buildingName(c, tool)}</b>
-            <span>Ô xanh: xây được · ô đỏ: không hợp lệ. {placementHint(tool)}</span>
+            <details className="command-help"><summary>Vị trí & cách đặt</summary><p>Ô xanh: xây được · ô đỏ: không hợp lệ. {placementHint(tool)}</p></details>
             {(tool==='dam'||tool==='green')&&finalWonderError(c,tool,t)&&<span className="err">{finalWonderError(c,tool,t)} <button onClick={()=>setFinalReview(tool)}>Xem toàn bộ điều kiện</button></span>}
             {(tool==='wall'||tool==='gate')&&<><DefenseOrientation value={defenseOrientation} axis={defenseAxis(c,hover?idx(hover.x,hover.y):-1,{tile:hover?idx(hover.x,hover.y):-1,building:{k:tool,lvl:1,doneAt:null,...(defenseOrientation!=='auto'?{orientation:defenseOrientation}:{})}})} onChange={setDefenseOrientation}/><span className="small">Phím R để xoay. Xoay và tự nối không tốn tài nguyên.</span></>}
             <button onClick={()=>{
@@ -1449,26 +1379,12 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
             <button onClick={() => pickTool(null)}>Xong</button>
           </div>
         )}
-        <div className={"status" + (status?.err ? " err" : "")}><span className="save-state" role="status">{({initializing:'Đang mở làng…',queued:'Chờ lưu',sending:'Đang đồng bộ…',saved:'Đã lưu',offline:'Mất kết nối · chưa lưu xong',readonly:'Tab khác đang điều khiển · tab này chỉ xem',error:'Cần kiểm tra đồng bộ'})[actionQueue.current instanceof OptimisticCityQueue?(saving?'sending':'saved'):saveStatus]} · </span>{(saveStatus==='offline'||saveStatus==='error')&&<button onClick={()=>{const q=actionQueue.current;if(q instanceof BatchedCityQueue)void q.refresh().then(()=>q.flush());}}>Thử đồng bộ</button>}{status?.text ?? "Bấm vào dân để chọn rồi bấm vào rừng, đồi, đàn thú hoặc sương mù để giao việc. Mở Cửa hàng để xây nhà."}</div>
+        <div className={"status" + (status?.err ? " err" : "") + (!status?.text?" quiet-status":"")}><span className="save-state" role="status">{({initializing:'Đang mở làng…',queued:'Chờ lưu',sending:'Đang đồng bộ…',saved:'Đã lưu',offline:'Mất kết nối · chưa lưu xong',readonly:'Tab khác đang điều khiển · tab này chỉ xem',error:'Cần kiểm tra đồng bộ'})[actionQueue.current instanceof OptimisticCityQueue?(saving?'sending':'saved'):saveStatus]}{status?.text?' · ':''}</span>{(saveStatus==='offline'||saveStatus==='error')&&<button onClick={()=>{const q=actionQueue.current;if(q instanceof BatchedCityQueue)void q.refresh().then(()=>q.flush());}}>Thử đồng bộ</button>}{status?.text??""}</div>
       </div>
 
       {!visitRef.current&&c.era>=5&&<EraOfflineSummary city={c} now={t}/>}
       {helpOpen && <HowToPlay maxEra={rules.maxEra} onClose={()=>setHelpOpen(false)} />}
-      {!worldOpen && !battleOpen && panel!=="log" && me.user && <BattleReports wars={war.wars} playerId={me.user.id} />}
       {battleOpen && <BattleView id={battleOpen} onClose={() => { setBattleOpen(null); void loadCity(); void war.refresh(); }} onSettled={() => { void loadCity(); void war.refresh(); }} />}
-      {!worldOpen && !battleOpen && readNotice.key===noticeKey && notices[0]?.at>readNotice.at && !c.disasterNotices?.some(n=>n.at===notices[0]?.at&&n.msg===notices[0]?.msg) && panel!=="log" && <div className="war-alerts" role="status"><span>{notices[0].cls==="warn"?"⚠ ":"✉ "}{notices[0].msg}</span><button onClick={()=>openPanel("log")}>Xem thông báo</button><CaravanNoticeLink id={notices[0].caravanId} onTrack={trackCaravan}/></div>}
-      {!worldOpen && !battleOpen && (war.wars.some((w) => w.status !== "completed") || war.error) && (
-        <aside className="war-alerts" aria-live="polite">
-          {war.error && <p className="small">{war.error}</p>}
-          {war.wars.filter((w) => w.status !== "completed").map((w) => (
-            <div key={w._id} className={w.side === "defender" ? "incoming" : ""}>
-              <b>{w.side === "defender" ? `${w.attackerName} tiến đánh làng!` : `Đoàn quân tới ${w.defenderName}`}</b>
-              <span className="small">{w.status === "marching" ? ` · tới sau ${fmtDur(w.arrive - t)}` : w.status === "returning" ? ` · về sau ${fmtDur((w.back ?? t) - t)}` : " · đang giao chiến"}</span>
-              {w.status === "fighting" && <button onClick={() => { void externalCity(async()=>{setBattleOpen(w._id);setPanel(null);}).catch(e=>setMsg({text:e.message,err:true})); }}>Chỉ huy trận</button>}
-            </div>
-          ))}
-        </aside>
-      )}
       {visiting && (
         <div className="visitbar">
           <b>Đang thăm {visiting.name}</b>
@@ -1512,76 +1428,60 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         />
       )}
 
-      <nav className="bubbles" aria-label="Bảng điều khiển">
-        <button className="bubble" onClick={() => { setWorldOpen(true); setPanel(null); }}>
-          <Icon k="world" />
-          <span className="bl">Thế giới</span>
-          {(c.trips ?? []).length > 0 && <span className="badge">{(c.trips ?? []).length}</span>}
-        </button>
-        {bubbles.map((b) => (
-          <button key={b.k} className="bubble" aria-pressed={panel === b.k} onClick={() => openPanel(b.k)}>
-            <Icon k={b.icon} />
-            <span className="bl">{b.label}</span>
-            {b.badge !== undefined && <span className="badge">{b.badge}</span>}
-          </button>
-        ))}
+      <nav className="game-nav" aria-label="Bảng điều khiển chính">
+        {([{k:'shop',icon:'shop',label:'Xây dựng'},{k:'people',icon:'pop',label:'Dân làng'},{k:'army',icon:'army',label:'Quân đội'},{k:'worldmenu',icon:'world',label:'Thế giới'},{k:'manage',icon:'era',label:'Quản lý'}] as const).map(item=><button key={item.k} aria-pressed={panelGroup(panel)===item.k} onClick={()=>openPanel(item.k)}><Icon k={item.icon}/><span>{item.label}</span>{item.k==='manage'&&attention.some(i=>i.severity==='urgent')&&<i className="nav-dot" aria-label="Có việc khẩn"/>}</button>)}
       </nav>
 
       {panel && (
-        <aside className="drawer" aria-label={bubbles.find((b) => b.k === panel)?.label}>
-          <div className="dh">
-            <h2>{bubbles.find((b) => b.k === panel)?.label}</h2>
-            <button className="x" onClick={() => setPanel(null)} aria-label="Đóng">×</button>
-          </div>
-          <div className="db">
-            {panel === "shop" && (
-              <>
-                <div className="tabs" role="tablist">
-                  {ERA_ROADMAP.map(({id:e}) => (
-                    <button key={e} role="tab" aria-selected={shopEra === e} className={"tab" + (shopEra === e ? " on" : "")} onClick={() => setShopEra(e)}>
-                      {ERA_NAMES[e].replace("Thời ", "")}{e>rules.maxEra?" · Sắp ra mắt":e > c.era ? " 🔒" : ""}
-                    </button>
-                  ))}
-                </div>
-                {shopEra>rules.maxEra && <p role="status" className="muted small">{ERA_ROADMAP.find(e=>e.id===shopEra)?.theme}. Sắp ra mắt — chưa mở xây dựng ở bản hiện tại.</p>}
-                {shopEra > c.era && shopEra<=rules.maxEra && <p className="muted small">Lên {ERA_NAMES[shopEra]} để mở các công trình này.</p>}
-                <div className="shopgrid">
-                  {BKEYS.filter((k) => B[k].era === shopEra && shopEra<=rules.maxEra).map((k) => {
-                    const availability=buildAvailability(c,k,rules),locked=availability.locked;
-                    const poor = RES.some((r) => (buildingCost(k, Math.max(B[k].era,c.era))[r] ?? 0) > c.res[r]);
-                    return (
-                      <button key={k} className="shopcard" aria-pressed={tool === k} disabled={locked} title={availability.reason??undefined} onClick={() => {if(k==="dam"||k==="green")setFinalReview(k);else pickTool(k);}}>
-                        <Thumb city={c} D={D} k={k} />
-                        <span className="n">{buildingName(c, k)}</span>
-                        {availability.limit!==undefined && <span className={availability.capped?"err small":"small"}>Đã đặt {availability.count}/{availability.limit}{availability.capped?" · Đã đủ giới hạn":""}</span>}
-                        {availability.reason && <span className="ds">{availability.reason}</span>}
-                        <span className={"c" + (poor && !locked ? " no" : "")}>{costText(buildingCost(k, Math.max(B[k].era,c.era)))}</span>
-                        <span className="tm">⏱ {fmtDur(buildMs(k, 1))}</span>
-                        <span className="ds">{B[k].d}</span>
-                        {(k==='dam'||k==='green')&&<span className="ds">{finalWonderError(c,k,t)??'Đủ điều kiện công trình'} · Bấm để xem toàn bộ điều kiện</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
+        <GamePanel feedback={msg?.err?msg.text:undefined} onDismissFeedback={()=>setMsg(null)} title={PANEL_LABELS[panel]} onClose={()=>setPanel(null)} onBack={panelGroup(panel)!==panel?()=>setPanel(panelGroup(panel) as Panel):undefined}>
+            {panel==='manage'&&<>
+              <p className="panel-intro">{name}<span>{ERA_NAMES[c.era]} · {populationStatus}</span></p>
+              <div className="menu-links">
+                <button onClick={()=>setPanel('attention')}><Icon k="log"/><span>Cần chú ý<small>{attention.length} việc · ưu tiên vấn đề đang ảnh hưởng làng</small></span><b>›</b></button>
+                <button onClick={()=>setPanel('resources')}><Icon k="food"/><span>Tài nguyên & thu chi<small>Trong kho, thực nhận và sức chứa</small></span><b>›</b></button>
+                <button onClick={()=>setPanel('era')}><Icon k="era"/><span>Phát triển & vận hành<small>Lên đời, nước, điện, ô nhiễm và kỳ quan</small></span><b>›</b></button>
+                {hallLv>0&&<button onClick={()=>setPanel('control')}><Icon k="build"/><span>Đình làng<small>Nhóm việc, tự động và kẻng báo động</small></span><b>›</b></button>}
+                <button onClick={()=>setPanel('log')}><Icon k="log"/><span>Thông báo<small>{unreadCount?`${unreadCount} tin chưa đọc`:'Lịch sử làng, ngoại giao và trận đánh'}</small></span><b>›</b></button>
+                <button onClick={()=>setPanel('rank')}><Icon k="rank"/><span>Xếp hạng<small>So sánh các làng</small></span><b>›</b></button>
+                <button onClick={()=>setHelpOpen(true)}><span className="menu-symbol">?</span><span>Cách chơi<small>Tìm luật và hướng dẫn theo chủ đề</small></span><b>›</b></button>
+                <button onClick={()=>setPanel('friends')}><Icon k="friends"/><span>{me.user?.name??'Tài khoản'}<small>Bạn bè và đăng xuất</small></span><b>›</b></button>
+              </div>
+              <details className="ui-details"><summary>Hiển thị</summary><label className="setting-row"><input type="checkbox" checked={largeText} onChange={e=>setLargeText(e.target.checked)}/> Chữ lớn</label><p className="small muted">Tùy chọn lưu trên máy này. Hiệu ứng tôn trọng cài đặt giảm chuyển động của thiết bị.</p></details>
+              <p className="small muted">{SEASONS[season]} · còn {fmtDur(nextSeasonIn)}{season===2?' · Mùa lũ':''}</p><FrontierStatus city={c} now={t}/>
+            </>}
+            {panel==='worldmenu'&&<>
+              <p className="panel-intro">Bên ngoài làng<span>{c.trips?.length??0} chuyến sứ giả · {activeWars.length} đoàn quân hoạt động</span></p>
+              <button className="primary wide" onClick={()=>{setWorldOpen(true);setPanel(null);}}>Mở bản đồ thế giới →</button>
+              <div className="menu-links"><button onClick={()=>setPanel('friends')}><Icon k="friends"/><span>Bạn bè<small>Tìm bạn, kết bạn và xem làng</small></span><b>›</b></button><button onClick={()=>setPanel('market')}><Icon k="shop"/><span>Chợ & đoàn xe<small>{market.newOrders?`${market.newOrders} lô hàng mới`:'Mua bán, vận chuyển và hộ tống'}</small></span><b>›</b></button><button onClick={()=>setPanel('log')}><Icon k="log"/><span>Ngoại giao & tin tức<small>Lời nhắn, vị trí được chia sẻ và kết quả chuyến đi</small></span><b>›</b></button></div>
+              <details className="ui-details"><summary>Vì sao chưa thấy nước bạn bè?</summary><p>Kết bạn cho phép xem làng. Vị trí trên bản đồ vẫn giữ kín tới khi sứ giả khám phá hoặc được chia sẻ.</p></details>
+            </>}
+            {panel==='attention'&&<VillageAttention items={attention} expanded onOpen={()=>{}} onAction={handleAttention}/>}
+            {panel==='resources'&&<><ResourceDetails key={resourceFocus??'all'} city={c} stats={st} now={t} resource={resourceFocus} populationStatus={populationStatus} onEconomy={()=>setEconomyOpen(true)} onPeople={()=>setPanel('people')}/><details className="ui-details"><summary>Đói & hồi phục</summary><HungerNotice city={c} onFindFood={()=>setPanel('people')}/></details></>}
+            {panel === "shop" && <BuildingCatalog city={c} D={D} rules={rules} initialEra={shopEra} initialKind={shopFocus} onChoose={k=>{if(k==='dam'||k==='green')setFinalReview(k);else pickTool(k);}} onLocate={locateTile}/>}
 
             {panel === "army" && (
               <>
-                <p className="small muted">Mỗi quân: {upkeep.soldier.food/6} thực / 10 phút + {upkeep.soldier.wood} gỗ / giờ. Khẩu phần hành quân trả trước; không tính hai lần tại kho.</p>
+                <p className="panel-intro">{troopCount(c.army)} quân ở nhà<span>{used}/{cap} chỗ quân · sức mạnh {fmt(homePower)}</span></p>
+                <div className="tabs" role="group" aria-label="Quản lý quân đội">{([['home','Ở nhà'],['recruit','Tuyển quân'],['march','Hành quân']] as const).map(([key,label])=><button key={key} className={'tab'+(armyTab===key?' on':'')} aria-pressed={armyTab===key} onClick={()=>setArmyTab(key)}>{label}</button>)}</div>
+                {armyTab==='home'&&<>
+
                 {!cap ? (
                   <p className="small">Chưa có Trại lính. <button className="link" onClick={() => { setShopEra(1); setPanel("shop"); }}>Mở Cửa hàng để xây</button>.</p>
                 ) : (
                   <p className="small">Sức chứa trại: <b>{used}/{cap}</b> · Quân ở nhà: <b>⚔ {fmt(homePower)}</b></p>
                 )}
+                <div className="army-roster" role="group" aria-label="Chọn quân ở nhà để ra gác">{UKEYS.filter(u=>(c.army[u]??0)>0).map(u=><button key={u} onClick={()=>{pickTool(null);setSoldierType(u);setRegionMode('soldiers');setPickedSoldiers(new Set(homeSoldiers(c,t).filter(s=>s.u===u).map(s=>s.id)));setPanel(null);}}><UnitPortrait unit={u}/><span>{UNITS[u].n}</span><b>{c.army[u]}</b><small>Chọn để ra gác →</small></button>)}</div>
                 <button onClick={()=>setArmyManagement(true)}>Quản lý quân · giải ngũ</button>
-                <ArmyRecruitment city={c} now={t} busy={busy} act={act} rules={rules}/>
+
                 <p className="muted small">Đánh nước khác: mở Thế giới, cử sứ giả thăm rồi chọn quân. Hai nước cần đăng nhập Google.</p>
                 <h3>Phòng thủ làng</h3>
                 <p className="muted small">Đặt tối đa 20 điểm gác. Lính ở nhà tự bảo vệ các điểm này khi bạn vắng mặt.</p>
                 <button onClick={() => { setPickedSoldier(null); setGuardEditing(true); setTool(null); setPicked(new Set()); setSelected(null); setPanel(null); }}>Đặt điểm gác ({c.guardPosts?.length ?? 0}/20)</button>
                 {!!c.guardPosts?.length && <button onClick={() => act({ type: "setGuardPosts", posts: [] })}>Xóa các điểm gác</button>}
                 {(c.shieldUntil ?? 0) > t && <p className="ok small">Khiên bảo vệ còn {fmtDur(c.shieldUntil! - t)}. Xuất quân sẽ bỏ khiên.</p>}
+                </>}
+                <div hidden={armyTab!=='recruit'}><ArmyRecruitment city={c} now={t} busy={busy} act={act} rules={rules}/></div>
+                {armyTab==='march'&&<>
                 <h3>Xuất quân</h3>
                 <p className="muted small">Bấm vào trại man rợ (biển ⚔ đỏ) trên bản đồ để chọn quân và tấn công. Khám phá thêm để tìm trại.</p>
                 {c.exps.length > 0 && (
@@ -1593,60 +1493,67 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                     ))}
                   </ul>
                 )}
+                </>}
+      {(c.raid || c.raidEncounter) && (
+        <div className="raid-detail" role="alert">
+          <b>⚠ Man rợ ⚔ {c.raid?.power ?? c.raidEncounter!.power} · {raidPhase(c,t)==="warning"?"đang chuẩn bị tấn công":raidPhase(c,t)==="enter"?"đang tiến vào làng":raidPhase(c,t)==="fight"?"đang giao chiến":"đang rút lui"}</b>
+          <span>{raidPhase(c,t)==="warning" ? `tới sau ${fmtDur(c.raid!.at-t)} · ${civiliansInDanger(c,t)?"dân đang tìm chỗ trú":"dân tiếp tục làm việc; tự trú khi còn 60 giây"}` : "Dân giữ chỗ trú tới khi toán quân rút khỏi làng"} · quân ở nhà ⚔ {fmt(homePower)}</span>
+          {c.raid && raidPhase(c,t)==="warning" && (control ? (
+            <button className="primary" disabled={busy || !!c.alarm} onClick={() => act({ type: "alarm" })}>{c.alarm ? "Đã đánh kẻng" : "Đánh kẻng"}</button>
+          ) : <span className="muted small">Đình làng cấp 3 mới đánh kẻng được</span>)}
+        </div>
+      )}
+
+      {(activeWars.length>0 || war.error) && (
+        <aside className="war-details" aria-live="polite">
+          {war.error && <p className="small">{war.error}</p>}
+          {activeWars.map((w) => (
+            <div key={w._id} className={w.side === "defender" ? "incoming" : ""}>
+              <b>{w.side === "defender" ? w.status==='returning'?`${w.attackerName} đang rút quân`:`${w.attackerName} tiến đánh làng!` : `Đoàn quân tới ${w.defenderName}`}</b>
+              <span className="small">{w.status === "marching" ? ` · tới sau ${fmtDur(w.arrive - t)}` : w.status === "returning" ? ` · về sau ${fmtDur((w.back ?? t) - t)}` : " · đang giao chiến"}</span>
+              {w.status === "fighting" && <button onClick={() => { void externalCity(async()=>{setBattleOpen(w._id);setPanel(null);}).catch(e=>setMsg({text:e.message,err:true})); }}>Chỉ huy trận</button>}
+            </div>
+          ))}
+        </aside>
+      )}
+                <details className="ui-details"><summary>Khẩu phần & phòng thủ</summary><p>Mỗi quân dùng {upkeep.soldier.food/6} thực/10 phút và {upkeep.soldier.wood} gỗ/giờ. Khẩu phần hành quân đã trả không bị trừ hai lần. Đặt điểm gác để quân ở nhà tự phòng thủ khi bạn vắng.</p></details>
               </>
             )}
 
-            {panel === "people" && (
-              <>
-                <div className="ph">
-                  <span className="small muted">{c.people.length} người · {idle.length} rảnh · {populationStatus}</span>
-                  <button className="link" disabled={!idle.length} onClick={() => setPicked(new Set(idle.map((p) => p.id)))}>Chọn người rảnh</button>
-                </div>
-                <p className="small muted">Mỗi dân: {upkeep.civilian.food/6} thực / 10 phút + {upkeep.civilian.wood} gỗ / giờ, kể cả khi rảnh.</p>
-                <WorkforcePanel c={c} busy={busy} act={act} pickGroup={(ids)=>{setPicked(new Set(ids));setPickedSoldier(null);setTool(null);setPanel(null);setMsg({text:`Đã chọn ${ids.length} người. Bấm bản đồ để ra lệnh; nhóm khám phá tiếp tục giữ vai trò khám phá.`});}}/>
-                <ul className="people">
-                  {c.people.map((p) => (
-                    <li key={p.id}>
-                      <button className={"person" + (p.task.t === "idle" ? " idle" : "")} aria-pressed={picked.has(p.id)}
-                        onClick={(e) => togglePick(p.id, e.shiftKey || e.ctrlKey || e.metaKey)}>
-                        <span className="nm">{p.name}</span>
-                        <HungryVillager city={c} person={p}/><span className="tk">{taskLabel(c, p)}</span><small className="haul-detail">{haulDetail(p,t,st.storage,c.res,c)}</small>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <p className="muted small">Chọn người rồi bấm lên bản đồ để giao việc. Giữ Shift để chọn nhiều người.</p>
-              </>
-            )}
+            {panel === "people" && <>
+              <p className="panel-intro">{c.people.length} dân · {idle.length} có thể nhận việc<span>{populationStatus}</span></p>
+              <div className="tabs" role="group" aria-label="Quản lý dân làng">{([['assign','Phân công'],['directory','Từng người']] as const).map(([key,label])=><button key={key} className={'tab'+(peopleTab===key?' on':'')} aria-pressed={peopleTab===key} onClick={()=>setPeopleTab(key)}>{label}</button>)}</div>
+              {picked.size>0&&<button className="primary" onClick={()=>setPanel(null)}>Giao việc cho {picked.size} người trên bản đồ →</button>}
+              <div hidden={peopleTab!=='assign'}><button disabled={!idle.length} onClick={()=>{setPicked(new Set(idle.map(p=>p.id)));setPanel(null);}}>Chọn {idle.length} người có thể nhận việc</button><WorkforcePanel c={c} busy={busy} act={act} pickGroup={ids=>{setPicked(new Set(ids));setPickedSoldier(null);setTool(null);setPanel(null);setMsg({text:`Đã chọn ${ids.length} người. Bấm bản đồ để giao việc.`});}}/></div>{peopleTab==='directory'&&<PeopleDirectory city={c} picked={picked} label={p=>taskLabel(c,p)} detail={p=>haulDetail(p,t,st.storage,c.res,c)} onPick={togglePick} onLocate={p=>{focusPerson(p);setPanel(null);}}/>}
+              <details className="ui-details"><summary>Khẩu phần & phân công</summary><p>Mỗi dân dùng {upkeep.civilian.food/6} thực/10 phút và {upkeep.civilian.wood} gỗ/giờ, kể cả khi rảnh. Người giữ nhóm khám phá hoặc đứng theo lệnh không bị điều sang việc khác.</p></details>
+            </>}
 
-            {panel === "era" && <EraCivicPanel city={c} now={t} busy={busy} act={act} onLocate={tile=>{setSelected({x:tile%W,y:Math.floor(tile/W)});setPanel(null);focusOn(fitRef.current,camRef.current,tile%W+.5,Math.floor(tile/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));}}/>}
-            {panel === "era" && <div className="era-roadmap">{ERA_ROADMAP.map(e=><p key={e.id}><b>{e.name}</b> · {e.id>rules.maxEra?"Sắp ra mắt":e.id===c.era?"Thời hiện tại":e.id<c.era?"Đã mở":"Chưa mở"}<br/><small>{e.theme}</small></p>)}</div>}
+            {panel==='era'&&<div className="tabs" role="group" aria-label="Phát triển và vận hành">{([['development','Phát triển'],['operations','Vận hành']] as const).map(([key,label])=><button key={key} className={'tab'+(eraTab===key?' on':'')} aria-pressed={eraTab===key} onClick={()=>setEraTab(key)}>{label}</button>)}</div>}
+            {panel==='era'&&eraTab==='operations'&&c.era<4&&<p>Nước, điện và môi trường mở từ Trung đại. Hiện bạn có thể kiểm tra nguồn cung trong Tài nguyên & thu chi.</p>}
+            {panel === "era" && eraTab==='operations'&&<EraCivicPanel city={c} now={t} busy={busy} act={act} view="operations" onLocate={locateTile}/>}
+            {panel==='era'&&eraTab==='development'&&<>
             {panel === "era" && (next ? (
               <>
                 <h3>Lên {ERA_NAMES[c.era + 1]}</h3>
-                <p className="small muted">Lên đời tự đổi kiến trúc và mở công trình. Cấp công trình vẫn nâng riêng bằng tài nguyên. Đời sau cần dân số, kho và hạ tầng lớn hơn.</p>
+                <EraRequirements city={c} hallLevel={hallLv} onBuilding={kind=>{const tile=Object.keys(c.b).find(tile=>c.b[+tile].k===kind);if(tile)locateTile(+tile);else{setShopEra(B[kind].era);setPanel('shop');}}} onResource={r=>{setResourceFocus(r);setPanel('resources');}} onPeople={()=>setPanel('people')}/>
                 <EraStorageNotice era={c.era} storage={st.storage} maxEra={rules.maxEra} onOpenShop={()=>setPanel("shop")}/>
-                <p className="small">Sau khi lên đời, nhu cầu nuôi dân và quân {c.era<3?"tăng gấp đôi":"giữ mức thời Sắt"}: dân {upkeepRates(c.era+1).civilian.food/6} thực / 10 phút + {upkeepRates(c.era+1).civilian.wood} gỗ / giờ; quân {upkeepRates(c.era+1).soldier.food/6} thực / 10 phút + {upkeepRates(c.era+1).soldier.wood} gỗ / giờ mỗi người.</p>
-                <ul className="goal">
-                  {next.wonder && <li><span>{B[next.wonder].n}</span><span>{Object.values(c.b).some(b=>b.k===next.wonder&&b.lvl>0&&!b.flooded&&!b.burned)?"Đã hoàn thành và hoạt động":"Cần hoàn thành / sửa chữa"}</span></li>}{next.hall ? <li><span>Đình làng</span><span className="gbar"><i style={{ width: Math.min(100, (hallLv / next.hall) * 100) + "%" }} /></span><span>cấp {hallLv}/{next.hall}</span></li> : null}
-                  <li><span>Dân số</span><span className="gbar"><i style={{ width: Math.min(100, (c.people.length / next.pop) * 100) + "%" }} /></span><span>{Math.min(c.people.length, next.pop)}/{next.pop}</span></li>
-                  {RES.filter((r) => next.cost[r]).map((r) => (
-                    <li key={r}><span>{RN[r]}</span><span className="gbar"><i style={{ width: Math.min(100, (c.res[r] / next.cost[r]!) * 100) + "%" }} /></span><span>{fmt(Math.min(c.res[r], next.cost[r]!))}/{next.cost[r]}</span></li>
-                  ))}
-                </ul>
                 <button className="wide primary" disabled={!reqMet(c,rules) || busy} onClick={() => act({ type: "advance" })}>
                   {reqMet(c,rules) ? `Bước sang ${ERA_NAMES[c.era + 1]}` : "Chưa đủ điều kiện"}
                 </button>
+                <details className="ui-details"><summary>Thay đổi & khẩu phần sau lên đời</summary><p>Lên đời tự đổi kiến trúc và mở công trình. Cấp công trình vẫn nâng riêng bằng tài nguyên. Đời sau cần dân số, kho và hạ tầng lớn hơn.</p><p>Sau khi lên đời, nhu cầu nuôi dân và quân {c.era<3?"tăng gấp đôi":"giữ mức thời Sắt"}: dân {upkeepRates(c.era+1).civilian.food/6} thực / 10 phút + {upkeepRates(c.era+1).civilian.wood} gỗ / giờ; quân {upkeepRates(c.era+1).soldier.food/6} thực / 10 phút + {upkeepRates(c.era+1).soldier.wood} gỗ / giờ mỗi người.</p></details>
               </>
             ) : (
               <>
-                <h3>{c.templeAt ? "Kỳ quan đã đứng" : "Xây Đền Sông Mẹ"}</h3>
-                <p className="muted small">{c.templeAt ? `Đền hoàn thành ${stamp(c, c.templeAt).toLowerCase()}.` : `Cần ${costText(buildingCost("temple", Math.max(3,c.era)))}, xây ${fmtDur(buildMs("temple", 1))}. Nhớ xây thêm Kho để đủ sức chứa.`}</p>
+                <h3>{ERA_NAMES[c.era]} · thời đại hiện tại</h3>
+                <p className="muted small">Bạn đã đến thời đại cao nhất đang mở. Tiếp tục phát triển làng; xem nước, điện và môi trường trong Vận hành.</p>
               </>
             ))}
+            <EraCivicPanel city={c} now={t} busy={busy} act={act} view="development" onLocate={locateTile}/>
+            <details className="ui-details"><summary>Lộ trình các thời đại</summary><div className="era-roadmap">{ERA_ROADMAP.map(e=><p key={e.id}><b>{e.name}</b> · {e.id>rules.maxEra?"Sắp ra mắt":e.id===c.era?"Thời hiện tại":e.id<c.era?"Đã mở":"Chưa mở"}<br/><small>{e.theme}</small></p>)}</div></details>
+</>}
 
             {panel === "log" && (
-              <>{me.user && <BattleReports wars={war.wars} playerId={me.user.id} history />}<DiplomacyMessages messages={diplomacy.messages} busy={diplomacy.busy} error={diplomacy.error} onAction={diplomacy.act} /><ol className="log">
+              <><DisasterNotifications city={c} onLocate={locateTile}/>{me.user && <BattleReports wars={war.wars} playerId={me.user.id} history />}<DiplomacyMessages messages={diplomacy.messages} busy={diplomacy.busy} error={diplomacy.error} onAction={diplomacy.act} /><ol className="log">
                 {[...c.log].sort((a,b)=>b.at-a.at).map((l, i) => (
                   <li key={i} className={l.cls ?? ""}><span className="t">{stamp(c, l.at)}</span>{l.msg}<CaravanNoticeLink id={l.caravanId} onTrack={trackCaravan}/></li>
                 ))}
@@ -1682,8 +1589,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                 ))}
               </ol>
             )}
-          </div>
-        </aside>
+        </GamePanel>
       )}
     </main>
   );

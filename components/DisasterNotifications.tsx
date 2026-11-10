@@ -2,7 +2,7 @@
 import {useEffect,useState} from 'react';
 import type {City,DisasterNotice} from '@/lib/engine';
 const labels:Record<DisasterNotice['kind'],string>={flood:'Lũ lụt',earthquake:'Động đất',river:'Sông đổi dòng',dock:'Cảng mắc cạn'};
-export default function DisasterNotifications({city,onLocate,onHistory}:{city:City;onLocate:(tile:number)=>void;onHistory:()=>void}){
+export default function DisasterNotifications({city,onLocate,onHistory}:{city:City;onLocate:(tile:number)=>void;onHistory?:()=>void}){
  const key=`dong-disasters:${city.seed}:${city.t0}`;
  const [read,setRead]=useState<{key:string;ids:string[]}|null>(null);
  useEffect(()=>{let ids:string[]=[];try{const saved:unknown=JSON.parse(localStorage.getItem(key)??'[]');if(Array.isArray(saved))ids=saved.filter((id):id is string=>typeof id==='string').slice(-120);}catch{}setRead({key,ids});},[key]);
@@ -16,6 +16,6 @@ export default function DisasterNotifications({city,onLocate,onHistory}:{city:Ci
   <div className="disaster-notice-heading"><div role="status" aria-live="polite"><h2 id="disaster-notice-title">Thiên tai · {unread.length} thông báo chưa đọc</h2><p>Bao gồm sự kiện xảy ra khi bạn vắng mặt. Thông báo được giữ lại để bạn xem khi vào làng.</p></div><button onClick={dismiss}>Đã đọc</button></div>
   <ul>{unread.slice(0,3).map(item)}</ul>
   {unread.length>3&&<details><summary>Xem thêm {unread.length-3} thông báo</summary><ul>{unread.slice(3).map(item)}</ul></details>}
-  <button onClick={onHistory}>Mở lịch sử thông báo</button>
+  {onHistory&&<button onClick={onHistory}>Mở lịch sử thông báo</button>}
  </section>;
 }

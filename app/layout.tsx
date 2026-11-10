@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Alegreya, Be_Vietnam_Pro } from "next/font/google";
 import {eraNames,RELEASED_ERA} from '@/lib/eras';
 import "./globals.css";
+import "./game-ui.css";
 
 const display = Alegreya({ subsets: ["latin", "vietnamese"], weight: ["700", "800"], variable: "--font-display" });
 const body = Be_Vietnam_Pro({ subsets: ["latin", "vietnamese"], weight: ["400", "500", "600"], variable: "--font-body" });
