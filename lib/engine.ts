@@ -844,6 +844,11 @@ export type Stats = {
 };
 
 export function stats(c: City, D: Derived, at: number): Stats {
+  return computeStats(c, D, at, true);
+}
+/** Settlement credits actual cargo, not estimated production rates. Keep costs,
+ * storage and growth identical without rebuilding UI-only rates every tick. */
+function computeStats(c: City, D: Derived, at: number, estimates: boolean): Stats {
   const cnt: Partial<Record<BKey, number>> = {};
   let jobs = 0, housing = 0;
   const storage = Object.fromEntries(RES.map(r => [r, BASE_STORAGE])) as Res;
@@ -873,6 +878,7 @@ export function stats(c: City, D: Derived, at: number): Stats {
     else if(b.k==='wheel'){const use=eff>0&&at>=(c.wheelFuelStartsAt??-Infinity)?WATERMILL_WOOD_PER_HOUR:0;wheelWoodUse+=use;woodUse+=use;}
     else if(b.k==='gather'){if(eff>0&&at>=(c.gatherFoodStartsAt??-Infinity))gatherFoodUse+=gatherFoodPerHour(c,D,i);}
     else if(d.use){woodUse+=(legacy?20:d.use.wood??0)*LVL_MULT[b.lvl]*eff;stoneUse+=(legacy?0:d.use.stone??0)*LVL_MULT[b.lvl]*eff;}
+    if (!estimates) continue;
     if(b.k==='thermal')rate.coal-=(c.modern?.generation[i]??0)/80*240;
     if (!d.prod || (isField(b.k) && (b.tendUntil || farmRemaining(b)<=0))) continue;
     const production=buildingOutput(c,b.k,d.prod,at),output=Object.values(production)[0]??1;
@@ -895,20 +901,40 @@ export function stats(c: City, D: Derived, at: number): Stats {
   }
   // hand gathering by assigned people
   const drains: Drain[] = [];
-  for (const p of c.people) {
+  // Rates are a snapshot: thousands of miners can share the same drop sites.
+  // Build each resource index once per stats call, never retain it across ticks
+  // (construction, damage or a river shift may change valid drop buildings).
+  const dropSites = new Map<ResKey, number[]>();
+  const distances = new Map<string, number>();
+  const distanceToDrop = (tile: number, resource: ResKey) => {
+    const key = `${tile}:${resource}`;
+    const cached = distances.get(key);
+    if (cached !== undefined) return cached;
+    let sites = dropSites.get(resource);
+    if (!sites) {
+      sites = buildings(c).filter(([, b]) => built(b) && !b.flooded && def(b.k).drop?.includes(resource)).map(([i]) => i);
+      dropSites.set(resource, sites);
+    }
+    let distance = Infinity;
+    for (const site of sites) distance = Math.min(distance, cheb(tile, site));
+    if (!Number.isFinite(distance)) distance = cheb(tile, c.camp);
+    distances.set(key, distance);
+    return distance;
+  };
+  if (estimates) for (const p of c.people) {
     if(p.refuge)continue;
     const tk = p.task;
     if (tk.t === "chop" || tk.t === "mine") {
       const res = taskResource(c,p)!;
       if (p.gatherRetryAt !== undefined || (tk.t === "chop" ? c.t[tk.at] !== F : !isRock(c.t[tk.at]) || mineralResource(c.t[tk.at]) !== res)) continue;
       const base = gatheringRate(res);
-      const v = base * tools * mult * walkFactor(dropDistance(c, tk.at, res), base * tools * mult);
+      const v = base * tools * mult * walkFactor(distanceToDrop(tk.at, res), base * tools * mult);
       rate[res] += v;
       drains.push({ kind: "tile", key: tk.at, res, perHour: v });
     } else if (tk.t === "hunt") {
       const h = herdById(c, tk.herd);
       if (!h || h.n < 0.05) continue;
-      const v = HUNT_RATE * tools * mult * foodEraScale(c,at) * walkFactor(dropDistance(c, h.at, "food"), HUNT_RATE * tools * mult);
+      const v = HUNT_RATE * tools * mult * foodEraScale(c,at) * walkFactor(distanceToDrop(h.at, "food"), HUNT_RATE * tools * mult);
       rate.food += v;
       drains.push({ kind: "herd", key: h.id, res: "food", perHour: v });
     }
@@ -2393,7 +2419,7 @@ export function settle(c: City, now: number, budget?: SettlementBudget) {
   }
   const from = c.catchUp?.from ?? t;
   let ticks = 0;
-  let D = derive(c), st = stats(c, D, t), dirty = false;
+  let D = derive(c), st = computeStats(c, D, t, false), dirty = false;
   let hauling = haulingContext(c, D);
   for(const p of c.people)rememberMiningResource(c,p);
   if(updateRefuges(c,t))dirty=true;
@@ -2438,7 +2464,7 @@ export function settle(c: City, now: number, budget?: SettlementBudget) {
     if (stepEnvoys(c, nt)) dirty = true;
     if (stepWildlife(c, nt)) dirty = true;
     if (autoAssign(c, nt, dirty ? undefined : hauling)) dirty = true;
-    if (dirty) { D = derive(c); st = stats(c, D, nt); hauling = haulingContext(c, D); refreshHauling(c, nt, hauling); dirty = false; }
+    if (dirty) { D = derive(c); st = computeStats(c, D, nt, false); hauling = haulingContext(c, D); refreshHauling(c, nt, hauling); dirty = false; }
 
     const h = (nt - t) / HOUR;
     const woodBefore=c.res.wood,stoneBefore=c.res.stone;
@@ -2510,7 +2536,7 @@ export function settle(c: City, now: number, budget?: SettlementBudget) {
     if (c.people.length !== popBefore) { updateRefuges(c,nt); dirty = true; }
     t = nt;
     ticks++;
-    if (budget && (ticks >= budget.maxTicks || ticks % 64 === 0 && performance.now() - started >= budget.maxMs)) break;
+    if (budget && (ticks >= budget.maxTicks || ticks % 16 === 0 && performance.now() - started >= budget.maxMs)) break;
   }
   c.haulAt = t;
   if (t < end) {

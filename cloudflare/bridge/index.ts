@@ -27,13 +27,21 @@ export const workerCallback = (path: string) => path === '/api/battles/result' |
  * the existing Mongo transactions, CAS revisions and durable recovery outboxes.
  */
 export class GameApi {
+  private cityLoading = false;
   constructor(_context: unknown, private env: BridgeEnv) {}
   async fetch(request: Request): Promise<Response> {
     const env = this.env;
     if (!env.MONGODB_URI || !env.MONGODB_DB) return response({ error: 'Máy chủ chưa sẵn sàng.' }, 503);
-    const client = new MongoClient(env.MONGODB_URI, { appName: 'dong-song-cloudflare-game', maxPoolSize: 4, minPoolSize: 0,
-      serverSelectionTimeoutMS: 10_000, connectTimeoutMS: 8_000, socketTimeoutMS: 20_000 });
+    // A reconnect/multiple tabs must not calculate the same offline slice in
+    // parallel and discard one expensive result on CAS. Return no village data
+    // here; current ownership/session is still checked by the winning request.
+    const cityLoad = request.method === 'GET' && new URL(request.url).pathname === '/api/city';
+    if (cityLoad && this.cityLoading) return response({ recovering: true, retryAfterMs: 1000 }, 202);
+    if (cityLoad) this.cityLoading = true;
+    let client: MongoClient | undefined;
     try {
+      client = new MongoClient(env.MONGODB_URI, { appName: 'dong-song-cloudflare-game', maxPoolSize: 4, minPoolSize: 0,
+        serverSelectionTimeoutMS: 10_000, connectTimeoutMS: 8_000, socketTimeoutMS: 20_000 });
       return await withRequestDatabase(client, env.MONGODB_DB, () => withRequestContext(request, async () => {
         const path = new URL(request.url).pathname;
         const result = authPaths.has(path) ? await authRoute(request, env, repository) : await dispatch(request);
@@ -47,7 +55,10 @@ export class GameApi {
       // Driver errors may contain connection details: emit a fixed diagnostic.
       console.error('cloudflare_game_request_failed', error instanceof Error ? error.name : 'Error');
       return response({ error: 'Kết nối máy chủ tạm gián đoạn. Thao tác chưa xác nhận sẽ được thử lại.' }, 503);
-    } finally { await client.close().catch(() => {}); }
+    } finally {
+      try { await client?.close(); } catch { /* Request-scoped sockets are never reused. */ }
+      if (cityLoad) this.cityLoading = false;
+    }
   }
 }
 

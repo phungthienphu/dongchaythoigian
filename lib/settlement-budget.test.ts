@@ -47,3 +47,20 @@ test('the offline cap and irregular final milliseconds are independent of recove
   settle(full, target);
   assert.deepEqual(replay(c, target, 21_600), JSON.parse(JSON.stringify(full)));
 });
+
+test('CPU budget yields within sixteen fixed ticks, preserving the remaining offline interval', () => {
+  const c = fixture(6), original = c.last;
+  settle(c, 3 * HOUR, { maxTicks: 21_600, maxMs: 0 });
+  assert.equal(c.last, original + 16_000);
+  assert.deepEqual(c.catchUp, { from: original, target: 3 * HOUR });
+});
+test('a large industrial village keeps exact results across short persisted slices', { timeout: 20000 }, () => {
+  const c = fixture(6), person = c.people[0];
+  c.people = Array.from({ length: 600 }, (_, i) => ({ ...structuredClone(person), id: i + 1,
+    task: { t: 'idle' as const }, pos: c.camp }));
+  c.pop = c.people.length;
+  c.res.food = 2000;
+  const full = structuredClone(c), target = 37 * MIN + 351;
+  settle(full, target);
+  assert.deepEqual(replay(c, target, 107), JSON.parse(JSON.stringify(full)));
+});

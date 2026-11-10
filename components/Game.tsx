@@ -345,14 +345,18 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>();
   const [recoveryProgress, setRecoveryProgress] = useState<RecoveryProgress>();
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const loadAbort = useRef<AbortController | null>(null);
   const recoveringRef = useRef(false);
   const fetchCity = useCallback(async () => {
     const controller = new AbortController();
     loadAbort.current?.abort(); loadAbort.current = controller;
     try {
-      return await loadCityResponse({ signal: controller.signal, onProgress: progress => {
-        recoveringRef.current = true; setLoading(true); setRecoveryProgress(progress);
+      return await loadCityResponse({ signal: controller.signal, onRetry: attempt => {
+        setReconnectAttempt(attempt);
+        if (attempt) { recoveringRef.current = true; setLoading(true); }
+      }, onProgress: progress => {
+        recoveringRef.current = true; setLoading(true); if (progress) setRecoveryProgress(progress);
       } });
     } catch (error) {
       if (recoveringRef.current && !controller.signal.aborted) {
@@ -361,8 +365,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       }
       throw error;
     } finally {
-      if (loadAbort.current === controller) loadAbort.current = null;
-      recoveringRef.current = false;
+      if (loadAbort.current === controller) {
+        loadAbort.current = null;
+        recoveringRef.current = false;
+        setReconnectAttempt(0);
+      }
     }
   }, []);
   useEffect(() => () => { loadAbort.current?.abort(); }, []);
@@ -470,7 +477,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       if(res.status===401){stopSession();throw new Error(SESSION_ENDED_MESSAGE);}
       const value=await res.json();
       if(!res.ok||!value.sync)throw new Error(value.error??'Chưa tải được checkpoint của làng.');
-      setLoading(false); setRecoveryProgress(undefined);
+      setLoading(false); setRecoveryProgress(undefined); setLoadError(undefined);
       offsetRef.current=value.serverNow-Date.now();return value;
     };
     if(data.sync && !actionQueue.current) {
@@ -533,6 +540,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           if (!res.ok) throw new Error("Không tải được làng.");
           const response = await res.json();
           offsetRef.current = response.serverNow - Date.now();
+          setLoading(false); setRecoveryProgress(undefined); setLoadError(undefined);
           return response.state;
         },
       });
@@ -594,10 +602,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     } catch { setMsg({text:"Mất kết nối khi tải bản đồ thế giới.",err:true}); }
   }), []);
 
-  const diplomacy = useDiplomacy(!loading && !needsName, () => { void loadCity(); void loadWorld(); },externalCity);
+  const villageReady = !loading && !recoveryProgress && !needsName && !!cityRef.current;
+  const diplomacy = useDiplomacy(villageReady, () => { void loadCity(); void loadWorld(); },externalCity);
   const [marketTarget,setMarketTarget]=useState<string>();
-  const market = useMarket(!loading && !needsName && !!me.user?.hasCity, panel === "market" || worldOpen, () => { void loadCity(); }, panel === "market",marketTarget,externalCity);
-  const war = useWars(!loading && !needsName && !!me.user?.hasCity, () => {
+  const market = useMarket(villageReady && !!me.user?.hasCity, panel === "market" || worldOpen, () => { void loadCity(); }, panel === "market",marketTarget,externalCity);
+  const war = useWars(villageReady && !!me.user?.hasCity, () => {
     const queue=actionQueue.current;
     if(queue instanceof BatchedCityQueue&&queue.isPending)void queue.flush().then(()=>loadCity());else void loadCity();
     void diplomacy.refresh(); void market.refresh();
@@ -674,7 +683,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       bump();
     }, 1000);
     const refreshVisible = () => {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible" || recoveringRef.current) return;
       const queue=actionQueue.current;
       if(queue instanceof BatchedCityQueue)void queue.checkpointIfDue().then(saved=>{if(!saved)void loadCity();});else void loadCity();
       void loadMe(); void diplomacy.refresh();
@@ -682,7 +691,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     };
     const sync = setInterval(refreshVisible, 60_000);
     const foreground = () => {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible" || recoveringRef.current) return;
       const queue=actionQueue.current;
       if(queue instanceof BatchedCityQueue)void (queue.isPending?queue.flush():queue.refresh());
       refreshVisible();
@@ -1014,7 +1023,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const archivedDisasters=(c?.disasterNotices??[]).filter(n=>!c?.log.some(l=>l.at===n.at&&l.msg===n.msg)).map(n=>({caravanId:undefined as string|undefined,at:n.at,msg:n.msg,cls:n.phase==='protected'?'good' as const:'warn' as const}));
   const notices=[...(c?.log??[]),...archivedDisasters,...diplomaticNotices].sort((a,b)=>b.at-a.at);
 
-  if (loading || recoveryProgress && loadError) return <MapLoadingScreen progress={recoveryProgress} error={loading ? undefined : loadError} onRetry={() => void loadCity()}/>;
+  if (loading || recoveryProgress && loadError) return <MapLoadingScreen progress={recoveryProgress} reconnectAttempt={reconnectAttempt} error={loading ? undefined : loadError} onRetry={() => void loadCity()}/>;
 
   if (needsName) {
     return <WelcomeScreen user={me.user} name={nameInput} onName={setNameInput} onCreate={createCity} busy={busy} message={msg} maxEra={rules.maxEra}/>;

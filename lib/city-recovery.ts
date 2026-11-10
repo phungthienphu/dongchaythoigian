@@ -20,7 +20,7 @@ export async function recoverCity(col: Collection<CityDoc>, doc: CityDoc, now: n
   const from = c.catchUp?.from ?? Math.max(c.haulAt ?? c.last, target - 14 * 24 * 60 * 60_000);
   await resolveDiscoveries(doc._id, c, target);
   const arrivals = structuredClone(c.trips ?? []);
-  settle(c, target, { maxTicks: 60 * 60, maxMs: 1200 });
+  settle(c, target, { maxTicks: 6 * 60 * 60, maxMs: 1200 });
   const envoyOutbox = [...new Map([
     ...(doc.envoyOutbox ?? []),
     ...[...arrivals, ...(c.trips ?? [])].filter(t => t.target).map(({ id, depart, target, targetName, arrive }) => ({
