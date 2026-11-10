@@ -125,6 +125,8 @@ canvas { display: block; border-radius: 6px; touch-action: manipulation; cursor:
 .mapframe canvas:active { cursor: grabbing; }
 .zoom { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 4px; }
 .zoom button { width: 36px; height: 36px; padding: 0; font-size: 18px; font-weight: 600; background: rgba(23,32,30,.85); }
+.zoom .region-toggle { width: auto; padding: 0 8px; font-size: 12px; }
+.zoom .region-toggle[aria-pressed="true"] { color: #ffe08a; border-color: #ffe08a; background: #4b452d; }
 .maphint { position: absolute; left: 12px; bottom: 8px; margin: 0; font-size: 11.5px; color: rgba(235,229,210,.6); pointer-events: none; }
 
 /* resource chips */

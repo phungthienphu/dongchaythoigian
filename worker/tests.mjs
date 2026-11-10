@@ -130,6 +130,33 @@ test('defender socket reports unreachable moves and applies valid moves during c
  const {advanceBattle}=await import(pathToFileURL(join(out,'lib/battle.js')));advanceBattle(b,b.lastTick+2000);
  assert.equal(b.groups[1].x,3.5);assert.equal(b.groups[1].order.type,'guard');
 });
+test('one socket group command moves all selected troops and rejects mixed ownership or malformed selections atomically',async()=>{
+ const b=battle();b.terrain.fill(0);b.buildings=[];
+ b.groups=[{id:'attacker:club',u:'club',side:'attacker',count:30,initial:30,hp:600,x:8.5,y:5.5,order:{type:'attack',targetId:'defender:sword'}},{id:'attacker:bow',u:'bow',side:'attacker',count:30,initial:30,hp:600,x:8.5,y:6.5,order:{type:'attack',targetId:'defender:sword'}},{id:'defender:sword',u:'sword',side:'defender',count:20,initial:20,hp:1400,x:9,y:5.5,order:{type:'guard',x:9,y:5.5}}];
+ const h=harness({battle:b,roomId:'one'});await h.ready;
+ const ws=socket({roomId:'one',playerId:'a',side:'attacker',exp:Date.now()/1000+60});h.sockets.push(ws);
+ const command={type:'move',groupIds:['attacker:club','attacker:bow'],x:3.5,y:5.5};
+ await h.room.webSocketMessage(ws,JSON.stringify({type:'command',command}));
+ assert.equal(ws.frames.filter(f=>f.type==='ack').length,1);assert.equal(ws.frames.find(f=>f.type==='ack').accepted,true);
+ for(const g of h.data.get('battle').groups.filter(g=>g.side==='attacker'))assert.deepEqual(g.order,{type:'move',x:3.5,y:5.5});
+ const before=structuredClone(h.data.get('battle').groups.map(g=>g.order));
+ await h.room.webSocketMessage(ws,JSON.stringify({type:'command',command:{...command,groupIds:['attacker:club','defender:sword']}}));
+ assert.equal(ws.frames.filter(f=>f.type==='ack').at(-1).accepted,false);assert.deepEqual(h.data.get('battle').groups.map(g=>g.order),before);
+ for(const groupIds of [[],['attacker:club','attacker:club'],Array.from({length:361},(_,i)=>`attacker:${i}`)]){
+  await h.room.webSocketMessage(ws,JSON.stringify({type:'command',command:{...command,groupIds}}));assert.equal(ws.frames.at(-1).type,'error');
+ }
+ await h.room.webSocketMessage(ws,JSON.stringify({type:'command',command:{...command,groupId:'attacker:club'}}));assert.equal(ws.frames.at(-1).type,'error');
+});
+test('full 360-group defence selection exceeds 4KB and still receives one accepted ACK',async()=>{
+ const b=battle();b.terrain.fill(0);b.buildings=[];b.defenderOnline=true;
+ const groups=Array.from({length:360},(_,n)=>({id:`defender:club:${1000+n}`,u:'club',side:'defender',count:1,initial:1,hp:20,x:5.5,y:5.5,order:{type:'guard',x:5.5,y:5.5}}));
+ b.groups=[b.groups[0],...groups];const h=harness({battle:b,roomId:'one'});await h.ready;
+ const ws=socket({roomId:'one',playerId:'d',side:'defender',exp:Date.now()/1000+60,active:true});h.sockets.push(ws);
+ const message=JSON.stringify({type:'command',command:{type:'move',groupIds:groups.map(g=>g.id),x:3.5,y:5.5}});assert.ok(message.length>4096);
+ await h.room.webSocketMessage(ws,message);const acks=ws.frames.filter(f=>f.type==='ack');assert.equal(acks.length,1);assert.equal(acks[0].accepted,true);
+ assert.ok(h.data.get('battle').groups.filter(g=>g.side==='defender').every(g=>g.order.type==='move'));
+ await h.room.webSocketMessage(ws,' '.repeat(64*1024+1));assert.equal(ws.frames.at(-1).type,'error');
+});
 
 test('session rotation persists its fence, closes old hub sockets and rejects reordered logins',async()=>{
  const h=harness();await h.ready;

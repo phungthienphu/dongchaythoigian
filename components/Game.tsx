@@ -13,12 +13,13 @@ import {
   B, BKEYS, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
   dockRelocationPlan, buildingJobs,storageCapacity, availableForQuickAssign, quickAssignBlockedReason, isScout, taskResource, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
   armyCap, armyUsed, barracksCapacity, buildingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
-  armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, farmAutoStatus, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
+  homeSoldiers, armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, farmAutoStatus, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
 } from "@/lib/engine";
 import {mapRotationShortcut} from "./map-shortcuts";
 import {captureMapTurn,paintMapTurn,type MapTurn} from "./map-transition";
-import { rotateCam, screenToWorld, MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
+import { projectWorld, rotateCam, screenToWorld, MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
+import {drawSelectionBox,inSelection,selectionMoved,type SelectionDrag} from './map-selection';
 import { Crowd } from "./villagers";
 import { ERAS as ERA_ROADMAP, RELEASED_ERA } from "@/lib/eras";
 import { expeditionReadiness } from "@/lib/expedition-readiness";
@@ -404,6 +405,9 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [me, setMe] = useState<Me>({ user: null, friends: [] });
   const [busy, setBusy] = useState(false);
   const [pickedSoldier, setPickedSoldier] = useState<string | null>(null);
+  const [pickedSoldiers,setPickedSoldiers]=useState<Set<string>>(new Set());
+  const [regionMode,setRegionMode]=useState<'soldiers'|'people'|null>(null);
+  const selectionDrag=useRef<SelectionDrag|null>(null);
   const [guardEditing, setGuardEditing] = useState(false);
   const [armyManagement,setArmyManagement]=useState(false);
   const [economyOpen,setEconomyOpen]=useState(false);
@@ -443,10 +447,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const renderPausedRef = useRef(false);
   renderPausedRef.current=worldOpen || !!battleOpen || helpOpen;
   const bridgePreview=bridgeFrom!==null?{from:bridgeFrom,to:bridgeTarget?idx(bridgeTarget.x,bridgeTarget.y):null}:undefined;
-  const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier, bridgePreview, defenseOrientation });
-  viewRef.current = { hover, selected, tool, picked, pickedSoldier, bridgePreview, defenseOrientation };
+  const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation });
+  viewRef.current = { hover, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation };
 
   useEffect(()=>{if(tool||picked.size||pickedSoldier||guardEditing||planting||visiting){setBridgeFrom(null);setBridgeTarget(null);}},[tool,picked,pickedSoldier,guardEditing,planting,visiting]);
+  useEffect(()=>{if(visiting||worldOpen||battleOpen||guardEditing||planting||tool){selectionDrag.current=null;setRegionMode(null);setPickedSoldiers(new Set());}},[visiting,worldOpen,battleOpen,guardEditing,planting,tool]);
 
   const now = () => Date.now() + offsetRef.current;
   const bump = () => setVersion((v) => v + 1);
@@ -759,6 +764,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         drawCity(ctx, c, D, { v: camView(fitRef.current, camRef.current), now: now(), anim: rm ? 0 : t, villagers: crowd.list, fx: crowd.fx, chopping: crowd.chopping, ...view, rules });
         const turn=rotationFadeRef.current;
         if(turn&&!paintMapTurn(ctx,turn,t,fitRef.current.width,fitRef.current.height))rotationFadeRef.current=null;
+        if(!vis)drawSelectionBox(ctx,selectionDrag.current);
       }
       raf = requestAnimationFrame(loop);
     };
@@ -834,11 +840,14 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if(e.button!==0)return;
     rotationFadeRef.current=null;
     e.currentTarget.setPointerCapture(e.pointerId);
     const p = local(e);
     ptrs.current.set(e.pointerId, p);
     if (ptrs.current.size === 1) dragRef.current = { sx: p.x, sy: p.y, moved: false, pinch: 0 };
+    if(ptrs.current.size>1)selectionDrag.current=null;
+    else if(!visitRef.current&&!cityRef.current?.battleId&&(regionMode||e.shiftKey)&&!tool&&!planting&&bridgeFrom===null&&dockMove===null&&!guardEditing)selectionDrag.current={pointerId:e.pointerId,start:p,end:p,additive:e.shiftKey};
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const prev = ptrs.current.get(e.pointerId);
@@ -858,6 +867,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       }
       return;
     }
+    if(selectionDrag.current?.pointerId===e.pointerId){selectionDrag.current.end=p;if(d&&selectionMoved(selectionDrag.current))d.moved=true;return;}
     if (d) {
       if (!d.moved && Math.hypot(p.x - d.sx, p.y - d.sy) < 6) return;
       if (!d.moved) { d.moved = true; prev.x = d.sx; prev.y = d.sy; }
@@ -867,6 +877,23 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     }
   };
   const onPointerUp = (e: React.PointerEvent) => {
+    const box=selectionDrag.current;
+    if(box?.pointerId===e.pointerId){
+      selectionDrag.current=null;
+      box.end=local(e);
+      if(selectionMoved(box)&&cityRef.current){
+        if(dragRef.current)dragRef.current.moved=true;
+        const c=cityRef.current,v=view(),soldiers=homeSoldiers(c,now()).filter(s=>{const [x,y]=projectWorld(v,s.x,s.y);return inSelection(box,{x,y});});
+        const kind=regionMode??(soldiers.length?'soldiers':'people');
+        setPickedSoldier(null);setSelected(null);setHerdSel(null);setPanel(null);setRegionMode(kind);
+        if(kind==='soldiers'){
+          setPicked(new Set());setPickedSoldiers(old=>new Set([...(box.additive?old:[]),...soldiers.map(s=>s.id)]));
+        }else{
+          const ids=crowdRef.current.list.filter(p=>p.id!==null&&p.visible&&!p.fleeing&&inSelection(box,(()=>{const [x,y]=projectWorld(v,p.fx,p.fy);return {x,y};})())).map(p=>p.id!);
+          setPickedSoldiers(new Set());setPicked(old=>new Set([...(box.additive?old:[]),...ids]));
+        }
+      }
+    }
     ptrs.current.delete(e.pointerId);
     if (dragRef.current) dragRef.current.pinch = 0;
   };
@@ -890,6 +917,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if (c) focusOn(f, camRef.current, (c.camp % W) + 0.5, Math.floor(c.camp / W) + 0.5, Math.min(MAX_ZOOM, 60 / f.TW));
   };
   const focusPerson = (p:Person) => {
+    setRegionMode(null);setPickedSoldiers(new Set());setPickedSoldier(null);
     const actor=crowdRef.current.list.find(v=>v.id===p.id),tile=p.pos??cityRef.current?.camp??0;
     setPicked(new Set([p.id]));
     focusOn(fitRef.current,camRef.current,actor?.fx??tile%W+.5,actor?.fy??Math.floor(tile/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));
@@ -913,6 +941,18 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     const c = cityRef.current;
     if (!c) return;
     const p = local(e);
+    if(regionMode){
+      const cell=cellAt(e);if(!cell)return;
+      if(e.shiftKey||!(regionMode==='soldiers'?pickedSoldiers.size:picked.size)){
+        if(regionMode==='soldiers'){const s=pickHomeSoldier(view(),c,now(),p.x,p.y);if(s)setPickedSoldiers(old=>{const next=new Set(e.shiftKey?old:[]);if(e.shiftKey&&next.has(s.id))next.delete(s.id);else next.add(s.id);return next;});}
+        else {const target=pickVillageTarget(view(),c,crowdRef.current.list,performance.now(),p.x,p.y,true);if(target?.type==='person'&&target.person.id!==null&&!target.person.fleeing)togglePick(target.person.id,e.shiftKey);}
+        return;
+      }
+      if(regionMode==='soldiers'){
+        if(await act({type:'moveSoldiers',ids:[...pickedSoldiers],...cell}))setMsg({text:`Đã điều ${pickedSoldiers.size} lính tới vị trí gác. Bấm ô khác để đổi lệnh; Esc để bỏ chọn.`});
+      }else if(await act({type:'assign',ids:[...picked],task:{t:'move',to:idx(cell.x,cell.y)}}))setMsg({text:`${picked.size} dân đang tới vị trí đã chọn và giữ lệnh thủ công. Chọn Giao việc để phân công công việc mới.`});
+      return;
+    }
     if(bridgeFrom!==null){const cell=cellAt(e);if(cell)setBridgeTarget(cell);return;}
     if(dockMove!==null){const cell=cellAt(e);if(cell)setDockTarget(cell);return;}
     if(planting){const cell=cellAt(e);if(cell)await act({type:"plantTree",...cell});return;}
@@ -994,6 +1034,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   };
 
   const pickTool = (k: BKey | null) => {
+    selectionDrag.current=null;setRegionMode(null);setPickedSoldiers(new Set());
     setBridgeFrom(null);setBridgeTarget(null);setDockMove(null);setDockTarget(null);
     setPlanting(false);
     setPickedSoldier(null);
@@ -1022,6 +1063,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         }
       }
       if (e.key !== "Escape") return;
+      selectionDrag.current=null;setRegionMode(null);setPickedSoldiers(new Set());
       setBridgeFrom(null);setBridgeTarget(null);setDockMove(null);setDockTarget(null);setPlanting(false);setFinalReview(null);setPickedSoldier(null); setGuardEditing(false); setTool(null); setSelected(null); setHerdSel(null); setPicked(new Set()); setPanel(null);
     };
     window.addEventListener("keydown", onKey);
@@ -1124,11 +1166,12 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       <div className="mapframe" ref={frameRef}>
         <canvas
           ref={canvasRef}
-          aria-label="Bản đồ. Lăn chuột để phóng to, kéo để di chuyển, bấm vào dân để chọn."
+          aria-label="Bản đồ. Kéo để di chuyển; bật Chọn lính hoặc Chọn dân rồi kéo khung để chọn nhiều người. Bấm đất để điều cả nhóm."
+          style={regionMode?{cursor:'crosshair'}:undefined}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerCancel={e=>{selectionDrag.current=null;ptrs.current.delete(e.pointerId);if(dragRef.current)dragRef.current.moved=true;}}
           onPointerLeave={() => setHover(null)}
           onClick={onClick}
           onContextMenu={(e) => { e.preventDefault(); pickTool(null); setPicked(new Set()); }}
@@ -1193,6 +1236,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       </header>
 
       <div className="zoom" role="group" aria-label="Điều khiển bản đồ">
+        {!visiting&&!c.battleId&&<><button className="region-toggle" aria-pressed={regionMode==='soldiers'} onClick={()=>{pickTool(null);setPicked(new Set());setPickedSoldier(null);setSelected(null);setGuardEditing(false);setPanel(null);setRegionMode(regionMode==='soldiers'?null:'soldiers');}}>Chọn lính</button><button className="region-toggle" aria-pressed={regionMode==='people'} onClick={()=>{pickTool(null);setPicked(new Set());setPickedSoldier(null);setSelected(null);setGuardEditing(false);setPanel(null);setRegionMode(regionMode==='people'?null:'people');}}>Chọn dân</button></>}
         <button onClick={() => zoomBy(1.5)} aria-label="Phóng to">+</button>
         <button onClick={() => zoomBy(1 / 1.5)} aria-label="Thu nhỏ">−</button>
         <button onClick={()=>rotateMap(-1)} aria-label="Xoay bản đồ sang trái" aria-keyshortcuts="Q" title="Xoay trái 90° (Q)">↶</button>
@@ -1366,8 +1410,9 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         {planting&&<button onClick={()=>setPlanting(false)}>Kết thúc trồng cây</button>}
         {c.era>=4&&<button onClick={()=>openPanel('era')}>{c.modern?`⚡ ${fmt(c.modern.supply)}/${fmt(c.modern.demand)} MW · `:''}{c.industry?`Ô nhiễm ${fmt(c.industry.pollution)}/100`:'Quản lý nước và Trung đại'}</button>}
         <HungerNotice city={c} onFindFood={()=>openPanel("people")}/>
-        {!tool && !picked.size && <button className="next-step" onClick={() => openPanel(goal.panel)}>{goal.text}</button>}
-        {picked.size > 0 && (
+        {!tool && !regionMode && !picked.size && <button className="next-step" onClick={() => openPanel(goal.panel)}>{goal.text}</button>}
+        {regionMode&&<div className="pickbar"><b>{regionMode==='soldiers'?`${pickedSoldiers.size} lính`:`${picked.size} dân`} đã chọn</b><span>Kéo khung để chọn · Shift để chọn thêm · bấm đất để di chuyển. Tắt chế độ để kéo bản đồ.</span>{regionMode==='people'&&picked.size>0&&<button onClick={()=>setRegionMode(null)}>Giao việc</button>}<button onClick={()=>{selectionDrag.current=null;setRegionMode(null);setPickedSoldiers(new Set());setPicked(new Set());}}>Bỏ chọn</button></div>}
+        {!regionMode&&picked.size > 0 && (
           <div className="pickbar">
             <b>{picked.size} người đã chọn</b>
             <span>Bấm lên bản đồ để giao việc</span>

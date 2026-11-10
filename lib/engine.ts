@@ -1406,8 +1406,8 @@ export function shipsFree(c:City,at=c.last){
 }
 /** Troops use land first. A river leg requires enough unreserved transports and
  * water connected to a working dock; terrain and buildings still block travel. */
-function militaryPath(c:City,from:number,to:number,ships=1){
-  const context=haulingContext(c,derive(c)),land=haulPath(c,from,to,context,true);
+function militaryPath(c:City,from:number,to:number,ships=1,context=haulingContext(c,derive(c))){
+  const land=haulPath(c,from,to,context,true);
   if(land)return {route:land,ships:0};
   if(shipsFree(c)<ships)return null;
   for(const [dock,b]of buildings(c)){
@@ -1476,12 +1476,11 @@ export function homeSoldiers(c: City, now: number, staging = armyStagingTiles(c)
   }
   return result;
 }
-function orderHomeSoldier(c: City, id: string, to: number, now: number): boolean {
-  const actor = homeSoldiers(c, now).find(s => s.id === id);
+function orderHomeSoldier(c: City, id: string, to: number, now: number, actor=homeSoldiers(c, now).find(s => s.id === id), context?:HaulContext): boolean {
   if (!actor || !c.seen[to] || !haulPassable(c, to, -1, false)) return false;
   const from = idx(Math.floor(actor.x), Math.floor(actor.y));
   if(c.t[from]===R&&!bridgeDeck(c).has(from))return false; // finish the crossing before changing orders
-  const plan=militaryPath(c,from,to,Math.ceil(shipPlaces(actor.u)/SHIP_CAPACITY)),route=plan?.route;
+  const plan=militaryPath(c,from,to,Math.ceil(shipPlaces(actor.u)/SHIP_CAPACITY),context),route=plan?.route;
   if(!route)return false;
   if(plan!.ships){const duration=Math.max(1000,Math.ceil(routeLength(route)/(1.9*(UNITS[actor.u].speed??1))*1000));(c.ferryBookings??=[]).push({id,ships:plan!.ships,at:now,arrive:now+duration,back:now+duration*2,route});}
   (c.homeOrders ??= {})[id] = { route, at: now, x: actor.x, y: actor.y };
@@ -2674,6 +2673,7 @@ export type Action =
   | { type: "tendFarmGroup"; x: number; y: number }
   | { type: "demolish"; x: number; y: number }
   | { type: "moveSoldier"; id: string; x: number; y: number }
+  | { type: "moveSoldiers"; ids: string[]; x: number; y: number }
   | { type: "setGuardPosts"; posts: { x: number; y: number }[] }
   | { type:"setPowerPriority"; priority:PowerGroup[] }
   | { type: "plantTree"; x:number;y:number }
@@ -2751,6 +2751,16 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     beginFarmCare(c,b,idx(a.x,a.y),cost,now);
     log(c,now,"Đang cải tạo đất và gieo lại ruộng, hoàn tất sau 30 giây.");
     return null;
+  }
+  if (a.type === "moveSoldiers") {
+    if(c.battleId)return "Hãy điều quân trong màn trận đánh.";
+    // Share navigation caches and take one actor snapshot. Failed group orders
+    // never move a subset or reserve transports without the rest of the group.
+    const actors=new Map(homeSoldiers(c,now).map(s=>[s.id,s]));
+    if(a.ids.some(id=>!actors.has(id)))return "Một số lính không còn ở làng. Hãy chọn lại nhóm quân.";
+    const trial={...c,homeOrders:{...c.homeOrders},ferryBookings:[...(c.ferryBookings??[])]},context=haulingContext(c,derive(c));
+    for(const id of a.ids)if(!orderHomeSoldier(trial,id,idx(a.x,a.y),now,actors.get(id),context))return "Nhóm quân chưa có đường đi hoặc không đủ thuyền; lính đang qua sông cần lên bờ trước. Chưa thay đổi lệnh của nhóm.";
+    c.homeOrders=trial.homeOrders;c.ferryBookings=trial.ferryBookings;return null;
   }
   if (a.type === "moveSoldier") {
     if (c.battleId) return "Hãy điều quân trong màn trận đánh.";

@@ -11,7 +11,9 @@ function validCommand(value: unknown): value is Command {
   const c = value as Record<string, unknown>;
   if (c.type === 'retreat') return true;
   if (c.type === 'presence') return typeof c.online === 'boolean';
-  if (typeof c.groupId !== 'string' || c.groupId.length > 100) return false;
+  if(c.groupIds!==undefined){
+    if(c.groupId!==undefined||!Array.isArray(c.groupIds)||!c.groupIds.length||c.groupIds.length>360||new Set(c.groupIds).size!==c.groupIds.length||!c.groupIds.every(id=>typeof id==='string'&&id.length>0&&id.length<=100))return false;
+  }else if (typeof c.groupId !== 'string' || !c.groupId.length || c.groupId.length > 100) return false;
   if (c.type === 'move') return typeof c.x === 'number' && Number.isFinite(c.x) && typeof c.y === 'number' && Number.isFinite(c.y);
   return c.type === 'attack' && typeof c.targetId === 'string' && c.targetId.length <= 100;
 }
@@ -249,7 +251,10 @@ export class BattleRoom {
     const user = socket.deserializeAttachment() as Identity | null;
     if (!this.validSocket(socket) || !user) return;
     if (user.roomId.startsWith('player-') || user.roomId === 'market-feed') return;
-    if (typeof message !== 'string' || message.length > 4096 || !this.battle) return;
+    if (typeof message !== 'string' || !this.battle) return;
+    // A full 360-group selection legitimately exceeds the old 4 KB single-unit
+    // limit. Keep a bounded frame and report oversized orders instead of silence.
+    if(message.length>64*1024){socket.send(JSON.stringify({type:'error',error:'Lệnh quá lớn. Hãy chọn một nhóm nhỏ hơn.'}));return;}
     const participantId = user.side === 'attacker' ? this.battle.attackerId : this.battle.defenderId;
     if (participantId !== user.playerId) { socket.close(1008, 'Forbidden'); return; }
     try {

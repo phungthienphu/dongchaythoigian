@@ -10,6 +10,7 @@ import { Crowd } from "./villagers";
 import {drawTransportBoat} from "./draw";
 import { drawBattleStrikes, drawSoldier } from "./battle-actors";
 import styles from "./BattleView.module.css";
+import {drawSelectionBox,inSelection,selectionMoved,type SelectionDrag} from "./map-selection";
 
 type Packet = { war: WarView; battle: BattleState | null; village: City | null; side: BattleSide; socket: string | null };
 const MERCY = "Thí chủ hãy giữ cho mình chút nhân tánh, hãy cho những người lương thiện một con đường sống…";
@@ -20,7 +21,9 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
   const [battle, setBattle] = useState<BattleState | null>(null);
   const [connection, setConnection] = useState("Đang mở phòng trận…");
   const [error, setError] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selecting,setSelecting]=useState(false);
+  const selectionBox=useRef<SelectionDrag|null>(null);
   const [retry, setRetry] = useState(0);
   const [connected, setConnected] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -51,7 +54,7 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
 
   useEffect(() => {
     if(preview){
-      setPacket(preview);setBattle(structuredClone(preview.battle));setConnected(true);setConnection("Bản thử local");setSelected(null);focused.current=false;
+      setPacket(preview);setBattle(structuredClone(preview.battle));setConnected(true);setConnection("Bản thử local");setSelected(new Set());focused.current=false;
       let previous=performance.now();
       const timer=setInterval(()=>{const current=performance.now(),elapsed=current-previous;previous=current;setBattle(b=>{if(!b)return b;const next=structuredClone(b);advanceBattle(next,next.lastTick+Math.floor(elapsed/100)*100);return next;});},100);
       return ()=>clearInterval(timer);
@@ -60,7 +63,7 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
     let timer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | undefined;
     focused.current = false;
-    setPacket(null); setBattle(null); setSelected(null);
+    setPacket(null); setBattle(null); setSelected(new Set());
     const finish = (state: BattleState | null, war?: WarView) => {
       if ((state?.status === "finished" || war?.result || war?.status === "completed" || war?.status === "cancelled") && settled.current !== id) {
         settled.current = id; onSettledRef.current?.();
@@ -202,17 +205,18 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
         const radius = Math.max(10, Math.min(19, v.s * 7));
         ctx.fillStyle = own ? "#398aa6" : "#ba5547";
         ctx.beginPath(); ctx.ellipse(at.x, at.y, radius, radius * .68, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = g.id === chosen ? "#ffe08a" : "#f1e4bf"; ctx.lineWidth = g.id === chosen ? 3 : 1; ctx.stroke();
+        ctx.strokeStyle = chosen.has(g.id) ? "#ffe08a" : "#f1e4bf"; ctx.lineWidth = chosen.has(g.id) ? 3 : 1; ctx.stroke();
         if(g.naval&&!onBridge&&b?.terrain[Math.floor(g.y)*W+Math.floor(g.x)]===R)drawTransportBoat(ctx,at.x,at.y,v.s*.8,time,g.side==="attacker"?1:-1,g.count);
         else drawSoldier(ctx,g,at.x,at.y-6,v.s,time,(b?.strikes??[]).some(e=>e.source===g.id&&b!.lastTick-e.at<650));
         ctx.font = "bold 12px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff"; ctx.fillText(String(g.count), at.x, at.y+9);
         ctx.fillStyle = "#302c25"; ctx.fillRect(at.x - 15, at.y - 44, 30, 4);
         ctx.fillStyle = own ? "#80d8b3" : "#f4987e"; ctx.fillRect(at.x - 15, at.y - 44, 30 * Math.max(0, Math.min(1, g.hp / (g.initial * UNITS[g.u].hp))), 4);
-        if (b?.status!=="finished" && !p.war.result && !["completed","cancelled"].includes(p.war.status) && g.id === chosen && g.order.type === "move" && !g.blocked && g.moving) {
+        if (b?.status!=="finished" && !p.war.result && !["completed","cancelled"].includes(p.war.status) && chosen.has(g.id) && g.order.type === "move" && !g.blocked && g.moving) {
           const to = project(g.order.x, g.order.y);
           ctx.strokeStyle = "#ffe08a"; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(at.x, at.y); ctx.lineTo(to.x, to.y); ctx.stroke(); ctx.setLineDash([]);
         }
       }
+      drawSelectionBox(ctx,selectionBox.current);
     };
     frame = requestAnimationFrame(paint);
     const wheel = (event: WheelEvent) => {
@@ -223,21 +227,22 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
     return () => { cancelAnimationFrame(frame); observer.disconnect(); cv.removeEventListener("wheel", wheel); };
   }, []);
 
-  const clickMap = (x: number, y: number) => {
+  const chooseGroup=(id:string,additive:boolean)=>setSelected(old=>{const next=new Set(additive?old:[]);if(additive&&next.has(id))next.delete(id);else next.add(id);return next;});
+  const clickMap = (x: number, y: number, additive=false, forceMove=false) => {
     const { packet: p, battle: b, selected: chosen } = latest.current, f = baseView.current;
     if (!p || !b || !f || b.status === "finished" || p.war.result || ["completed","cancelled"].includes(p.war.status)) return;
-    const v = camView(f, camera.current);
+    const v = camView(f, camera.current),groupIds=b.groups.filter(g=>chosen.has(g.id)&&g.side===p.side&&g.count>0&&!g.escaped).map(g=>g.id);
     const target = b.groups.filter((g) => g.count > 0 && !g.escaped).map((g) => ({ g, distance: Math.hypot(x - (v.ox + (g.x - g.y) * v.TW / 2), y - (v.oy + (g.x + g.y) * v.TH / 2)) })).sort((a, z) => a.distance - z.distance)[0];
-    if (target && target.distance < 24) {
-      if (target.g.side === p.side) setSelected(target.g.id);
-      else if (chosen) send({ type: "attack", groupId: chosen, targetId: target.g.id });
+    if (!forceMove&&target && target.distance < 24) {
+      if (target.g.side === p.side) chooseGroup(target.g.id,additive);
+      else if (groupIds.length) send({ type: "attack", groupIds, targetId: target.g.id });
       return;
     }
     const cell = screenToCell(v, x, y);
-    if (!chosen || !cell) return;
+    if (!groupIds.length || !cell) return;
     const building = b.buildings.find((entry) => entry.tile === cell.y * W + cell.x && !entry.burned);
-    if (p.side === "attacker" && building) send({ type: "attack", groupId: chosen, targetId: building.id });
-    else send({ type: "move", groupId: chosen, x: cell.x + .5, y: cell.y + .5 });
+    if (!forceMove&&p.side === "attacker" && building) send({ type: "attack", groupIds, targetId: building.id });
+    else send({ type: "move", groupIds, x: cell.x + .5, y: cell.y + .5 });
   };
 
   const finished = battle?.status === "finished" || !!packet?.war.result || packet?.war.status === "completed" || packet?.war.status === "cancelled";
@@ -245,7 +250,7 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
   const groups = battle?.groups.filter((g) => g.side === packet?.side && g.count > 0 && !g.escaped) ?? [];
   const active = connected && !!battle && !finished;
   return <section className={styles.overlay} role="dialog" aria-modal="true" aria-labelledby="battle-title" onKeyDown={(e) => {
-    if (e.key === "Escape") onClose();
+    if (e.key === "Escape") { if(selected.size||selecting){setSelected(new Set());setSelecting(false);selectionBox.current=null;}else onClose(); }
     if (e.key === "Tab") {
       const controls = [...e.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled]), canvas[tabindex]")];
       const first = controls[0], last = controls[controls.length - 1];
@@ -259,7 +264,7 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
     </header>
     {!finished && <p className={styles.hint}>Dân đang chạy tìm chỗ trú, tạm ngừng làm việc. Dân không tham chiến; trú ẩn không bảo đảm an toàn nếu làng bị tàn phá.</p>}
     {error && <div className={styles.error} role="alert">{error} {!connected && <button type="button" onClick={() => setRetry((n) => n + 1)}>Kết nối lại</button>}</div>}
-    {preview && <div className={styles.result}><p>Bản thử độc lập: địch ở bên kia sông. Chọn Kiếm sĩ rồi chạm đất cùng bờ để di chuyển. Qua sông sẽ báo thiếu đường.</p><button onClick={()=>setBattle(b=>b?{...b,status:"finished",winner:"defender"}:b)}>Kết thúc trận thử</button><output aria-live="off">{battle?.groups.filter(g=>g.side===preview.side).map(g=>`${UNITS[g.u].n}: (${g.x.toFixed(1)}, ${g.y.toFixed(1)})`).join(" · ")}</output></div>}
+    {preview && <div className={styles.result}><p>Bản thử local: chọn nhiều nhóm rồi bấm đất để đổi vị trí; chuột phải để rời mục tiêu đang đánh. Không tác động tài khoản thật.</p><button onClick={()=>setBattle(b=>b?{...b,status:"finished",winner:"defender"}:b)}>Kết thúc trận thử</button><output aria-live="off">{battle?.groups.filter(g=>g.side===preview.side).map(g=>`${UNITS[g.u].n}: (${g.x.toFixed(1)}, ${g.y.toFixed(1)})`).join(" · ")}</output></div>}
     {finished && <div className={styles.result} role="status"><strong>{packet?.war.status === "cancelled" ? "Đoàn quân đã quay về." : winner === packet?.side ? "Bạn đã thắng trận." : winner ? "Bạn đã thua trận." : "Trận đánh đã kết thúc."}</strong>{winner === "attacker" && <p>{MERCY}</p>}<p>Dân mất: {battle?.populationLoss ?? packet?.war.result?.populationLoss ?? 0} · Nhà cháy: {battle?.buildings.filter((b) => b.burned && !b.initiallyBurned).length ?? packet?.war.result?.burnedTiles.length ?? 0}</p></div>}
     <div className={styles.map}>
       <canvas ref={canvas} tabIndex={0} onKeyDown={(e) => {
@@ -267,31 +272,45 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
         const direction: Record<string, [number, number]> = { ArrowUp: [0, -2], ArrowDown: [0, 2], ArrowLeft: [-2, 0], ArrowRight: [2, 0] };
         const delta = direction[e.key]; if (!delta) return;
         e.preventDefault();
-        const current = latest.current, group = current.battle?.groups.find((g) => g.id === current.selected && g.count > 0 && !g.escaped);
-        if (group && active) send({ type: "move", groupId: group.id, x: Math.max(.5, Math.min(W - .5, group.x + delta[0])), y: Math.max(.5, Math.min(W - .5, group.y + delta[1])) });
+        const current = latest.current, chosen=current.battle?.groups.filter(g=>current.selected.has(g.id)&&g.side===current.packet?.side&&g.count>0&&!g.escaped)??[],group=chosen[0];
+        if (group && active) send({ type: "move", groupIds: chosen.map(g=>g.id), x: Math.max(.5, Math.min(W - .5, group.x + delta[0])), y: Math.max(.5, Math.min(W - .5, group.y + delta[1])) });
         else { camera.current.px -= delta[0] * 25; camera.current.py -= delta[1] * 25; clampCam(f, camera.current); }
-      }} aria-label="Bản đồ trận đánh. Chọn nhóm quân bằng các nút bên dưới; dùng phím mũi tên để ra lệnh di chuyển, hoặc chạm bản đồ để di chuyển hoặc chọn địch để tấn công. Kéo để di chuyển bản đồ; chụm hai ngón để phóng to." onPointerDown={(e) => {
+      }} style={selecting?{cursor:"crosshair"}:undefined} aria-label="Bản đồ trận đánh. Bật Chọn vùng hoặc giữ Shift rồi kéo khung để chọn nhiều nhóm quân. Bấm đất để di chuyển, bấm địch để tấn công; chuột phải để di chuyển. Tắt Chọn vùng để kéo bản đồ." onContextMenu={e=>{e.preventDefault();const rect=e.currentTarget.getBoundingClientRect();clickMap(e.clientX-rect.left,e.clientY-rect.top,false,true);}} onPointerDown={(e) => {
+        if(e.button!==0)return;
         e.currentTarget.setPointerCapture(e.pointerId);
         pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, moved: false });
-        if (pointers.current.size > 1) { for (const p of pointers.current.values()) p.moved = true; const [a, b] = [...pointers.current.values()]; pinch.current = { distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), zoom: camera.current.zoom }; }
+        if (pointers.current.size > 1) { selectionBox.current=null;for (const p of pointers.current.values()) p.moved = true; const [a, b] = [...pointers.current.values()]; pinch.current = { distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), zoom: camera.current.zoom }; }
+        else if(active&&(selecting||e.shiftKey)){const rect=e.currentTarget.getBoundingClientRect(),p={x:e.clientX-rect.left,y:e.clientY-rect.top};selectionBox.current={pointerId:e.pointerId,start:p,end:p,additive:e.shiftKey||e.ctrlKey||e.metaKey};}
       }} onPointerMove={(e) => {
         const point = pointers.current.get(e.pointerId), f = baseView.current; if (!point || !f) return;
         const dx = e.clientX - point.x, dy = e.clientY - point.y; point.x = e.clientX; point.y = e.clientY;
         if (Math.hypot(e.clientX - point.startX, e.clientY - point.startY) > 6) point.moved = true;
+        const box=selectionBox.current;if(box?.pointerId===e.pointerId){const rect=e.currentTarget.getBoundingClientRect();box.end={x:e.clientX-rect.left,y:e.clientY-rect.top};return;}
         if (pointers.current.size > 1 && pinch.current) {
           const [a, b] = [...pointers.current.values()], rect = e.currentTarget.getBoundingClientRect();
           zoomAt(f, camera.current, pinch.current.zoom * Math.hypot(a.x - b.x, a.y - b.y) / pinch.current.distance, (a.x + b.x) / 2 - rect.left, (a.y + b.y) / 2 - rect.top);
         } else if (point.moved) { camera.current.px += dx; camera.current.py += dy; clampCam(f, camera.current); }
       }} onPointerUp={(e) => {
         const point = pointers.current.get(e.pointerId); pointers.current.delete(e.pointerId); pinch.current = null;
-        if (point && !point.moved) { const rect = e.currentTarget.getBoundingClientRect(); clickMap(e.clientX - rect.left, e.clientY - rect.top); }
-      }} onPointerCancel={(e) => { pointers.current.delete(e.pointerId); pinch.current = null; }} />
+        const box=selectionBox.current;selectionBox.current=null;
+        const rect=e.currentTarget.getBoundingClientRect();
+        if(box&&selectionMoved(box)){
+          const {packet:p,battle:b}=latest.current,f=baseView.current;
+          if(p&&b&&f){const v=camView(f,camera.current),deck=battleBridgeTiles(b),ids=b.groups.filter(g=>{if(g.side!==p.side||g.count<=0||g.escaped)return false;return inSelection(box,{x:v.ox+(g.x-g.y)*v.TW/2,y:v.oy+(g.x+g.y)*v.TH/2-(deck.has(Math.floor(g.y)*W+Math.floor(g.x))?5*v.s:0)});}).map(g=>g.id);setSelected(old=>new Set([...(box.additive?old:[]),...ids]));}
+        }else if (point && !point.moved) clickMap(e.clientX-rect.left,e.clientY-rect.top,e.shiftKey||e.ctrlKey||e.metaKey);
+      }} onPointerCancel={(e) => { selectionBox.current=null;pointers.current.delete(e.pointerId);for(const p of pointers.current.values())p.moved=true;pinch.current = null; }} />
       {!battle && <div className={styles.waiting}>{packet?.war.status === "marching" ? `Quân tới nơi lúc ${new Date(packet.war.arrive).toLocaleTimeString("vi-VN")}.` : packet?.war.status === "returning" ? "Quân đang mang chiến lợi phẩm trở về." : packet ? "Chưa có trận trực tiếp." : "Đang tải…"}</div>}
       <div className={styles.zoom}><button type="button" aria-label="Phóng to" onClick={() => { const f = baseView.current; if (f) zoomAt(f, camera.current, camera.current.zoom * 1.3, f.width / 2, f.height / 2); }}>+</button><button type="button" aria-label="Thu nhỏ" onClick={() => { const f = baseView.current; if (f) zoomAt(f, camera.current, camera.current.zoom / 1.3, f.width / 2, f.height / 2); }}>−</button></div>
     </div>
     <footer className={styles.footer}>
-      <div className={styles.groups} aria-label="Nhóm quân của bạn">{groups.map((g) => <button type="button" key={g.id} aria-pressed={selected === g.id} onClick={() => setSelected(g.id)} disabled={!active}>{UNITS[g.u].n} × {g.count}{groups.some(other=>other.id!==g.id&&other.u===g.u)?` · ${Math.floor(g.x)},${Math.floor(g.y)}`:""}</button>)}</div>
-      <p>{finished ? "Trận đã kết thúc. Quân không tiếp tục nhận lệnh tại đây." : battle?.groups.find(g=>g.id===selected)?.blocked ? "Không có đường tới mục tiêu. Kiểm tra sông, thuyền, núi và lối qua cổng. Quân nhà không tự phá nhà mình." : selected ? "Chạm đất để đi · Chạm địch để đánh" : "Chọn một nhóm quân để ra lệnh"} · Kéo và chụm để xem bản đồ</p>
+      <div className={styles.selectionControls} role="group" aria-label="Chọn nhiều quân">
+        <button type="button" aria-pressed={selecting} disabled={!active} onClick={()=>{selectionBox.current=null;setSelecting(v=>!v);}}>Chọn vùng</button>
+        <button type="button" disabled={!active} onClick={()=>setSelected(new Set(groups.map(g=>g.id)))}>Chọn tất cả</button>
+        <button type="button" disabled={!selected.size} onClick={()=>setSelected(new Set())}>Bỏ chọn</button>
+        <span role="status">{groups.filter(g=>selected.has(g.id)).length} nhóm · {groups.filter(g=>selected.has(g.id)).reduce((n,g)=>n+g.count,0)} quân đã chọn</span>
+      </div>
+      <div className={styles.groups} aria-label="Nhóm quân của bạn">{groups.map((g) => <button type="button" key={g.id} aria-pressed={selected.has(g.id)} onClick={e => chooseGroup(g.id,e.shiftKey||e.ctrlKey||e.metaKey)} disabled={!active}>{UNITS[g.u].n} × {g.count}{groups.some(other=>other.id!==g.id&&other.u===g.u)?` · ${Math.floor(g.x)},${Math.floor(g.y)}`:""}</button>)}</div>
+      <p>{finished ? "Trận đã kết thúc. Quân không tiếp tục nhận lệnh tại đây." : groups.some(g=>selected.has(g.id)&&g.blocked) ? "Không có đường tới mục tiêu. Kiểm tra sông, thuyền, núi và lối qua cổng. Quân nhà không tự phá nhà mình." : selected.size ? "Bấm đất để đi · Bấm địch để đánh · Chuột phải để đổi vị trí, kể cả đang giao chiến" : "Chọn vùng rồi kéo khung, hoặc Shift + bấm để chọn thêm nhóm"} · {selecting?"Đang kéo khung chọn; tắt Chọn vùng để kéo bản đồ":"Kéo và chụm để xem bản đồ"}</p>
       {packet?.side === "attacker" && !finished && <button type="button" className={styles.retreat} disabled={!active || battle?.status === "retreating"} onClick={() => send({ type: "retreat" })}>{battle?.status === "retreating" ? "Đang rút lui…" : "Rút quân"}</button>}
     </footer>
   </section>;

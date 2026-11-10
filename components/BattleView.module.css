@@ -13,6 +13,8 @@
 .zoom button { font-size: 22px; width: 44px; padding: 0; background: #25352def; }
 .footer { position: relative; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid #82754b; background: #25352d; }
 .groups { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; }
+.selectionControls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding-bottom: 8px; font-size: 12px; }
+.selectionControls button { padding: 6px 10px; }
 .groups button { flex-shrink: 0; font-size: 13px; }
 .footer p { padding-right: 100px; line-height: 1.5; }
 .retreat { position: absolute; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom)); background: #6f3b30 !important; }

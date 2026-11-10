@@ -1551,6 +1551,7 @@ export type DrawOpts = {
   villagers: Villager[];
   picked: Set<number>;
   pickedSoldier?: string | null;
+  pickedSoldiers?: ReadonlySet<string>;
   fx: Fx[];
   chopping: Set<number>;
 };
@@ -1807,7 +1808,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
         const next=futureSoldiers?.get(soldier.id),heading:Pt|undefined=next?[next.x-fx,next.y-fy]:undefined;
         if (!onScreen(fx-.5,fy-.5)) continue;
         items.push({d:viewDepth(v,fx,fy),f:()=>{
-          if(o.pickedSoldier===soldier.id){const [sx,sy]=P(v,fx,fy,deckHeight(r,fx,fy));c.strokeStyle="#f0c766";c.lineWidth=2;c.beginPath();c.ellipse(sx,sy,10*v.s,5*v.s,0,0,Math.PI*2);c.stroke();}
+          if(o.pickedSoldier===soldier.id||o.pickedSoldiers?.has(soldier.id)){const [sx,sy]=P(v,fx,fy,deckHeight(r,fx,fy));c.strokeStyle="#f0c766";c.lineWidth=2;c.beginPath();c.ellipse(sx,sy,10*v.s,5*v.s,0,0,Math.PI*2);c.stroke();}
           if(inWater(r,fx,fy)){const [sx,sy]=P(v,fx,fy);drawTransportBoat(c,sx,sy,v.s*.65,r.anim,cameraFace(v,soldier.face),1);}else drawSoldier(r,soldier.u,fx,fy,soldier.face,soldier.moving,n*.37,false,false,heading);
         }});
       }

@@ -36,7 +36,7 @@ test('invaders breach reachable houses and towers then resume a blocked move ord
  s.buildings=[{id:'outer',tile:5*96+4,k:'house',lvl:1,hp:6,maxHp:6,burned:false,initiallyBurned:false,value:10},{id:'inner',tile:5*96+7,k:'watchtower',lvl:1,hp:6,maxHp:6,burned:false,initiallyBurned:false,inactive:true,value:10},...Array.from({length:8},(_,i)=>({id:`far${i}`,tile:90*96+i,k:'hut',lvl:1,hp:100,maxHp:100,burned:false,initiallyBurned:false,value:100}))];
  const g=s.groups[0];g.x=1.5;g.y=5.5;g.order={type:'move',x:10.5,y:5.5};
  advanceBattle(s,100);assert.equal(g.order.type,'attack');assert.equal((g.order as {targetId:string}).targetId,'outer');
- advanceBattle(s,12000);assert.equal(s.buildings[0].burned,true);assert.equal(s.buildings[1].burned,true);assert.ok(g.x>8);assert.equal((g.order as {type:string}).type,'move');assert.equal(g.resumeOrder,undefined);
+ advanceBattle(s,12000);assert.equal(s.buildings[0].burned,true);assert.equal(s.buildings[1].burned,true);assert.ok(g.x>8);assert.equal((g.order as {type:string}).type,'guard');assert.equal(g.resumeOrder,undefined);
 });
 test('solid houses and stone block movement, accessible detours preserve all houses',()=>{
  const s=battle(),g=s.groups[0];s.buildings=[{id:'house',tile:5*96+4,k:'house',lvl:1,hp:100,maxHp:100,burned:false,initiallyBurned:false,value:100},...s.buildings];g.x=2.5;g.y=5.5;s.terrain[6*96+4]=2;g.order={type:'move',x:8.5,y:5.5};

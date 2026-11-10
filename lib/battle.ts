@@ -11,7 +11,8 @@ export type BattleSide = 'attacker' | 'defender';
 export type BattleOrder = { type: 'move'; x: number; y: number } | { type: 'attack'; targetId: string } | { type: 'guard'; x: number; y: number } | { type: 'retreat' };
 export type BattleGroup = {nextAttackAt?:number; naval?: boolean; id: string; side: BattleSide; u: UKey; count: number; initial: number; hp: number; x: number; y: number; order: BattleOrder; moving?: boolean; blocked?: boolean; entry?: {x:number;y:number}; resumeOrder?: BattleOrder; breachRetryAt?: number; retreatExit?: {x:number;y:number}; escaped?: boolean; path?: number[] | null; pathGoal?: number; pathVersion?: number };
 export type BattleBuilding = { bridge?:BridgeSpan; nextAttackAt?:number; towerEnabled?:boolean; id: string; tile: number; k: string; lvl: number; hp: number; maxHp: number; inactive?: boolean; burned: boolean; initiallyBurned: boolean; value: number };
-export type BattleCommand = { type: 'move'; groupId: string; x: number; y: number } | { type: 'attack'; groupId: string; targetId: string } | { type: 'retreat' } | { type: 'presence'; online: boolean };
+type BattleSelection = { groupId: string; groupIds?: never } | { groupIds: string[]; groupId?: never };
+export type BattleCommand = ({ type: 'move'; x: number; y: number } & BattleSelection) | ({ type: 'attack'; targetId: string } & BattleSelection) | { type: 'retreat' } | { type: 'presence'; online: boolean };
 export type BattleStrike = { id: string; at: number; source: string; kind: 'arrow' | 'stone' | 'melee'|'bullet'|'shell'; from: {x:number;y:number}; to: {x:number;y:number} };
 export type BattleState = { towerSlotsReady?:boolean; defenseCenter?:number; strikes?: BattleStrike[]; defenderEra?:number; id: string; attackerId: string; defenderId: string; startedAt: number; lastTick: number; terrain: number[]; groups: BattleGroup[]; buildings: BattleBuilding[]; status: 'fighting' | 'retreating' | 'finished'; winner?: BattleSide; defenderOnline: boolean; initialPopulation: number; populationLoss: number; startingResources: Res; loot: Res; devastation: number };
 export type BattleResult = { winner: BattleSide; attackerSurvivors: Troops; defenderSurvivors: Troops; attackerCasualties: number; defenderCasualties: number; populationLoss: number; burnedTiles: number[]; loot: Res; devastation: number };
@@ -101,11 +102,14 @@ export function commandBattle(s:BattleState,side:BattleSide,c:BattleCommand):boo
   if(s.status==='finished')return false;
   if(c.type==='presence'){if(side!=='defender')return false;s.defenderOnline=c.online;return true;}
   if(c.type==='retreat'){if(side!=='attacker'||s.status!=='fighting')return false;s.status='retreating';for(const g of s.groups)if(g.side==='attacker'){g.order={type:'retreat'};delete g.resumeOrder;delete g.retreatExit;}return true;}
-  const g=s.groups.find(g=>g.id===c.groupId&&g.side===side&&living(g));if(!g||s.status==='retreating'&&side==='attacker')return false;
   if(battleCommandError(s,side,c))return false;
-  delete g.resumeOrder;delete g.breachRetryAt;
-  if(c.type==='move'){if(!Number.isFinite(c.x)||!Number.isFinite(c.y)||c.x<0||c.y<0||c.x>=W||c.y>=H)return false;g.order={type:'move',x:c.x,y:c.y};}
-  else {if(!s.groups.some(t=>t.id===c.targetId&&t.side!==side&&living(t))&&!(side==='attacker'&&s.buildings.some(b=>b.id===c.targetId&&!b.burned)))return false;g.order={type:'attack',targetId:c.targetId};}delete g.path;g.blocked=false;g.moving=false;return true;
+  const ids=new Set(c.groupIds??[c.groupId]);
+  for(const g of s.groups)if(ids.has(g.id)){
+    delete g.resumeOrder;delete g.breachRetryAt;
+    g.order=c.type==='move'?{type:'move',x:c.x,y:c.y}:{type:'attack',targetId:c.targetId};
+    delete g.path;g.blocked=false;g.moving=false;
+  }
+  return true;
 }
 /** Four-neighbour BFS respects transports and intact fortifications. */
 function move(s:BattleState,g:BattleGroup,target:{x:number;y:number},deck:ReadonlySet<number>=battleBridgeTiles(s),escape=false):boolean {
@@ -140,15 +144,21 @@ function move(s:BattleState,g:BattleGroup,target:{x:number;y:number},deck:Readon
  * never demolished automatically; a river still requires transport capacity. */
 export function battleCommandError(s:BattleState,side:BattleSide,c:BattleCommand):string|null {
   if(s.status==='finished')return 'Trận đã kết thúc, không thể điều quân trong báo cáo trận.';
-  if(c.type!=='move'||side!=='defender')return null;
-  if(!Number.isFinite(c.x)||!Number.isFinite(c.y)||c.x<0||c.y<0||c.x>=W||c.y>=H)return null;
-  const g=s.groups.find(g=>g.id===c.groupId&&g.side===side&&living(g));if(!g)return null;
+  if(c.type==='presence'||c.type==='retreat')return null;
+  if(s.status==='retreating'&&side==='attacker')return 'Đoàn quân đang rút khỏi trận.';
+  const ids=c.groupIds??[c.groupId];
+  if(!Array.isArray(ids)||!ids.length||ids.length>360||new Set(ids).size!==ids.length||c.groupIds&&c.groupId!==undefined)return 'Nhóm quân được chọn không hợp lệ.';
+  const groups=ids.map(id=>s.groups.find(g=>g.id===id&&g.side===side&&living(g)));
+  if(groups.some(g=>!g))return 'Một số nhóm quân không còn khả dụng hoặc không thuộc phe của bạn. Hãy chọn lại.';
+  if(c.type==='attack')return s.groups.some(t=>t.id===c.targetId&&t.side!==side&&living(t))||side==='attacker'&&s.buildings.some(b=>b.id===c.targetId&&!b.burned)?null:'Mục tiêu không còn khả dụng.';
+  if(!Number.isFinite(c.x)||!Number.isFinite(c.y)||c.x<0||c.y<0||c.x>=W||c.y>=H)return 'Vị trí nằm ngoài bản đồ.';
+  if(side!=='defender')return null;
   const tile=Math.floor(c.y)*W+Math.floor(c.x);
-  if(s.terrain[tile]===R&&!g.naval&&!battleBridgeTiles(s).has(tile))return 'Không thể qua sông: cần cầu hoàn chỉnh hoặc đủ thuyền vận tải chưa được sử dụng. Chọn vị trí cùng bờ.';
+  if(s.terrain[tile]===R&&groups.some(g=>!g!.naval)&&!battleBridgeTiles(s).has(tile))return 'Không thể qua sông: cần cầu hoàn chỉnh hoặc đủ thuyền vận tải chưa được sử dụng. Chọn vị trí cùng bờ.';
   if(isRock(s.terrain[tile]))return 'Không thể đứng trên núi hoặc mỏ đá. Chọn ô đất trống.';
   if(s.buildings.some(b=>b.tile===tile&&blockingBuilding(b,side)))return 'Công trình của mình đang chiếm ô này. Chọn đất trống hoặc đi qua cổng.';
-  const probe={...g,path:undefined};
-  return move(s,probe,c)?null:'Không có đường tới vị trí này. Kiểm tra sông, núi và lối ra qua cổng; quân phòng thủ không tự phá nhà mình.';
+  for(const g of groups){const probe={...g!,path:undefined};if(!move(s,probe,c))return 'Không có đường tới vị trí này cho toàn bộ nhóm đã chọn. Kiểm tra sông, núi và lối ra qua cổng; quân phòng thủ không tự phá nhà mình.';}
+  return null;
 }
 
 /** Pick a blocker with a reachable attack face, favouring progress toward the order.
@@ -222,10 +232,10 @@ function tick(s:BattleState){
       else if(lead&&dist(g,lead)>2)move(s,g,{x:Math.max(.5,Math.min(W-.5,lead.x+(g.side==='attacker'?-2:2))),y:lead.y},deck);
       continue;
     }
-    // An online defender's explicit move takes priority over automatic pursuit,
-    // including an unreachable enemy on the opposite bank. Resume guarding on arrival.
-    if(g.side==='defender'&&s.defenderOnline&&g.order.type==='move'){
-      const destination=g.order;move(s,g,destination,deck);
+    // Explicit repositioning overrides automatic melee/ranged attacks on both
+    // sides, so an engaged attacker can disengage rather than ignore the order.
+    if((g.side==='attacker'||s.defenderOnline)&&g.order.type==='move'){
+      const destination=g.order;if(!move(s,g,destination,deck))breach(s,g,destination,deck);
       if(dist(g,destination)<.01){g.order={type:'guard',x:g.x,y:g.y};delete g.path;}
       continue;
     }

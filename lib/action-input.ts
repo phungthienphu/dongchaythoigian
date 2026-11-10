@@ -26,6 +26,7 @@ const tile = (value: unknown) => integer(value, 0, MAP_SIDE * MAP_SIDE - 1);
 const point = (value: unknown) => record(value) && integer(value.x, 0, MAP_SIDE - 1) && integer(value.y, 0, MAP_SIDE - 1);
 const known = (table: object, value: unknown) => typeof value === 'string' && own(table, value);
 const orientation=(value:unknown)=>value==='auto'||value==='x'||value==='y';
+const soldierId=(value:unknown)=>typeof value==='string'&&/^(club|sling|spear|bow|sword|elephant|wagon|medic|crossbow|cavalry|musket|cannon|infantry|armor):\d{1,3}$/.test(value);
 function task(value: unknown) {
   if (!record(value) || !own(value, 't')) return false;
   switch (value.t) {
@@ -60,7 +61,8 @@ export function isActionInput(value: unknown): value is Action {
     case 'upgradeStorage': return point(value) && RESOURCES.includes(value.resource as typeof RESOURCES[number]);
     case 'plantTree': case 'toggleBuilding': case 'buildShip': case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'tendFarmGroup': case 'speedBuild': return point(value);
     case 'relocateDock': case 'connectBridge': return point(value) && tile(value.to);
-    case 'moveSoldier': return typeof value.id === 'string' && /^(club|sling|spear|bow|sword|elephant|wagon|medic|crossbow|cavalry|musket|cannon|infantry|armor):\d{1,3}$/.test(value.id) && point(value);
+    case 'moveSoldier': return soldierId(value.id) && point(value);
+    case 'moveSoldiers': return Array.isArray(value.ids)&&value.ids.length>0&&value.ids.length<=360&&value.ids.every(soldierId)&&new Set(value.ids).size===value.ids.length&&point(value);
     case 'train': return known(UNITS, value.u) && integer(value.n, 1, 50);
     case 'releaseTroops': return troops(value.units) && (value.mode==='demobilize'||value.mode==='expel');
     case 'recall': return integer(value.exp, 1);
