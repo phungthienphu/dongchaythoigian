@@ -1,0 +1,12 @@
+.panel { border-top:1px solid var(--line); margin-top:16px; padding-top:6px; }
+.panel h5 { font-size:14px; margin:14px 0 6px; }
+.panel ul { padding-left:18px; }
+.panel li { margin-bottom:8px; }
+.rates { display:flex; flex-wrap:wrap; gap:6px 20px; }
+.rates p { margin:4px 0; }
+.rates b { display:block; }
+.panel summary { cursor:pointer; font-weight:600; padding:8px 0; }
+.buildings { list-style:none; padding:0!important; }
+.buildings li { border-top:1px solid var(--line); padding:8px 0; }
+.buildings p { margin:5px 0; }
+.buildings button { max-width:100%; text-align:left; }

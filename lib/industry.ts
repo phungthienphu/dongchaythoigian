@@ -53,20 +53,30 @@ export function plantTree(c:City,tile:number,now:number){
  if(c.res.food<10)return 'Cần 10 lương thực để trồng cây.';
  c.res.food-=10;recordResourceFlow(c,now,'spent','food',10);s.seedlings[tile]={nursery:+nursery[0],readyAt:now+30*MIN};return null;
 }
-/** Accumulate actual staffed working time, then publish pollution at absolute minutes. */
-export function stepIndustry(c:City,from:number,to:number,defs:Record<string,Def>,staff=staffCounts(c),cleaners=Object.entries(c.b)){
- const s=c.industry;if(!s||to<=s.enteredAt)return false;let changed=false,emissionRate=0;
+/** Shared with the pollution inspector; keep total in worker iteration order. */
+export function productionEmissionRates(c:City,at:number,defs:Record<string,Def>,byTile?:Map<number,number>){
+ let total=0;
  const green=completedWonder(c,'green')?.5:1;
  for(const p of c.people){const h=p.haul;if(p.refuge||h?.phase!=='work'||h.source?.kind!=='building')continue;const b=c.b[h.source.key],d=b&&defs[b.k];if(!d?.emission||!active(b))continue;
-  const output=Object.values(buildingOutput(c,b.k,d.prod??{},from))[0]??1;
+  const output=Object.values(buildingOutput(c,b.k,d.prod??{},at))[0]??1;
   if(d.input&&Object.entries(d.input).some(([r,n])=>c.res[r as keyof City['res']]<(n??0)/output))continue;
-  emissionRate+=d.emission*(d.demand?powerFraction(c,h.source.key):1)*green*multiplier(b)/Math.max(1,operationJobs(b,d));
+  const rate=d.emission*(d.demand?powerFraction(c,h.source.key):1)*green*multiplier(b)/Math.max(1,operationJobs(b,d));
+  total+=rate;if(byTile)byTile.set(h.source.key,(byTile.get(h.source.key)??0)+rate);
  }
- let clean=1;
- for(const [i,b]of cleaners)if(active(b)){
-  if(b.k==='treatment')clean+=4*Math.min(1,(staff.get(+i)??0)/3);
-  if(b.k==='park')clean+=1;
+ return total;
+}
+export function pollutionCleanup(c:City,staff=staffCounts(c),entries=Object.entries(c.b),byTile?:Map<number,number>){
+ let total=1;
+ for(const [i,b]of entries)if(b.k==='treatment'||b.k==='park'){
+  const rate=active(b)?b.k==='treatment'?4*Math.min(1,(staff.get(+i)??0)/3):1:0;
+  total+=rate;byTile?.set(+i,rate);
  }
+ return total;
+}
+/** Accumulate actual staffed working time, then publish pollution at absolute minutes. */
+export function stepIndustry(c:City,from:number,to:number,defs:Record<string,Def>,staff=staffCounts(c),cleaners=Object.entries(c.b)){
+ const s=c.industry;if(!s||to<=s.enteredAt)return false;let changed=false;
+ const emissionRate=productionEmissionRates(c,from,defs),clean=pollutionCleanup(c,staff,cleaners);
  // Split at absolute minute boundaries even when invoked for a large interval.
  let cursor=Math.max(from,s.enteredAt);
  while(cursor<to){
