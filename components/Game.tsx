@@ -346,6 +346,14 @@ function ControlPanel(props: {
 }
 
 export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
+  const hudRef=useCallback((header:HTMLElement|null)=>{
+    if(!header)return;
+    const game=header.parentElement;
+    const resize=()=>game?.style.setProperty('--hud-top-height',`${Math.ceil(header.getBoundingClientRect().height)}px`);
+    resize();
+    const observer=new ResizeObserver(resize);observer.observe(header);
+    return ()=>observer.disconnect();
+  },[]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>();
   const [recoveryProgress, setRecoveryProgress] = useState<RecoveryProgress>();
@@ -1182,7 +1190,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
       {!worldOpen&&!battleOpen&&!visitRef.current&&<DisasterNotifications city={c} onLocate={tile=>{setWorldOpen(false);setSelected({x:tile%W,y:Math.floor(tile/W)});setPanel(null);focusOn(fitRef.current,camRef.current,tile%W+.5,Math.floor(tile/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));}} onHistory={()=>setPanel("log")}/>}
 
-      <header className="hud-top">
+      <header className="hud-top" ref={hudRef}>
         <div className="brand">
           <div className="titlerow">
             <h1>{name}</h1>

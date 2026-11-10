@@ -200,9 +200,8 @@ button.x:hover { color: var(--fg); }
 .hud-top > * { pointer-events: auto; }
 .hud-top .brand { min-width: 0; padding-top: 2px; }
 .hud-top .date { font-size: 12.5px; }
-.chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
-.chips::-webkit-scrollbar { display: none; }
-.chips .chip { background: rgba(20,32,29,.88); flex: none; padding: 4px 9px 4px 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%; }
+.chips .chip { background: rgba(20,32,29,.88); flex: none; max-width: 100%; padding: 4px 9px 4px 4px; }
 .chips .ic { width: 26px; height: 26px; }
 .chips .bar { width: 64px; }
 
@@ -532,6 +531,9 @@ a.google.small { padding: 4px 10px; font-size: 12.5px; }
 .game .disaster-notifications { position: fixed; z-index: 26; top: 160px; left: 16px; width: min(390px, calc(100vw - 100px)); max-height: 50dvh; overflow: auto; margin: 0; box-shadow: 0 4px 20px #0005; }
 .game .disaster-notifications h2 { font-size: 18px; }
 @media (max-width: 680px) { .game .disaster-notifications { top: 134px; left: 12px; width: calc(100vw - 24px); max-height: 42dvh; } }
+
+/* Resource rows grow with the viewport; alerts follow the actual HUD height. */
+.game .war-alerts, .game .raidbar, .game .disaster-notifications { top: calc(var(--hud-top-height, 150px) + 8px); }
 
 .demolition-review { padding: 12px; border: 1px solid var(--danger); border-radius: 6px; }
 .demolition-review p { margin: 0 0 10px; }
