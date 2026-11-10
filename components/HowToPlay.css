@@ -5,6 +5,11 @@
 .how-to-play header p, .how-to-play h2 { margin: 0; }
 .how-to-play header button { align-self: flex-start; min-width: 40px; min-height: 40px; font-size: 24px; }
 .how-to-play .guide-content { overflow: auto; overscroll-behavior: contain; padding: 0 20px 16px; line-height: 1.65; }
+.guide-search { padding:12px 20px; border-bottom:1px solid #415044; flex:none; }
+.guide-search label { display:block; font-size:12px; color:#c6cdb8; }
+.guide-search input { display:block; width:100%; min-height:44px; margin-top:6px; padding:10px 12px; border:1px solid #718065; border-radius:4px; color:#f1e8d0; background:#15271f; font:inherit; font-size:14px; }
+.how-to-play summary { min-height:44px; display:list-item; align-content:center; }
+.how-to-play .guide-content { font-size:14px; }
 .how-to-play h3 { color: #edcc7b; }
 .how-to-play details { border-top: 1px solid #415044; padding: 14px 0; }
 .how-to-play summary { cursor: pointer; color: #edcc7b; font-weight: 600; padding: 4px 0; }
