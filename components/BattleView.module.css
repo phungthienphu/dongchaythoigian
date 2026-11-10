@@ -25,3 +25,11 @@
 @media (max-width: 600px) { .header { padding: 10px; }.header h2 { font-size: 14px; }.footer { padding-left: 10px; padding-right: 10px; }.footer p { font-size: 11px; }.result { max-height: 24vh; overflow: auto; } }
 
 .hint { margin: 0; padding: 6px 16px; background: #25352d; color: #d7ccb1; font-size: 12px; line-height: 1.4; }
+.hint summary { cursor:pointer; padding:4px 0; }.hint p { margin:6px 0; }
+.moreCommands { margin:4px 0 8px; }
+.moreCommands summary { cursor:pointer; font-size:13px; min-height:32px; align-content:center; color:#e8d4a4; }
+.moreCommands[open] { max-height:28dvh; overflow:auto; padding:6px 0; border-block:1px solid #6e7852; }
+.selectionControls select { max-width:190px; min-height:44px; background:#182c25; color:#f1ecd9; border:1px solid #8b7c52; border-radius:5px; padding:6px; font:inherit; }
+.selectionControls button { min-height:44px; }
+.footer .commandHint { font-size:13px; padding-right:110px; }
+@media(max-width:600px) { .selectionControls { gap:5px; }.selectionControls select { flex:1; max-width:none; min-width:130px; }.selectionControls>span { width:100%; }.footer { max-height:45dvh; overflow:auto; }.footer .commandHint { font-size:12px; padding-right:0; }.retreat { position:static; margin-top:8px; }.moreCommands[open] { max-height:20dvh; } }

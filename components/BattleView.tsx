@@ -256,7 +256,7 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
   return <section className={styles.overlay} role="dialog" aria-modal="true" aria-labelledby="battle-title" onKeyDown={(e) => {
     if (e.key === "Escape") { if(selected.size||selecting){setSelected(new Set());setSelecting(false);selectionBox.current=null;}else onClose(); }
     if (e.key === "Tab") {
-      const controls = [...e.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled]), canvas[tabindex]")];
+      const controls = [...e.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), select:not([disabled]), input:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')].filter(el=>el.getClientRects().length>0);
       const first = controls[0], last = controls[controls.length - 1];
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
@@ -266,7 +266,7 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
       <div><h2 id="battle-title">{packet ? `${packet.war.attackerName} → ${packet.war.defenderName}` : "Trận đánh"}</h2><p role="status">{finished ? "Trận đã kết thúc" : connection}{battle && !finished ? ` · Tàn phá ${Math.round(battle.devastation * 100)}%` : ""}</p></div>
       <button type="button" onClick={onClose} aria-label="Đóng phòng trận" autoFocus>Đóng</button>
     </header>
-    {!finished && <p className={styles.hint}>Dân đang chạy tìm chỗ trú, tạm ngừng làm việc. Dân không tham chiến; trú ẩn không bảo đảm an toàn nếu làng bị tàn phá.</p>}
+    {!finished && <details className={styles.hint}><summary>Dân làng đang trú ẩn</summary><p>Dân tạm ngừng làm việc và không tham chiến. Trú ẩn không bảo đảm an toàn nếu làng bị tàn phá.</p></details>}
     {error && <div className={styles.error} role="alert">{error} {!connected && <button type="button" onClick={() => setRetry((n) => n + 1)}>Kết nối lại</button>}</div>}
     {preview && <div className={styles.result}><p>Bản thử local: chọn nhiều nhóm rồi bấm đất để đổi vị trí; chuột phải để rời mục tiêu đang đánh. Không tác động tài khoản thật.</p><button onClick={()=>setBattle(b=>b?{...b,status:"finished",winner:"defender"}:b)}>Kết thúc trận thử</button><output aria-live="off">{battle?.groups.filter(g=>g.side===preview.side).map(g=>`${UNITS[g.u].n}: (${g.x.toFixed(1)}, ${g.y.toFixed(1)})`).join(" · ")}</output></div>}
     {finished && <div className={styles.result} role="status"><strong>{packet?.war.status === "cancelled" ? "Đoàn quân đã quay về." : winner === packet?.side ? "Bạn đã thắng trận." : winner ? "Bạn đã thua trận." : "Trận đánh đã kết thúc."}</strong>{winner === "attacker" && <p>{MERCY}</p>}<p>Dân mất: {battle?.populationLoss ?? packet?.war.result?.populationLoss ?? 0} · Nhà cháy: {battle?.buildings.filter((b) => b.burned && !b.initiallyBurned).length ?? packet?.war.result?.burnedTiles.length ?? 0}</p></div>}
@@ -310,11 +310,15 @@ export default function BattleView({ id, onClose, onSettled, preview }: { id: st
       <div className={styles.selectionControls} role="group" aria-label="Chọn nhiều quân">
         <button type="button" aria-pressed={selecting} disabled={!active} onClick={()=>{selectionBox.current=null;setSelecting(v=>!v);}}>Chọn vùng</button>
         <button type="button" disabled={!selected.size} onClick={()=>setSelected(new Set())}>Bỏ chọn</button>
+        <select aria-label="Chọn nhanh loại quân" disabled={!active} value={unitType??''} onChange={e=>{const type=e.target.value as UKey|'';setUnitType(type||null);setSelected(new Set(groups.filter(g=>!type||g.u===type).map(g=>g.id)));}}><option value="">Tất cả loại quân</option>{Object.entries(typeCounts).filter(([,n])=>n>0).map(([u,n])=><option key={u} value={u}>{UNITS[u as UKey].n} · {n}</option>)}</select>
         <span role="status">{groups.filter(g=>selected.has(g.id)).length} nhóm · {groups.filter(g=>selected.has(g.id)).reduce((n,g)=>n+g.count,0)} quân đã chọn</span>
       </div>
+      <details className={styles.moreCommands}><summary>Chọn theo loại / nhóm quân</summary>
       <TroopTypePicker counts={typeCounts} filter={unitType} disabled={!active} onChoose={(type,additive)=>{setUnitType(type);const ids=groups.filter(g=>!type||g.u===type).map(g=>g.id);setSelected(old=>new Set([...(additive?old:[]),...ids]));}}/>
       <div className={styles.groups} aria-label="Nhóm quân của bạn">{groups.map((g) => <button type="button" key={g.id} aria-pressed={selected.has(g.id)} onClick={e => {setUnitType(null);chooseGroup(g.id,e.shiftKey||e.ctrlKey||e.metaKey);}} disabled={!active}>{UNITS[g.u].n} × {g.count}{groups.some(other=>other.id!==g.id&&other.u===g.u)?` · ${Math.floor(g.x)},${Math.floor(g.y)}`:""}</button>)}</div>
       <p>{finished ? "Trận đã kết thúc. Quân không tiếp tục nhận lệnh tại đây." : groups.some(g=>selected.has(g.id)&&g.blocked) ? "Không có đường tới mục tiêu. Kiểm tra sông, thuyền, núi và lối qua cổng. Quân nhà không tự phá nhà mình." : selected.size ? "Bấm đất để dàn gác · Bấm địch để đánh · Chuột phải để đổi vị trí, kể cả đang giao chiến" : "Chọn vùng rồi kéo khung, hoặc Shift + bấm để chọn thêm nhóm"} · {selecting?"Đang kéo khung chọn; tắt Chọn vùng để kéo bản đồ":"Kéo và chụm để xem bản đồ"}</p>
+      </details>
+      <p className={styles.commandHint} role="status">{finished?'Trận đã kết thúc':groups.some(g=>selected.has(g.id)&&g.blocked)?'Quân đang bị chặn đường · mở chi tiết để kiểm tra':selected.size?'Bấm đất để di chuyển · bấm địch để đánh':selecting?'Kéo khung để chọn quân':'Chọn vùng hoặc chọn nhóm để ra lệnh'}</p>
       {packet?.side === "attacker" && !finished && <button type="button" className={styles.retreat} disabled={!active || battle?.status === "retreating"} onClick={() => send({ type: "retreat" })}>{battle?.status === "retreating" ? "Đang rút lui…" : "Rút quân"}</button>}
     </footer>
   </section>;
