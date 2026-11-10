@@ -1,6 +1,6 @@
 # Spec zombie — sinh tồn, bệnh dịch và phá hủy công trình
 
-Ngày cập nhật: 11/11/2026. Trạng thái: **đang triển khai và kiểm thử, chưa xác nhận phát hành production**. Đây là nguồn luật zombie duy nhất cho mọi đời 1–9; `eras-7-9-spec.md` dẫn chiếu tài liệu này. Giá và chỉ số là baseline cần mô phỏng/chơi thử, không phải cân bằng đã xác nhận.
+Ngày cập nhật: 11/11/2026. Trạng thái: **nền tảng đã phát hành, xem phạm vi và phần chưa hoàn thiện tại `zombie-release-2026-11-11.md`**. Đây là nguồn luật zombie duy nhất cho mọi đời 1–9; `eras-7-9-spec.md` dẫn chiếu tài liệu này. Giá và chỉ số là baseline cần mô phỏng/chơi thử, không phải cân bằng đã xác nhận.
 
 ## 1. Luật đã chốt
 
