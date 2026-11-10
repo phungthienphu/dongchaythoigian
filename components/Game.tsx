@@ -3,7 +3,8 @@ import {towerStats} from '@/lib/tower-balance';
 import {defendingTowers} from '@/lib/engine';
 import {pollutionBirth} from '@/lib/industry';
 import EraOfflineSummary from './EraOfflineSummary';
-import {canToggle,serviceBonus} from '@/lib/modern';
+import {canToggle,finalWonderError,serviceBonus} from '@/lib/modern';
+import FinalWonderReview from './FinalWonderReview';
 import {RELEASE_RULES,type EngineRules} from '@/lib/eras';
 
 import EraCivicPanel,{EraCivicBuilding} from './EraCivicPanel';
@@ -391,10 +392,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [nameInput, setNameInput] = useState("");
   const [, setVersion] = useState(0);
   const [planting,setPlanting]=useState(false);
-  const [finalReview,setFinalReview]=useState<BKey|null>(null);
+  const [finalReview,setFinalReview]=useState<'dam'|'green'|null>(null);
   const finalConfirmed=useRef<BKey|null>(null);
-  const finalDialog=useRef<HTMLDialogElement>(null);
-  useEffect(()=>{if(finalReview&&!finalDialog.current?.open)finalDialog.current?.showModal();},[finalReview]);
   const [tool, setTool] = useState<BKey | null>(null);
   const [defenseOrientation,setDefenseOrientation]=useState<DefenseMode>('auto');
   const [selected, setSelected] = useState<Cell | null>(null);
@@ -1415,7 +1414,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
       {armyManagement&&!visiting&&<ArmyManagement city={c} now={t} busy={busy} act={act} onClose={()=>setArmyManagement(false)}/>}
       {economyOpen&&!visiting&&<EconomySummary city={c} now={t} stats={st} onClose={()=>setEconomyOpen(false)}/>}
-      {finalReview&&<dialog ref={finalDialog} aria-label="Chọn kỳ quan cuối" className="final-wonder-modal" onCancel={e=>{e.preventDefault();setFinalReview(null);}}><div className="final-wonder-card"><h2>{B[finalReview].n}</h2><p>{B[finalReview].d}</p><p>Khi hoàn thành, lựa chọn này cố định. Trong lúc xây có thể hủy theo luật hoàn trả; hoàn thành rồi chỉ có thể sửa chữa.</p><button onClick={()=>{finalConfirmed.current=finalReview;pickTool(finalReview);setFinalReview(null);}}>Đồng ý đánh đổi · chọn vị trí</button><button onClick={()=>setFinalReview(null)}>Quay lại</button></div></dialog>}
+      {finalReview&&<FinalWonderReview city={c} kind={finalReview} now={t} onClose={()=>setFinalReview(null)} onConfirm={()=>{finalConfirmed.current=finalReview;pickTool(finalReview);setFinalReview(null);}} onLocate={tile=>{setFinalReview(null);setSelected({x:tile%W,y:Math.floor(tile/W)});setPanel(null);focusOn(fitRef.current,camRef.current,tile%W+.5,Math.floor(tile/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));}}/>}
       <div className="hud-bottom">
         {planting&&<button onClick={()=>setPlanting(false)}>Kết thúc trồng cây</button>}
         {c.era>=4&&<button onClick={()=>openPanel('era')}>{c.modern?`⚡ ${fmt(c.modern.supply)}/${fmt(c.modern.demand)} MW · `:''}{c.industry?`Ô nhiễm ${fmt(c.industry.pollution)}/100 · Cách giảm`:'Quản lý nước và Trung đại'}</button>}
@@ -1436,8 +1435,10 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           <div className="pickbar">
             <b>Đang xây {buildingName(c, tool)}</b>
             <span>Ô xanh: xây được · ô đỏ: không hợp lệ. {placementHint(tool)}</span>
+            {(tool==='dam'||tool==='green')&&finalWonderError(c,tool,t)&&<span className="err">{finalWonderError(c,tool,t)} <button onClick={()=>setFinalReview(tool)}>Xem toàn bộ điều kiện</button></span>}
             {(tool==='wall'||tool==='gate')&&<><DefenseOrientation value={defenseOrientation} axis={defenseAxis(c,hover?idx(hover.x,hover.y):-1,{tile:hover?idx(hover.x,hover.y):-1,building:{k:tool,lvl:1,doneAt:null,...(defenseOrientation!=='auto'?{orientation:defenseOrientation}:{})}})} onChange={setDefenseOrientation}/><span className="small">Phím R để xoay. Xoay và tự nối không tốn tài nguyên.</span></>}
             <button onClick={()=>{
+              const prerequisite=finalWonderError(c,tool,t);if(prerequisite){setMsg({text:prerequisite,err:true});if(tool==='dam'||tool==='green')setFinalReview(tool);return;}
               const allowed=placementTiles(c,D,tool,rules);
               let best=-1,distance=Infinity;
               for(let i=0;i<W*W;i++)if(allowed(i)){const d=cheb(c.camp,i);if(d<distance){best=i;distance=d;}}
@@ -1557,6 +1558,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                         <span className={"c" + (poor && !locked ? " no" : "")}>{costText(buildingCost(k, Math.max(B[k].era,c.era)))}</span>
                         <span className="tm">⏱ {fmtDur(buildMs(k, 1))}</span>
                         <span className="ds">{B[k].d}</span>
+                        {(k==='dam'||k==='green')&&<span className="ds">{finalWonderError(c,k,t)??'Đủ điều kiện công trình'} · Bấm để xem toàn bộ điều kiện</span>}
                       </button>
                     );
                   })}

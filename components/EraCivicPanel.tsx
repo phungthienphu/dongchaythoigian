@@ -4,6 +4,7 @@ import {inDrought,waterProtection} from '@/lib/medieval';
 import {active,multiplier,pollutionRemovalCapacity,staffCounts} from '@/lib/industry';
 import {finalWonderError,powerFraction,type PowerGroup} from '@/lib/modern';
 import PollutionPanel from './PollutionPanel';
+import FinalWonderRequirements from './FinalWonderRequirements';
 const number=(n:number)=>Number(n.toFixed(1)).toLocaleString('vi-VN');
 const groups:Record<PowerGroup,string>={essential:'Thiết yếu: bệnh viện',housing:'Dân sinh: chung cư',production:'Sản xuất: đại học và xưởng'};
 export function EraCivicBuilding({city,building:b,tile,now}:{city:City;building:Building;tile:number;now:number}){
@@ -41,7 +42,7 @@ export default function EraCivicPanel({city:c,now,busy,act,onLocate}:{city:City;
  {Object.entries(c.b).filter(([,b])=>B[b.k].supply||B[b.k].demand).map(([tile,b])=><p key={`device:${tile}`}><button onClick={()=>onLocate?.(+tile)}>Xem {B[b.k].n}</button> <span className="small">{b.off?'Đang tắt':b.burned||b.flooded?'Cần sửa':B[b.k].supply?`${number(m.generation[tile]??0)} MW phát`:`${number((m.allocation[tile]??0)*100)}% điện`}</span></p>)}
  {!!Object.keys(m.allocation).length&&<ul>{Object.entries(m.allocation).map(([tile,f])=><li key={tile}>{B[c.b[tile].k].n} ({+tile%96+1},{Math.floor(+tile/96)+1}): {number(f*100)}% điện</li>)}</ul>}
  <h4>Hai hướng hoàn thành</h4><p><b>Đập Sông Mẹ:</b> +150 MW sạch, bảo vệ toàn làng khỏi hạn/ngập; phù sa ruộng chỉ còn ×1,5.</p><p><b>Thành Phố Sông Xanh:</b> giảm 50% phát thải sản xuất, chống hạn, bảo vệ ngập trong vùng hồ điều hòa, giữ phù sa ×2; tiếp tục tự cung cấp điện.</p>
- {(['dam','green'] as const).map(k=><p className="small" key={k}>{B[k].n}: {finalWonderError(c,k,now)??'Đủ điều kiện khởi công'}</p>)}
+ {(['dam','green'] as const).map(k=><details key={k}><summary>{B[k].n} · {finalWonderError(c,k,now)?'Xem điều kiện còn thiếu':'Đủ điều kiện công trình'}</summary><FinalWonderRequirements city={c} kind={k} now={now} onLocate={onLocate}/></details>)}
  {m.completedAt!==undefined&&<div role="status" className="ok"><h3>🏆 Khánh thành {B[m.choice!].n}</h3><p>Thành phố đã hoàn thành nhánh phát triển. Anh vẫn có thể xây dựng, giao thương và tham gia thế giới.</p></div>}
  </>}
  </section>;

@@ -57,21 +57,35 @@ export function stepPower(c:City,from:number,to:number,defs:Record<string,Def>,s
  const changed=Object.keys({...m.allocation,...allocation}).some(i=>m.allocation[i]!==allocation[i]);
  m.supply=supply;m.demand=demand;m.clean=clean;m.allocation=allocation;m.generation=generation;return changed;
 }
-export function finalWonderError(c:City,k:BKey,at:number):string|null{
- if(k!=='dam'&&k!=='green')return null;
- const m=c.modern;if(!m)return 'Chưa mở Hiện đại.';
- if(m.choice&&m.choice!==k||Object.values(c.b).some(b=>(b.k==='dam'||b.k==='green')&&b.k!==k))return 'Chỉ chọn một kỳ quan cuối; lựa chọn cố định sau khánh thành.';
- if(!Object.values(c.b).some(b=>b.k==='hall'&&b.lvl>=6&&active(b)))return 'Cần Đình làng cấp 6 đang hoạt động.';
- if(c.people.length<400)return `Cần 400 dân, còn thiếu ${400-c.people.length}.`;
- const staff=staffCounts(c);
+export type FinalWonderRequirement={id:string;label:string;met:boolean;detail:string;error:string;tile?:number};
+/** Lazy iteration keeps placement checks cheap when an early prerequisite fails. */
+export function* finalWonderRequirements(c:City,k:BKey,at:number):Generator<FinalWonderRequirement>{
+ if(k!=='dam'&&k!=='green')return;
+ const m=c.modern;
+ yield {id:'era',label:'Mở thời Hiện đại',met:!!m,detail:m?'Đã mở':'Chưa mở',error:'Chưa mở Hiện đại.'};
+ if(!m)return;
+ const entries=Object.entries(c.b);
+ const other=!!(m.choice&&m.choice!==k)||entries.some(([,b])=>(b.k==='dam'||b.k==='green')&&b.k!==k);
+ yield {id:'choice',label:'Chưa chọn kỳ quan nhánh khác',met:!other,detail:other?'Đã chọn hoặc đang xây nhánh khác':'Chỉ được hoàn thành một trong hai nhánh',error:'Chỉ chọn một kỳ quan cuối; lựa chọn cố định sau khánh thành.'};
+ const halls=entries.filter(([,b])=>b.k==='hall'),hall=halls.find(([,b])=>b.lvl>=6&&active(b))??halls.sort((a,b)=>b[1].lvl-a[1].lvl)[0];
+ yield {id:'hall',label:'Đình làng cấp 6 đang hoạt động',met:!!hall&&hall[1].lvl>=6&&active(hall[1]),detail:hall?`Cấp ${hall[1].lvl}/6${active(hall[1])?'':' · đang xây, tắt hoặc hư hỏng'}`:'Chưa có Đình làng',error:'Cần Đình làng cấp 6 đang hoạt động.',tile:hall?+hall[0]:undefined};
+ yield {id:'people',label:'Có ít nhất 400 dân',met:c.people.length>=400,detail:`${c.people.length}/400 dân`,error:`Cần 400 dân, còn thiếu ${400-c.people.length}.`};
  if(k==='dam'){
-  if(Object.entries(c.b).filter(([i,b])=>b.k==='hydro'&&active(b)&&(staff.get(+i)??0)>=3).length<2)return 'Cần 2 thủy điện nhỏ hoạt động đủ 3 thợ mỗi nhà.';
-  if((c.industry?.pollution??0)>=60)return 'Ô nhiễm phải dưới 60.';
+  const staff=staffCounts(c),hydros=entries.filter(([,b])=>b.k==='hydro'),ready=hydros.filter(([i,b])=>active(b)&&(staff.get(+i)??0)>=3).length;
+  const missing=hydros.find(([i,b])=>!active(b)||(staff.get(+i)??0)<3);
+  yield {id:'hydro',label:'2 thủy điện nhỏ, mỗi nhà đủ 3 thợ tại chỗ',met:ready>=2,detail:`${ready}/2 nhà đủ thợ${missing?`; nhà (${+missing[0]%96+1}, ${Math.floor(+missing[0]/96)+1}) có ${staff.get(+missing[0])??0}/3 thợ tại chỗ`:''}`,error:'Cần 2 thủy điện nhỏ hoạt động đủ 3 thợ mỗi nhà.',tile:missing?+missing[0]:undefined};
+  yield {id:'pollution',label:'Ô nhiễm dưới 60',met:(c.industry?.pollution??0)<60,detail:`${(c.industry?.pollution??0).toFixed(2)}/100`,error:'Ô nhiễm phải dưới 60.'};
  }else{
-  if(Object.values(c.b).filter(b=>b.k==='park'&&active(b)).length<4)return 'Cần 4 công viên cây xanh đang hoạt động.';
-  if(m.supply<=0||m.clean/m.supply<.8)return 'Cần ít nhất 80% công suất phát khả dụng từ nguồn sạch.';
-  if((c.industry?.pollution??0)>20||c.industry?.cleanSince===undefined||at-c.industry.cleanSince<12*HOUR)return 'Cần ô nhiễm ≤20 liên tục đủ 12 giờ.';
+  const parks=entries.filter(([,b])=>b.k==='park'&&active(b)).length,ratio=m.supply>0?m.clean/m.supply:0,pollution=c.industry?.pollution??0;
+  yield {id:'parks',label:'4 công viên cây xanh đang hoạt động',met:parks>=4,detail:`${parks}/4 công viên`,error:'Cần 4 công viên cây xanh đang hoạt động.'};
+  yield {id:'power',label:'Ít nhất 80% công suất phát từ điện sạch',met:m.supply>0&&ratio>=.8,detail:`${(ratio*100).toFixed(1)}% · ${m.clean.toFixed(1)}/${m.supply.toFixed(1)} MW`,error:'Cần ít nhất 80% công suất phát khả dụng từ nguồn sạch.'};
+  yield {id:'pollution',label:'Ô nhiễm ≤20',met:pollution<=20,detail:`${pollution.toFixed(2)}/100`,error:'Cần ô nhiễm ≤20 liên tục đủ 12 giờ.'};
+  const cleanHours=pollution<=20&&c.industry?.cleanSince!==undefined?Math.max(0,(at-c.industry.cleanSince)/HOUR):0;
+  yield {id:'cleanTime',label:'Giữ ô nhiễm ≤20 liên tục 12 giờ',met:pollution<=20&&c.industry?.cleanSince!==undefined&&cleanHours>=12,detail:`${Math.min(12,cleanHours).toFixed(2)}/12 giờ${pollution>20?' · chưa bắt đầu; cần giảm về ≤20 trước':''}`,error:'Cần ô nhiễm ≤20 liên tục đủ 12 giờ.'};
  }
+}
+export function finalWonderError(c:City,k:BKey,at:number):string|null{
+ for(const requirement of finalWonderRequirements(c,k,at))if(!requirement.met)return requirement.error;
  return null;
 }
 export function floodProtection(c:City,tile:number){if(completedWonder(c,'dam'))return true;if(!completedWonder(c,'green'))return false;return Object.entries(c.b).some(([i,b])=>b.k==='retention'&&active(b)&&distance(+i,tile)<=6);}

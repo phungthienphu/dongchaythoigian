@@ -1,0 +1,4 @@
+.requirements ul { padding:0; list-style:none; }
+.requirements li { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px; padding:7px 0; border-bottom:1px solid var(--line); }
+.requirements small { display:block; margin-top:3px; color:var(--muted); }
+.requirements h4 { margin:14px 0 6px; }
