@@ -161,6 +161,9 @@ export class Crowd {
   chopping = new Set<number>(); // tiles with an axe swinging right now
   private paths = new BoundedCache<string, [number, number][] | null>(128, 16384, path=>path?.length??1);
   private homes: number[] = [];
+  private people = new Map<number,Person>();
+  private peopleSource?: City['people'];
+  private peopleCount = 0;
   private waterMask = new Uint8Array(W * H);
   private obstacles = "";
   private hasTopology = false;
@@ -194,16 +197,30 @@ export class Crowd {
     return best;
   }
 
+  private syncPeople(city: City) {
+    this.people.clear();
+    for (const p of city.people) this.people.set(p.id,p);
+    this.peopleSource = city.people;
+    this.peopleCount = city.people.length;
+  }
+
   /** Match the visual crowd to the server's people and builders. */
   sync(city: City) {
+    // Each new snapshot replaces Person references even when IDs are unchanged.
+    this.syncPeople(city);
     const topologyChanged = this.syncTopology(city);
-    this.homes = buildings(city).filter(([, b]) => HOMES.has(b.k) && b.lvl >= 1 && !b.flooded && !b.burned).map(([i]) => i);
+    const entries = buildings(city);
+    this.homes = entries.filter(([, b]) => HOMES.has(b.k) && b.lvl >= 1 && !b.flooded && !b.burned).map(([i]) => i);
+    const homeByTarget = new Map<number,number>();
+    let offices: number[] | undefined;
     const old = new Map(this.list.map((v) => [v.key, v]));
     const next: Villager[] = [];
     for (const p of city.people) {
       const d = describe(city, p);
       const key = `p${p.id}`, prev = old.get(key);
-      const home = d.job === "idle" && d.work >= 0 ? d.work : this.nearestHome(city, d.work >= 0 ? d.work : city.camp);
+      const target = d.work >= 0 ? d.work : city.camp;
+      let home = d.job === "idle" && d.work >= 0 ? d.work : homeByTarget.get(target);
+      if (home === undefined) { home = this.nearestHome(city,target); homeByTarget.set(target,home); }
       if (prev) {
         if (prev.sig !== d.sig) {
           Object.assign(prev, d, { home });
@@ -228,7 +245,7 @@ export class Crowd {
       else { v.state = "rest"; v.carrying = false; v.cargo = 0; }
       next.push(v);
     }
-    for (const [i, b] of buildings(city)) {
+    for (const [i, b] of entries) {
       if (!b.doneAt) continue;
       const key = `b${i}`, prev = old.get(key);
       if (prev) {
@@ -236,8 +253,9 @@ export class Crowd {
         next.push(prev); continue;
       }
       const seed = ((i * 0.618) % 1 + 1) % 1;
-      const offices = buildings(city).filter(([,office])=>office.k==="builderhouse"&&office.lvl>=1&&!office.burned&&!office.flooded).map(([tile])=>tile);
-      const origin = offices.sort((a,b)=>cheb(a,i)-cheb(b,i))[0] ?? city.camp;
+      offices ??= entries.filter(([,office])=>office.k==="builderhouse"&&office.lvl>=1&&!office.burned&&!office.flooded).map(([tile])=>tile);
+      let origin = city.camp, distance = Infinity;
+      for (const tile of offices) { const d = cheb(tile,i); if (d < distance) { origin = tile; distance = d; } }
       const [fx, fy] = center(origin);
       const actor: Villager = {
         key, id: null, name: "Thợ xây", job: "build", sig: key, home: origin, work: i, state: "rest", path: [], pi: 0, fx, fy, t: 1e9,
@@ -289,7 +307,10 @@ export class Crowd {
     this.fx = this.fx.filter((f) => tnow - f.t0 < f.dur * 1000);
     this.chopping.clear();
 
-    const people = new Map(city.people.map((p) => [p.id, p]));
+    // Normal frames reuse the index. Array replacement or population changes
+    // also work for callers advancing a mutable city between explicit syncs.
+    if (this.peopleSource !== city.people || this.peopleCount !== city.people.length) this.syncPeople(city);
+    const people = this.people;
     for (const v of this.list) {
       v.visible = true;
       v.moving = false;
@@ -318,7 +339,7 @@ export class Crowd {
       v.haulPhase = undefined; v.cargo = 0;
       switch (v.state) {
         case "explore": {
-          const p = city.people.find((q) => q.id === v.id);
+          const p = person;
           if (p && p.task.t === "explore") {
             const tk = p.task;
             const [sx, sy, prog] = explorerPos(tk, now);

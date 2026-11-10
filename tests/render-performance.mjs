@@ -118,6 +118,24 @@ const resourcesBefore = { ...hauling.res };
 haulingCrowd.update(hauling, 10, 9000);
 assert.equal(visual.cargo, 10); assert.equal(visual.moving, false);
 assert.deepEqual(hauling.res, resourcesBefore, 'renderer must never deposit cargo');
+// Frames must read the current snapshot, even when a server clone reuses IDs.
+// In-place Person updates are visible without rebuilding the per-frame index.
+const indexed = structuredClone(hauling), indexedCrowd = new Crowd();
+indexedCrowd.sync(indexed);
+const indexedActor = indexedCrowd.list[0];
+indexed.people[0].haul.carried = 7;
+indexedCrowd.update(indexed,.016,9000);
+assert.equal(indexedActor.cargo,7);
+const replacement = structuredClone(indexed);
+replacement.people[0].haul.carried = 3;
+indexedCrowd.sync(replacement);indexedCrowd.update(replacement,.016,9000);
+assert.equal(indexedActor.cargo,3,'sync must replace stale Person references with identical IDs');
+replacement.people = replacement.people.map(p=>({...p,haul:{...p.haul,carried:5}}));
+indexedCrowd.update(replacement,.016,9000);
+assert.equal(indexedActor.cargo,5,'array replacement between syncs must refresh the index');
+replacement.people.pop();indexedCrowd.update(replacement,.016,9000);
+assert.equal(indexedActor.cargo,0,'population removal must not keep reading a departed worker');
+console.log('PASS: crowd index follows cloned snapshots, mutable cargo, array replacement and population removal.');
 const farmers=newCity(0,123);farmers.t.fill(G);farmers.seen.fill(1);farmers.b={};const farm=idx(20,20);
 farmers.b[farm]={k:'farm',lvl:1,doneAt:null};farmers.people=farmers.people.slice(0,2);
 for(const p of farmers.people){p.task={t:'work',at:farm};p.haul={phase:'work',at:0,nextAt:10000,tile:farm,route:[farm],routeStart:0,carried:0,capacity:10,workRate:5400,resource:'food',source:{kind:'building',key:farm},taskKey:'farm'};}

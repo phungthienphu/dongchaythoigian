@@ -1001,16 +1001,26 @@ function autoAssign(c: City, now: number, context?: HaulContext) {
   if (!idle.length) return false;
   const total = c.people.length, mixSum = RES.reduce((a, r) => a + (c.auto!.mix[r] ?? 0), 0) || 1;
   const ctx = context ?? haulingContext(c, derive(c));
+  // Assignment only changes the selected person's job. Count once and update
+  // from the resulting task (beginHaul may retarget it), preserving mix ties.
+  const have: Res = { food: 0, wood: 0, stone: 0, copper: 0, gold: 0, diamond: 0, coal:0 };
+  const occupied = new Map<number,number>();
+  for (const q of c.people) {
+    const r = taskResource(c,q); if (r) have[r]++;
+    if (q.task.t === 'work') occupied.set(q.task.at,(occupied.get(q.task.at)??0)+1);
+  }
   let changed = false;
   for (const p of idle) {
-    const have: Res = { food: 0, wood: 0, stone: 0, copper: 0, gold: 0, diamond: 0, coal:0 };
-    for (const q of c.people) { const r = taskResource(c,q); if (r) have[r]++; }
     const order = [...RES].sort((a, b) => (have[a] - (total * c.auto!.mix[a]) / mixSum) - (have[b] - (total * c.auto!.mix[b]) / mixSum));
     for (const r of order) {
       if ((c.auto!.mix[r] ?? 0) <= 0) continue;
-      const tk = autoTarget(c, r, p, now, ctx);
+      const tk = autoTarget(c, r, p, now, ctx, occupied);
       if (!tk) continue;
-      setTask(c, p, tk, now);
+      // Productive assignments do not change terrain, buildings or service
+      // staffing. Reuse the same routing/production context for this pass.
+      setTask(c, p, tk, now, ctx);
+      const assigned = taskResource(c,p); if (assigned) have[assigned]++;
+      if (p.task.t === 'work') occupied.set(p.task.at,(occupied.get(p.task.at)??0)+1);
       changed = true;
       break;
     }
@@ -1019,7 +1029,7 @@ function autoAssign(c: City, now: number, context?: HaulContext) {
 }
 
 /** Nearest sensible job producing `r`: an open building slot first, then gathering by hand. */
-function autoTarget(c: City, r: ResKey, p: Person, now: number, ctx: HaulContext): TaskInput | null {
+function autoTarget(c: City, r: ResKey, p: Person, now: number, ctx: HaulContext, occupied?:ReadonlyMap<number,number>): TaskInput | null {
   if(r==='gold'&&c.era<2||r==='diamond'&&c.era<3||r==='coal'&&c.era<5)return null;
   const from = p.pos ?? c.camp;
   // Use the same source and path rules as actual harvesting. An empty logging
@@ -1029,7 +1039,7 @@ function autoTarget(c: City, r: ResKey, p: Person, now: number, ctx: HaulContext
     return !!job && !!haulPath(c, from, job.tile, ctx);
   };
   const slots = buildings(c)
-    .filter(([i, b]) => built(b) && !b.flooded && def(b.k).jobs && Object.keys(def(b.k).prod ?? {})[0] === r && workersAt(c, i) < buildingJobs(b))
+    .filter(([i, b]) => built(b) && !b.flooded && def(b.k).jobs && Object.keys(def(b.k).prod ?? {})[0] === r && (occupied ? occupied.get(i)??0 : workersAt(c, i)) < buildingJobs(b))
     .sort((a, b) => cheb(a[0], from) - cheb(b[0], from));
   for (const [at] of slots) {
     const tk: TaskInput = { t: "work", at };
@@ -1071,15 +1081,19 @@ function setWorkforce(c:City,counts:Res,scouts:number,now:number):string|null {
   }
   const pool=draft.people.filter(availableForWork);
   const ctx=haulingContext(draft,derive(draft));
+  const occupied=new Map<number,number>();
+  for(const p of draft.people)if(p.task.t==='work')occupied.set(p.task.at,(occupied.get(p.task.at)??0)+1);
+  let poolAt=0;
   for(const key of groups){
     const have=members(key),target=key==="scouts"?scouts:counts[key];
     for(let n=have.length;n<target;n++){
-      const p=pool.shift();
+      const p=pool[poolAt++];
       if(!p)return "Không đủ dân có thể đổi việc. Nhóm khám phá, người đang trú ẩn, làm dịch vụ hoặc đứng theo lệnh khác vẫn được giữ riêng.";
       if(key==="scouts"){p.assignment="scout";continue;}
-      const tk=autoTarget(draft,key,p,now,ctx);
+      const tk=autoTarget(draft,key,p,now,ctx,occupied);
       if(!tk)return `Chưa đủ chỗ làm có đường tới để giao ${counts[key]} dân kiếm ${RN[key].toLowerCase()}. Kiểm tra nguồn đã khám phá, công trình còn chỗ, ruộng và thời đại.`;
-      p.assignment="manual";setTask(draft,p,tk,now);
+      p.assignment="manual";setTask(draft,p,tk,now,ctx);
+      if(p.task.t==='work')occupied.set(p.task.at,(occupied.get(p.task.at)??0)+1);
     }
   }
   for(const p of draft.people)if(!isScout(p)&&taskResource(draft,p))p.assignment="manual";
@@ -1130,7 +1144,7 @@ function taskError(c: City, tk: TaskInput, adding: number): string | null {
   return null;
 }
 
-function setTask(c: City, p: Person, tk: TaskInput, now: number) {
+function setTask(c: City, p: Person, tk: TaskInput, now: number, context?:HaulContext) {
   delete p.gatherRetryAt;
   const exploring = p.task.t === "explore" ? explorerPos(p.task, now) : null;
   const point = haulPosition(p, now) ?? (exploring ? { x: exploring[0], y: exploring[1] } : null);
@@ -1161,7 +1175,7 @@ function setTask(c: City, p: Person, tk: TaskInput, now: number) {
   }
   if (tk.t === "move") { p.task = { t: "idle", at: tk.to }; if (!p.haul) beginHaul(c, p, now, haulingContext(c, derive(c))); return; }
   p.task = tk.t === "mine" ? { ...tk, resource: mineralResource(c.t[tk.at]) } : tk as Task;
-  if (!p.haul) beginHaul(c, p, now, haulingContext(c, derive(c)));
+  if (!p.haul) beginHaul(c, p, now, context ?? haulingContext(c, derive(c)));
 }
 
 /** Where an explorer is along their straight-line walk at time `at` (fractional tile coords). */
@@ -1289,6 +1303,22 @@ function haulPassable(c: City, tile: number, to: number, water: boolean, bridges
   if (!water && c.t[tile] === R && !(bridges??bridgeDeck(c)).has(tile)) return false;
   return !b || b.burned || b.k === "canal" || isField(b.k) || b.k === "levee" || b.k === "gate" || (b.k === "ironbridge" || b.k === "bridgehead") && b.lvl>0;
 }
+// Fixed grid geometry, independent of village topology. One lazy 144 KiB table
+// replaces coordinate division/bounds checks for every expanded BFS node.
+// Direction slots retain N8 order, including diagonal predecessor ties.
+let haulNeighbors: Uint16Array | undefined;
+function gridNeighbors() {
+  if (haulNeighbors) return haulNeighbors;
+  const table = new Uint16Array(W * H * N8.length).fill(0xffff);
+  for (let tile = 0; tile < W * H; tile++) {
+    const x = tile % W, y = Math.floor(tile / W);
+    for (let n = 0; n < N8.length; n++) {
+      const [dx,dy] = N8[n];
+      if (inb(x+dx,y+dy)) table[tile * N8.length+n] = idx(x+dx,y+dy);
+    }
+  }
+  return haulNeighbors = table;
+}
 function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredLand = false): number[] | null {
   const passable=(tile:number,to:number,water:boolean)=>haulPassable(c,tile,to,water,ctx.bridges);
   const key = `${from}:${to}:${exploredLand}`;
@@ -1324,16 +1354,17 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredL
     const choose = () => goals.reduce((best,tile)=>rank[tile] && (best<0 || rank[tile]<rank[best]) ? tile : best,-1);
     let goal = choose();
     const targets = new Set(goals);
+    const neighbors = gridNeighbors();
     // Extend a shared BFS prefix only as far as this target requires. Queue
     // order and predecessor ties remain identical to a fresh search.
     while (goal < 0 && tree.head < tree.size) {
-      const tile = queue[tree.head++], x = tile % W, y = Math.floor(tile / W);
-      for (const [dx,dy] of N8) {
-        if (!inb(x+dx,y+dy)) continue;
-        const next = idx(x+dx,y+dy);
+      const tile: number = queue[tree.head++], offset: number = tile * N8.length;
+      for (let n = 0; n < N8.length; n++) {
+        const next = neighbors[offset+n];
+        if (next === 0xffff) continue;
         if (exploredLand && !c.seen[next]) continue;
         if (prev[next] !== -1 || !(pass[next] & mode)) continue;
-        if (dx && dy && (!(pass[idx(x+dx,y)] & mode) || !(pass[idx(x,y+dy)] & mode))) continue;
+        if (n >= N4.length && (!(pass[tile+N8[n][0]] & mode) || !(pass[tile+N8[n][1]*W] & mode))) continue;
         prev[next] = tile; rank[next] = tree.size+1; queue[tree.size++] = next;
         if (goal < 0 && targets.has(next)) goal = next;
       }
