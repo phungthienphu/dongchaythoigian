@@ -225,6 +225,7 @@ export default function WorldMap({ caravans=[], onMarket, signedIn, onFriendsCha
       <header className="wm-top">
         <h2>Bản đồ thế giới</h2>
         <span className="muted small">Đã biết {nations.filter(n=>!n.me).length} nước · {en}: {myEnvoys ? `${myEnvoys - away}/${myEnvoys} ở nhà` : "chưa có"} · chấm xanh lá: đang được phép thăm</span>
+        <details className="wm-options"><summary>Khám phá & bạn bè</summary><div>
         <button disabled={busy || !myEnvoys || away >= myEnvoys} onClick={() => onEnvoy()} title="Dò tìm một nước chưa biết: có tin sau 2 phút, trở về sau 4 phút.">
           {!myEnvoys ? "Cần xây Nhà sứ giả" : "Dò tìm nước mới · 2 phút"}
         </button>
@@ -236,15 +237,15 @@ export default function WorldMap({ caravans=[], onMarket, signedIn, onFriendsCha
           {nations.map(n => <option key={n.id} value={n.id}>{n.me ? "Bạn · " : n.friend ? "★ " : ""}{n.name}</option>)}
         </select>
         <button onClick={() => setSearchOpen(value => !value)} aria-expanded={searchOpen}>Tìm bạn bè</button>
+        </div></details>
         <button onClick={onClose}>Về làng</button>
       </header>
-      {onMarket&&<aside className="wm-trade" aria-label="Đoàn xe trên thế giới"><button onClick={()=>onMarket()}>Mở Chợ / Chọn quân cướp xe</button>{caravans.filter(c=>c.status!=='completed').slice(0,8).map(c=><p key={c._id}><button aria-pressed={selectedCaravan===c._id} onClick={()=>setSelectedCaravan(c._id)}>{c.sellerName} → {c.buyerName}</button>{caravanStatus(c)}{!c.from?' · Chưa rõ tuyến':''}</p>)}{caravans.filter(c=>c._id===selectedCaravan).map(c=><p key={c._id}>{c.amount} hàng · {troopCount(c.escorts)} hộ tống <button onClick={()=>onMarket(c.canRaid?c._id:undefined)}>{c.canRaid?'Chọn quân chặn xe':'Xem giao dịch'}</button></p>)}</aside>}
-      <aside className="wm-discovery" aria-label="Khám phá thế giới">
+      {onMarket&&<details className="wm-trade"><summary>Đoàn xe · {caravans.filter(c=>c.status!=='completed').length}</summary><button onClick={()=>onMarket()}>Mở Chợ / Chọn quân cướp xe</button>{caravans.filter(c=>c.status!=='completed').slice(0,8).map(c=><p key={c._id}><button aria-pressed={selectedCaravan===c._id} onClick={()=>setSelectedCaravan(c._id)}>{c.sellerName} → {c.buyerName}</button>{caravanStatus(c)}{!c.from?' · Chưa rõ tuyến':''}</p>)}{caravans.filter(c=>c._id===selectedCaravan).map(c=><p key={c._id}>{c.amount} hàng · {troopCount(c.escorts)} hộ tống <button onClick={()=>onMarket(c.canRaid?c._id:undefined)}>{c.canRaid?'Chọn quân chặn xe':'Xem giao dịch'}</button></p>)}</details>}
+      <aside className="wm-discovery" aria-label="Khám phá thế giới"><details><summary>Sứ giả · {(city.trips??[]).length} chuyến</summary>
         <p>Nét đứt xanh và chấm di chuyển: sứ giả của bạn, đang đi hoặc đang về.</p>
-        {feedback && <p role={feedback.err?"alert":"status"} className={feedback.err?"err":"ok"}>{feedback.text}</p>}
         <p>Chỉ hiện nước đã được sứ giả tìm thấy. Bạn bè có thể xem làng qua danh sách, nhưng vị trí vẫn giữ kín.</p>
         {(city.trips ?? []).map(tr=><p key={tr.id}>{!tr.target ? `Đang dò vùng chưa biết · có tin sau ${fmtMin(tr.arrive-t)}` : `${tr.targetName} · ${t<tr.arrive?`tới sau ${fmtMin(tr.arrive-t)}`:`đang trở về, còn ${fmtMin(tr.back-t)}`}`}</p>)}
-      </aside>
+      </details>{feedback&&<p role={feedback.err?"alert":"status"} className={feedback.err?"err":"ok"}>{feedback.text}</p>}</aside>
       {searchOpen && <aside className="hud-card wm-friends">
         <button className="x" onClick={() => setSearchOpen(false)} aria-label="Đóng tìm bạn">×</button>
         <h2>Tìm bạn bè</h2>
