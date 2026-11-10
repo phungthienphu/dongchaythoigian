@@ -129,7 +129,7 @@ Vòng chơi: mở than → vận hành xưởng máy → tổ chức trạm vậ
 | Nhà máy hàng hóa | 1.200 gỗ, 2.000 đá, 600 đồng, 200 vàng | 2 giờ | 4 | 240 gỗ + 120 đồng + 90 than/giờ → 30 vàng/giờ |
 | Trạm vận tải | 1.000 gỗ, 1.500 đá, 400 đồng, 100 vàng | 1 giờ | 2 | Điểm nộp mọi hàng; tăng 25% tốc độ vận chuyển dân có nơi làm việc trong 8 ô; tối đa 3, một cấp |
 | Khu tập thể | 1.000 gỗ, 3.000 đá, 400 đồng | 1 giờ | 0 | 30 dân/cấp; chống ngập |
-| Trạm xử lý nước | 800 gỗ, 2.000 đá, 500 đồng, 150 vàng | 1 giờ | 3 | Giảm ô nhiễm toàn làng; tối đa 3, một cấp |
+| Trạm xử lý nước | 800 gỗ, 2.000 đá, 500 đồng, 150 vàng | 1 giờ | 3 | Giảm 4/8/12 ô nhiễm/giờ cấp 1/2/3, vẫn 3 thợ; tối đa 3 trạm |
 | Vườn ươm | 400 gỗ, 600 đá, 100 vàng | 30 phút | 2 | Tối đa 4 cây đang ươm; một cấp |
 | Cầu Sắt Đại Hà | 6.000 gỗ, 18.000 đá, 6.000 đồng, 1.500 vàng, 3.000 than | 12 giờ | 0 | Kỳ quan; +20% tốc độ vận chuyển dân toàn làng; điều kiện lên thời 6 |
 
@@ -142,7 +142,7 @@ Cầu kỳ quan chọn hai bờ hợp lệ, nhịp tối đa 8 ô sông và ph�
 Một chỉ số toàn làng 0–100, chưa mô phỏng từng ô thượng/hạ lưu. Cập nhật theo phút, dựa trên mức hoạt động thực tế:
 
 - Xưởng cơ khí đang chạy: +2 điểm/giờ/cấp hiệu dụng; nhà máy hàng hóa: +3; lò than củi: +1; nhiệt điện thời 6: +4.
-- Mỗi trạm xử lý đủ thợ: −4 điểm/giờ. Hồi phục tự nhiên: −1 điểm/giờ; công viên thời 6 bổ sung theo mục riêng.
+- Mỗi trạm xử lý đủ 3 thợ: −4/8/12 điểm/giờ ở cấp 1/2/3, tối đa 3 trạm. Hồi phục tự nhiên: −1 điểm/giờ. Công viên cây xanh mở từ Công nghiệp: −2/4/6 điểm/giờ cấp 1/2/3, không giới hạn số công viên, không cần sát sông.
 - Thiếu nguyên liệu/thợ thì phát thải tỷ lệ với hoạt động; công trình dừng không phát thải. Giới hạn chỉ số ở 0–100.
 
 | Mức | Tác động |
@@ -189,7 +189,7 @@ Vòng chơi: xây nguồn điện → chọn ưu tiên cấp điện → bổ su
 | Tổ hợp sản xuất | 4.000 đá, 2.000 đồng, 600 vàng | 3 giờ | 6 / dùng 35 MW | 360 gỗ + 180 đồng/giờ → 60 vàng/giờ; ô nhiễm +2/giờ |
 | Bệnh viện | 3.000 đá, 800 đồng, 500 vàng | 2 giờ | 4 / dùng 15 MW | +20% tốc độ sinh dân, tối đa 1; không hồi sinh quân |
 | Đại học | 4.000 đá, 1.200 đồng, 800 vàng | 3 giờ | 4 / dùng 20 MW | +10% sản lượng toàn làng, tối đa 1; chịu trần bonus chung |
-| Công viên ven sông | 300 gỗ, 600 đá, 100 vàng | 30 phút | 0 / 0 | Sát sông; −1 ô nhiễm/giờ, tối đa 4, một cấp |
+| Công viên cây xanh | 300 gỗ, 600 đá, 100 vàng | 30 phút | 0 / 0 | Mở từ Công nghiệp; đất trống không cần sát sông; −2/4/6 ô nhiễm/giờ ở cấp 1/2/3, không giới hạn số lượng |
 | Hồ điều hòa | 1.000 gỗ, 4.000 đá, 800 đồng | 2 giờ | 2 / 0 | Như hồ chứa, thêm giảm 50% thời gian ngập cho nhà không chống ngập trong 6 ô; một cấp |
 
 Nguồn nhiệt điện, tổ hợp, bệnh viện, đại học và chung cư nâng tối đa cấp 3. Điện, nhiên liệu, lao động và đầu ra cấp 2/3 nhân 1,6/2,4; chỗ ở theo cấp. Bonus phần trăm bệnh viện/đại học cố định, nâng cấp chỉ tăng độ bền, không tăng nhu cầu điện/thợ của hai nhà này. UI phải nói rõ trước khi nâng.

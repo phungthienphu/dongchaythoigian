@@ -11,7 +11,7 @@ export const INDUSTRIAL_BUILDINGS={
  factory:{n:'Nhà máy hàng hóa',era:5,cost:{wood:1200,stone:2000,copper:600,gold:200},sec:7200,jobs:4,prod:{gold:300},input:{wood:240,copper:120,coal:90},emission:3,up:true,d:'4 thợ: 240 gỗ + 120 đồng + 90 than/giờ → 300 vàng/giờ. Cấp 2/3 tăng cả đầu vào lẫn đầu ra.'},
  transport:{n:'Trạm vận tải',era:5,cost:{wood:1000,stone:1500,copper:400,gold:100},sec:3600,jobs:2,max:3,drop:[...ALL],d:'2 thợ: nhận mọi hàng và tăng 25% tốc độ vận chuyển của dân làm việc trong 8 ô. Tối đa 3; vùng phủ không cộng dồn.'},
  tenement:{n:'Khu tập thể',era:5,cost:{wood:1000,stone:3000,copper:400},sec:3600,house:30,up:true,d:'30 dân mỗi cấp, chống ngập. Không tự thay thế nhà cũ.'},
- treatment:{n:'Trạm xử lý nước',era:5,cost:{wood:800,stone:2000,copper:500,gold:150},sec:3600,jobs:3,max:3,d:'3 thợ giảm 4 ô nhiễm/giờ. Không cần điện; tối đa 3, một cấp.'},
+ treatment:{n:'Trạm xử lý nước',era:5,cost:{wood:800,stone:2000,copper:500,gold:150},sec:3600,jobs:3,max:3,up:true,d:'3 thợ giảm 4/8/12 ô nhiễm/giờ ở cấp 1/2/3. Thiếu thợ giảm theo tỷ lệ. Không cần điện; tối đa 3 trạm.'},
  nursery:{n:'Vườn ươm',era:5,cost:{wood:400,stone:600,gold:100},sec:1800,jobs:2,d:'Đủ 2 thợ mới nhận cây mới. Mỗi cây tốn 10 thực, sau 30 phút thành rừng 400 gỗ. Tối đa 4 cây đang ươm, trong 6 ô; cây đã trả phí tiếp tục lớn.'},
  ironbridge:{n:'Cầu Sắt Đại Hà',era:5,cost:{wood:6000,stone:18000,copper:6000,gold:1500,coal:3000},sec:43200,max:1,need:'river',d:'Xây đầu cầu chính sát sông, chọn công trình rồi Nối sang bờ kia để thi công nhịp cầu. Vượt hơn 2 ô nước cần xây thêm Đầu cầu sắt bên kia. Dân và quân đi qua cầu hoàn chỉnh; thuyền vẫn lưu thông. +20% vận chuyển, điều kiện vào Hiện đại.'},
  bridgehead:{n:'Đầu cầu sắt',era:5,cost:{wood:1200,stone:3600,copper:1200,gold:300,coal:600},sec:7200,max:1,need:'river',d:'Mố cầu đối diện cho Cầu Sắt Đại Hà vượt hơn 2 ô nước. Xây thẳng hàng với đầu cầu chính qua một dải sông liên tục; hoàn tất cả hai đầu rồi mới nối nhịp.'},
@@ -65,10 +65,12 @@ export function productionEmissionRates(c:City,at:number,defs:Record<string,Def>
  }
  return total;
 }
+/** Green infrastructure can grow with industry; capacity needs land or paid upgrades. */
+export const pollutionRemovalCapacity=(b:Building)=>(b.k==='treatment'?4:b.k==='park'?2:0)*Math.max(0,Math.min(3,b.lvl));
 export function pollutionCleanup(c:City,staff=staffCounts(c),entries=Object.entries(c.b),byTile?:Map<number,number>){
  let total=1;
  for(const [i,b]of entries)if(b.k==='treatment'||b.k==='park'){
-  const rate=active(b)?b.k==='treatment'?4*Math.min(1,(staff.get(+i)??0)/3):1:0;
+  const rate=active(b)?pollutionRemovalCapacity(b)*(b.k==='treatment'?Math.min(1,(staff.get(+i)??0)/3):1):0;
   total+=rate;byTile?.set(+i,rate);
  }
  return total;

@@ -11,7 +11,7 @@ export const MODERN_BUILDINGS={
  complex:{n:'Tổ hợp sản xuất',era:6,cost:{stone:4000,copper:2000,gold:600},sec:10800,jobs:6,demand:35,prod:{gold:600},input:{wood:360,copper:180},emission:2,up:true,d:'6 thợ, 35 MW: 360 gỗ + 180 đồng/giờ → 600 vàng/giờ. Cấp 2/3 cần 10/15 thợ. Điện thiếu giảm hoạt động tỷ lệ; hàng nộp kho mới tăng.'},
  hospital:{n:'Bệnh viện',era:6,cost:{stone:3000,copper:800,gold:500},sec:7200,jobs:4,demand:15,up:true,max:1,d:'+20% sinh dân khi đủ thợ và điện. Cấp 2/3 chỉ tăng độ bền; vẫn 4 thợ và 15 MW, bonus không tăng.'},
  university:{n:'Đại học',era:6,cost:{stone:4000,copper:1200,gold:800},sec:10800,jobs:4,demand:20,up:true,max:1,d:'+10% sản lượng khi đủ thợ và điện; bonus mới toàn làng tối đa 30%. Nâng cấp chỉ tăng độ bền, vẫn 4 thợ và 20 MW.'},
- park:{n:'Công viên ven sông',era:6,cost:{wood:300,stone:600,gold:100},sec:1800,max:4,need:'river',d:'Giảm 1 ô nhiễm/giờ, không cần điện hay thợ. Tối đa 4, một cấp.'},
+ park:{n:'Công viên cây xanh',era:5,cost:{wood:300,stone:600,gold:100},sec:1800,up:true,d:'Cây xanh giảm 2/4/6 ô nhiễm/giờ ở cấp 1/2/3. Xây trên đất trống từ Công nghiệp, không cần sát sông, điện hay thợ. Không giới hạn số công viên; ngập/cháy thì ngừng xử lý.'},
  retention:{n:'Hồ điều hòa',era:6,cost:{wood:1000,stone:4000,copper:800},sec:7200,jobs:2,need:'water',d:'Như hồ chứa: 12 giờ dự trữ, đầy sau 6 giờ. Trong 6 ô giảm 50% thời gian ngập; kỳ quan Sông Xanh loại bỏ ngập trong vùng.'},
  dam:{n:'Đập Sông Mẹ',era:6,cost:{wood:15000,stone:60000,copper:18000,gold:6000,coal:10000},sec:86400,max:1,need:'river',supply:150,d:'Kỳ quan cuối: +150 MW sạch; chống hạn và ngập toàn làng. Đánh đổi: phù sa ruộng/nông trang còn ×1,5. Cần Đình 6, 400 dân, 2 thủy điện, ô nhiễm <60. Chọn cố định sau hoàn thành.'},
  green:{n:'Thành Phố Sông Xanh',era:6,cost:{wood:20000,stone:45000,copper:15000,gold:8000},sec:86400,max:1,need:'river',d:'Kỳ quan cuối: giảm 50% phát thải sản xuất, chống hạn, chống ngập trong vùng hồ điều hòa; giữ phù sa ×2. Cần Đình 6, 400 dân, 4 công viên, ≥80% điện sạch và ô nhiễm ≤20 liên tục 12 giờ. Không cấp điện miễn phí.'},
@@ -68,7 +68,7 @@ export function finalWonderError(c:City,k:BKey,at:number):string|null{
   if(Object.entries(c.b).filter(([i,b])=>b.k==='hydro'&&active(b)&&(staff.get(+i)??0)>=3).length<2)return 'Cần 2 thủy điện nhỏ hoạt động đủ 3 thợ mỗi nhà.';
   if((c.industry?.pollution??0)>=60)return 'Ô nhiễm phải dưới 60.';
  }else{
-  if(Object.values(c.b).filter(b=>b.k==='park'&&active(b)).length<4)return 'Cần 4 công viên ven sông đang hoạt động.';
+  if(Object.values(c.b).filter(b=>b.k==='park'&&active(b)).length<4)return 'Cần 4 công viên cây xanh đang hoạt động.';
   if(m.supply<=0||m.clean/m.supply<.8)return 'Cần ít nhất 80% công suất phát khả dụng từ nguồn sạch.';
   if((c.industry?.pollution??0)>20||c.industry?.cleanSince===undefined||at-c.industry.cleanSince<12*HOUR)return 'Cần ô nhiễm ≤20 liên tục đủ 12 giờ.';
  }

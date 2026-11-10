@@ -20,6 +20,8 @@ export default function PollutionHarness(){
  return <main style={{maxWidth:760,margin:'auto',padding:16}}><h1>Kiểm tra hướng dẫn ô nhiễm</h1><p>Bản thử độc lập; không gọi API hay dữ liệu người chơi.</p>
   <button onClick={()=>change(c=>{for(const b of Object.values(c.b))if(B[b.k].emission)b.off=true;})}>Tắt mọi nguồn phát thải</button>
   <button onClick={()=>change(c=>eraStaff(c,idx(26,22),2))}>Bổ sung 2 thợ xử lý</button>
+  <button onClick={()=>change(c=>{c.b[idx(26,22)].lvl=3;c.b[idx(27,22)].lvl=3;})}>Xem xử lý cấp 3</button>
+  <button onClick={()=>change(c=>{c.b[idx(27,22)].flooded=true;})}>Cho công viên bị ngập</button>
   <button onClick={()=>change(c=>{stepPower(c,c.last,c.last+MIN,B);stepIndustry(c,c.last,c.last+MIN,B);c.last+=MIN;})}>Chạy 1 phút</button>
   <button onClick={()=>{setCity(fixture());setTarget(null);}}>Đặt lại</button><button onClick={()=>setGuide(true)}>Cách chơi</button>
   {target!==null&&<output role="status">Đã chọn {B[city.b[target].k].n} tại ({target%96+1}, {Math.floor(target/96)+1}).</output>}

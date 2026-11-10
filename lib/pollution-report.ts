@@ -1,5 +1,5 @@
 import {B,type City} from './engine';
-import {active,multiplier,pollutionCleanup,productionEmissionRates,staffCounts} from './industry';
+import {active,multiplier,pollutionCleanup,pollutionRemovalCapacity,productionEmissionRates,staffCounts} from './industry';
 import {completedWonder,operationJobs,powerFraction} from './modern';
 import {buildingOutput} from './economy-balance';
 
@@ -18,14 +18,16 @@ export function pollutionReport(c:City,at:number){
   const output=Object.values(buildingOutput(c,b.k,d.prod??{},at))[0]??1;
   const missing=Object.entries(d.input??{}).some(([r,n])=>c.res[r as keyof City['res']]<(n??0)/output);
   const reason=inactiveReason(b)??(rate>0?'Đang phát thải':thermal?(workers===0?'Chưa có thợ tại chỗ':c.res.coal<=0?'Hết than':'Chờ cập nhật phát điện'):missing?'Thiếu nguyên liệu đóng kiện':d.demand&&powerFraction(c,tile)<=0?'Chưa được cấp điện':(assigned.get(tile)??0)===0?'Chưa giao thợ':'Thợ đang đi, mang hàng hoặc chờ sản xuất');
-  return {tile,k:b.k,level:b.lvl,rate,potential,workers,assigned:assigned.get(tile)??0,jobs,reason};
+  return {tile,k:b.k,level:b.lvl,rate,potential,enabled:active(b),workers,assigned:assigned.get(tile)??0,jobs,reason};
  }).sort((a,b)=>b.rate-a.rate||b.potential-a.potential||a.tile-b.tile);
  const cleaners=[...cleaning].map(([tile,rate])=>{
   const b=c.b[tile],jobs=b.k==='treatment'?3:0,workers=staff.get(tile)??0;
-  return {tile,k:b.k,rate,jobs,workers,reason:inactiveReason(b)??(jobs&&workers<jobs?`Có ${workers}/${jobs} thợ tại chỗ`:'Đang xử lý')};
+  return {tile,k:b.k,level:b.lvl,rate,capacity:pollutionRemovalCapacity(b),jobs,workers,reason:inactiveReason(b)??(jobs&&workers<jobs?`Có ${workers}/${jobs} thợ tại chỗ`:'Đang xử lý')};
  });
  const emissions=sources.reduce((sum,b)=>sum+b.rate,0),net=emissions-cleanup;
  const pollution=c.industry?.pollution??0;
- return {sources,cleaners,emissions,cleanup,natural:1,net,
-  hoursBelow30:pollution>=30&&net<0?(pollution-29.9)/-net:null};
+ const enabledPotential=sources.reduce((sum,b)=>sum+(b.enabled?b.potential:0),0);
+ const hoursTo=(target:number)=>pollution>target&&net<-.001?(pollution-target)/-net:null;
+ return {sources,cleaners,emissions,cleanup,natural:1,net,enabledPotential,
+  hoursBelow60:hoursTo(59.9),hoursAt20:hoursTo(20),hoursBelow30:hoursTo(29.9)};
 }

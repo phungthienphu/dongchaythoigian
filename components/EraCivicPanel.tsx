@@ -1,7 +1,7 @@
 "use client";
 import {B,buildingJobs,GATHER_SPEED,HOUR,RES,RN,foodEraScale,storageCapacity,upkeepRates,type Action,type Building,type City} from '@/lib/engine';
 import {inDrought,waterProtection} from '@/lib/medieval';
-import {active,multiplier,staffCounts} from '@/lib/industry';
+import {active,multiplier,pollutionRemovalCapacity,staffCounts} from '@/lib/industry';
 import {finalWonderError,powerFraction,type PowerGroup} from '@/lib/modern';
 import PollutionPanel from './PollutionPanel';
 const number=(n:number)=>Number(n.toFixed(1)).toLocaleString('vi-VN');
@@ -19,6 +19,7 @@ export function EraCivicBuilding({city,building:b,tile,now}:{city:City;building:
  {b.k==='well'&&<p>Bán kính 4 ô: giảm một nửa mức phạt hạn. Các giếng chồng nhau không cộng dồn.</p>}
  {d.demand&&<p>Điện: <b>{number(d.demand*((b.k==='hospital'||b.k==='university')?1:multiplier(b)))} MW</b>, đang cấp {number(powerFraction(city,tile)*100)}%.</p>}
  {d.supply&&<p>Đang phát <b>{number(city.modern?.generation[tile]??0)} MW</b>. Điện không tích kho hoặc mua bán.</p>}
+ {(b.k==='treatment'||b.k==='park')&&<p>Đang giảm <b>{number(active(b)?pollutionRemovalCapacity(b)*(b.k==='treatment'?Math.min(1,staff/3):1):0)} điểm ô nhiễm/giờ</b>. Cấp {b.lvl}: tối đa {number(pollutionRemovalCapacity(b))} điểm/giờ{b.lvl>0&&b.lvl<3?`; nâng cấp tiếp theo đạt ${number(pollutionRemovalCapacity({...b,lvl:b.lvl+1}))} điểm/giờ`:''}.{b.k==='treatment'?' Cần 3 thợ đã tới nơi, không tăng số thợ khi nâng cấp.':' Không cần thợ hay điện; có thể xây thêm trên đất trống.'}</p>}
  {(b.k==='dam'||b.k==='green')&&<p>{b.lvl>0?'Kỳ quan đã khánh thành; khi hư hại cần sửa để khôi phục hiệu ứng.':finalWonderError(city,b.k,now)??'Đủ điều kiện khởi công.'}</p>}
  </section>;
 }

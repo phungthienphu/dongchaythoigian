@@ -20,7 +20,7 @@ test('pollution sources sort by actual emissions including thermal power and mat
 });
 test('partial treatment staffing and parks match actual cleanup, without requiring electricity',()=>{
  const c=eraFixture(5),t=idx(22,22),p=idx(23,22);c.b[t]={k:'treatment',lvl:1,doneAt:null};c.b[p]={k:'park',lvl:1,doneAt:null};eraStaff(c,t,1);c.industry!.pollution=50;
- const r=pollutionReport(c,0);near(r.cleanup,1+4/3+1);near(r.cleaners.find(b=>b.tile===t)!.rate,4/3);assert.match(r.cleaners.find(b=>b.tile===t)!.reason,/1\/3/);
+ const r=pollutionReport(c,0);near(r.cleanup,1+4/3+2);near(r.cleaners.find(b=>b.tile===t)!.rate,4/3);assert.match(r.cleaners.find(b=>b.tile===t)!.reason,/1\/3/);
  stepIndustry(c,0,HOUR,B);near(c.industry!.pollution,50-r.cleanup);
 });
 test('assigned cleaners do not clean until arrival and refugees do not count',()=>{

@@ -756,10 +756,10 @@ function drawFutureBuilding(r:RC,k:BKey,x:number,y:number,lvl:number,i:number){
   if(k==='park'||k==='nursery'){
     poly(c,[q(-.43,-.41,3),q(.43,-.41,3),q(.43,.41,3),q(-.43,.41,3)],k==='park'?'#76a05a':'#8e7950');
     for(const [u,v]of [[-.28,-.24],[.24,-.24],[-.24,.25],[.26,.24]]){
-      const h=k==='park'?18:10;line(r,q(u,v,3),q(u,v,h),'#7c5d3b',2);
+      const h=k==='park'?18+(lvl-1)*3:10;line(r,q(u,v,3),q(u,v,h),'#7c5d3b',2);
       for(const [du,dv,z]of [[0,0,h],[-.08,.02,h-3],[.08,-.02,h-2]]){const [a,b]=q(u+du,v+dv,z);c.fillStyle=k==='park'?'#3f8051':'#5a9c56';c.beginPath();c.ellipse(a,b,6*r.v.s,5*r.v.s,0,0,Math.PI*2);c.fill();}
     }
-    if(k==='park'){concrete(-.08,-.4,.08,.4,3,4);box(r,x,y,.16,.14,.38,.2,4,7,'#b99a68','#806646','#654d35');}
+    if(k==='park'){concrete(-.08,-.4,.08,.4,3,4);box(r,x,y,.16,.14,.38,.2,4,7,'#b99a68','#806646','#654d35');if(lvl>=2)box(r,x,y,-.38,-.16,-.16,-.1,4,7,'#b99a68','#806646','#654d35');if(lvl>=3){concrete(-.13,-.12,.13,.12,4,7);poly(c,[q(-.1,-.09,8),q(.1,-.09,8),q(.1,.09,8),q(-.1,.09,8)],'#70b9b5');}}
     else {gable(r,x,y,-.2,-.18,.2,.16,10,8,'#8bb6a9','#68958c','#4b736e');line(r,q(-.2,-.18,10),q(-.2,-.18,3),'#9dbaa1',1);}
     return true;
   }
@@ -793,6 +793,7 @@ function drawFutureBuilding(r:RC,k:BKey,x:number,y:number,lvl:number,i:number){
   if(k==='treatment'||k==='hydro'){
     for(const u of [-.21,.21]){concrete(u-.18,-.34,u+.18,.12,3,k==='hydro'?20:9);poly(c,[q(u-.14,-.3,10),q(u+.14,-.3,10),q(u+.14,.08,10),q(u-.14,.08,10)],'#599da9');line(r,q(u-.12,-.05,11),q(u+.12,-.05,11),'#b2dfd4',1);}
     box(r,x,y,-.34,.2,.34,.36,3,12,'#899d90','#617c73','#466157');
+    if(k==='treatment'&&lvl>=2)for(let n=0;n<lvl-1;n++){const u=-.26+n*.29;concrete(u,-.28,u+.2,.08,12,14);for(const v of [-.2,-.05])line(r,q(u,v,15),q(u+.2,v,15),'#d2e5d5',1.2);}
     for(const u of [-.2,.2]){const [a,b]=q(u,.37,10);c.strokeStyle='#c9d3bf';c.lineWidth=1.5;c.beginPath();c.arc(a,b,4*r.v.s,0,Math.PI*2);c.stroke();}
     if(k==='hydro')flag(r,x,y,-.3,-.2,20,16,'#69b2bb',i);return true;
   }
@@ -1420,7 +1421,8 @@ function buildingHitShapes(k: BKey, lvl: number, era: number): HitShape[] {
     case "tenement": return [shape(-.41,-.36,.41,.32,11+(2+lvl)*6)];
     case "thermal": case "factory": case "machine": case "complex": case "charcoal": return [shape(-.44,-.38,.44,.34,23*hs,8),shape(-.29,-.25,.29,-.1,46)];
     case "dam": case "green": return [shape(-.44,-.36,.44,.35,44,8)];
-    case "retention": case "solar": case "park": case "nursery": return [shape(-.46,-.44,.46,.44,18)];
+    case "park": return [shape(-.46,-.44,.46,.44,18+Math.max(0,lvl-1)*3)];
+    case "retention": case "solar": case "nursery": return [shape(-.46,-.44,.46,.44,18)];
     case "hut": return [lvl >= 3 ? shape(-.4, -.36, .4, .36, 22, 14) : lvl === 2 ? shape(-.36, -.32, .36, .32, 11, 12) : shape(-.32, -.32, .32, .32, 9, 16, true)];
     case "house": return [shape(-.38, -.34, .38, .34, 15 * hs, 12), { ...shape(.15, -.2, .25, -.1, 14), z: 15 * hs }];
     case "stonehouse": return [shape(-.4, -.36, .4, .36, 20 * hs, 13), ...(lvl >= 3 ? [shape(-.45, -.45, -.13, -.13, 20 * hs + 34, 12, true)] : [])];
