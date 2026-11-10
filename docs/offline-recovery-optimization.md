@@ -71,3 +71,36 @@ Mỗi lát vẫn có chi phí kết nối Mongo và ghi checkpoint. Không thể
 gian tải production chỉ từ benchmark local. Cần theo dõi tỷ lệ 202/503, độ trễ
 GET và mức tiến triển trên các làng lớn sau release; nếu còn chậm, bước tiếp
 là mô phỏng theo lịch sự kiện, cần đối chiếu đầy đủ với engine hiện tại.
+
+
+## Hotfix: đồng hồ Worker đứng trong vòng CPU (10/11/2026)
+
+Sau release v2, Bến Vân Đồng tiếp tục lỗi 500 ở 69%. Đối chiếu Cloudflare trong
+một giờ thấy 16 lượt GameApi `exceededResources`, CPU khoảng 30–32,5 giây/lượt.
+Các bộ đếm memory/fatal của periodic dataset bằng 0; dữ liệu analytics có độ trễ.
+
+Nguyên nhân: Cloudflare chỉ tăng `performance.now()`/`Date.now()` sau I/O. Lát
+CPU đồng bộ không thấy thời gian trôi, nên guard 1.200 ms không ngắt được; cap
+6 giờ có thể chạm giới hạn CPU trước khi ghi checkpoint. Đo local và fixture
+600 dân chủ yếu rảnh trước đó không kiểm chứng được trường hợp này.
+Tài liệu chính thức: https://developers.cloudflare.com/workers/runtime-apis/performance/
+
+V3 bắt buộc giới hạn tick theo quy mô làng, tối đa 3.600 tick; ngân sách công
+việc là 1.000.000 / (số dân + 4 × số công trình), lấy phần nguyên và tối thiểu
+một tick. Bến Vân Đồng tương ứng khoảng 350 tick/lát. Guard thời gian vẫn giữ
+làm chặn bổ sung ở runtime có đồng hồ chạy; không dùng nó làm giới hạn chính.
+Không bỏ thời gian mô phỏng, không sửa luật tài nguyên hay dữ liệu schema.
+Một tick có sự kiện địa hình quá đắt vẫn là giới hạn cần theo dõi.
+
+Regression unit test khóa `performance.now()` bằng hằng số và xác nhận lát vẫn
+kết thúc, ghi đúng revision/tiến trình; `scripts/check-heavy-recovery-qa.ts` tạo
+làng QA 1.389 dân, 359 công trình, hơn 700 thợ khai thác, kiểm tra bốn lượt tải
+Cloudflare liên tiếp và đối chiếu toàn bộ trạng thái với mô phỏng liền mạch.
+Lượt QA đạt: bốn GET khoảng 3.130 / 1.915 / 1.209 / 1.595 ms; lưu đủ bốn
+checkpoint, tiến 1.414 giây mô phỏng, trạng thái khớp hoàn toàn.
+
+Đã chạy phục hồi có backup cho riêng Bến Vân Đồng bằng chính `recoverCity`,
+không tạo phiên đăng nhập thay chủ làng: 73 checkpoint CAS thành công, không
+xung đột; hoàn tất mục tiêu cũ rồi tính tiếp đến thời điểm bắt đầu phục hồi.
+Không chỉnh tay tài nguyên, quân, người hay reset làng. File backup riêng nằm
+trong `.wrangler/recovery-backups/` (bị Git ignore), không đưa dữ liệu làng vào repo.

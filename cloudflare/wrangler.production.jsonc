@@ -13,7 +13,7 @@
     "run_worker_first": ["/api", "/api/*", "/dev", "/dev/*"]
   },
   "vars": {
-    "RELEASE_ID": "cloudflare-offline-recovery-v2",
+    "RELEASE_ID": "cloudflare-offline-clock-guard-v3",
     "APP_URL": "https://dongchaythoigian.phungthienphu.workers.dev",
     "MONGODB_DB": "dong_song_thoi_dai",
     "BATTLE_WORKER_URL": "https://dong-song-battles.phungthienphu.workers.dev",
