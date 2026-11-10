@@ -13,3 +13,11 @@ test('recently reused entries survive eviction and replacement releases the old 
  cache.set('a','a');assert.equal(cache.weight,5);cache.set('large','too large');assert.equal(cache.has('large'),false);assert.equal(cache.weight,5);
  cache.set('a','too large');assert.equal(cache.has('a'),false);assert.equal(cache.weight,4);
 });
+
+test('render peek leaves eviction order unchanged and remains bounded',()=>{
+ const cache=new BoundedCache<string,string>(2,2);
+ cache.set('a','one');cache.set('b','two');
+ assert.equal(cache.peek('a'),'one');cache.set('c','three');
+ assert.equal(cache.peek('a'),undefined);assert.equal(cache.peek('b'),'two');
+ assert.equal(cache.size,2);assert.equal(cache.weight,2);
+});

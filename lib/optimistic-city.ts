@@ -1,3 +1,4 @@
+import { cloneCity } from './clone-city';
 import type {EngineRules} from './eras';
 import { applyAction, settle, type Action, type City } from './engine';
 
@@ -33,13 +34,13 @@ export class OptimisticCityQueue {
   private stopped = false;
   private clock: () => number;
   constructor(private readonly options: OptimisticCityOptions) {
-    this.base = clone(options.state);
-    this.visible = clone(options.state);
+    this.base = cloneCity(options.state);
+    this.visible = cloneCity(options.state);
     this.clock = options.now ?? Date.now;
   }
   get isPending(): boolean { return this.pending.length > 0 || this.recovering; }
   get version(): number { return this.generation; }
-  get snapshot(): City { return clone(this.visible); }
+  get snapshot(): City { return cloneCity(this.visible); }
 
   /** Revoke the local controller; an in-flight response must not revive it. */
   stop() {
@@ -58,9 +59,9 @@ export class OptimisticCityQueue {
   setAuthoritative(state: City, expectedVersion = this.generation): boolean {
     if (this.stopped) return false;
     if (this.isPending || expectedVersion !== this.generation || state.last < this.base.last) return false;
-    this.base = clone(state);
+    this.base = cloneCity(state);
     const displayAt = Math.max(this.visible.last, this.clock());
-    this.visible = clone(state);
+    this.visible = cloneCity(state);
     if (!this.visible.battleId) settle(this.visible, displayAt);
     this.needsSync = false;
     this.generation++;
@@ -75,7 +76,7 @@ export class OptimisticCityQueue {
       return Promise.resolve(false);
     }
     const at = this.clock();
-    const next = clone(this.visible);
+    const next = cloneCity(this.visible);
     const savedAction = clone(action);
     const error = applyAction(next, savedAction, at, this.options.rules);
     if (error) {
@@ -92,13 +93,13 @@ export class OptimisticCityQueue {
     return completed;
   }
 
-  private publish() { this.options.onState(clone(this.visible)); }
+  private publish() { this.options.onState(cloneCity(this.visible)); }
 
   private replay() {
-    let state = clone(this.base);
+    let state = cloneCity(this.base);
     const kept: Pending[] = [];
     for (const entry of this.pending) {
-      const next = clone(state);
+      const next = cloneCity(state);
       const error = applyAction(next, entry.action, Math.max(entry.at, state.last), this.options.rules);
       if (error) {
         entry.resolve(false);
@@ -121,14 +122,14 @@ export class OptimisticCityQueue {
     this.needsSync = true;
     const abandoned = this.pending;
     this.pending = [];
-    this.visible = clone(this.base);
+    this.visible = cloneCity(this.base);
     this.generation++;
     this.publish();
     this.options.onError?.(message);
     for (const entry of abandoned) entry.resolve(false);
     try {
       const fresh = await this.options.onUncertain();
-      if (fresh && !this.stopped) { this.base = clone(fresh); this.visible = clone(fresh); this.needsSync = false; }
+      if (fresh && !this.stopped) { this.base = cloneCity(fresh); this.visible = cloneCity(fresh); this.needsSync = false; }
     } catch {
       this.options.onError?.('Chưa đồng bộ được làng. Hãy tải lại trước khi tiếp tục.');
     } finally {
@@ -156,7 +157,7 @@ export class OptimisticCityQueue {
           return;
         }
         this.pending.shift();
-        if (response.state) this.base = clone(response.state);
+        if (response.state) this.base = cloneCity(response.state);
         if (response.error) this.options.onError?.(response.error);
         this.replay();
         entry.resolve(!response.error);

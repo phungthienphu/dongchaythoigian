@@ -13,6 +13,8 @@ export class BoundedCache<K, V> {
   get weight() { return this.retained; }
   *values() { for (const entry of this.entries.values()) yield entry.value; }
   has(key: K) { return this.entries.has(key); }
+  /** Read without updating recency, for hot rendering caches where FIFO is sufficient. */
+  peek(key: K): V | undefined { return this.entries.get(key)?.value; }
   get(key: K): V | undefined {
     const entry = this.entries.get(key);
     if (!entry) return undefined;

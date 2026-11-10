@@ -107,7 +107,7 @@ export function visibleTileBounds(v: View) {
 const mixCache = new BoundedCache<string, string>(2048, 2048);
 function mix(a: string, b: string, t: number) {
   const key = a + b + t.toFixed(2);
-  let out = mixCache.get(key);
+  let out = mixCache.peek(key);
   if (!out) {
     const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
     const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));

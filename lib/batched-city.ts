@@ -1,3 +1,4 @@
+import { cloneCity } from './clone-city';
 import { applyAction, settle, type Action, type City } from './engine';
 import type { EngineRules } from './eras';
 import { BATCH_DELAY_MS, BATCH_LIMIT, BATCH_BYTES, QUEUE_LIMIT, QUEUE_BYTES, QUEUE_AGE_MS, byteLength,
@@ -39,16 +40,16 @@ export class BatchedCityQueue {
   private clock:()=>number;
   readonly key:string;
   constructor(private options:Options) {
-    this.base=clone(options.state);this.visible=clone(options.state);this.sync=clone(options.sync);
+    this.base=cloneCity(options.state);this.visible=cloneCity(options.state);this.sync=clone(options.sync);
     this.clock=options.now??Date.now;
     this.key=`${this.sync.cityId}:${this.sync.session}:${this.sync.engine}`;
   }
   get isPending(){return !!this.pending.length||this.recovering||!!this.checkpointTask||!!this.refreshTask;}
   get version(){return this.generation;}
-  get snapshot(){return clone(this.visible);}
+  get snapshot(){return cloneCity(this.visible);}
   get status(){return this.state;}
   private statusAs(s:SaveStatus){if(!this.stopped){this.state=s;this.options.onStatus?.(s);}}
-  private publish(){if(!this.stopped)this.options.onState(clone(this.visible));}
+  private publish(){if(!this.stopped)this.options.onState(cloneCity(this.visible));}
   async initialize() {
     try {
       const saved=await this.options.storage?.load();
@@ -86,7 +87,7 @@ export class BatchedCityQueue {
     if(this.stopped||this.isPending||expected!==this.generation||state.last<this.base.last)return false;
     if(sync && (!this.sameSession(sync)||sync.revision<this.sync.revision||sync.ack<this.sync.ack))return false;
     if(sync)this.sync=clone(sync);
-    this.base=clone(state);this.replay();return true;
+    this.base=cloneCity(state);this.replay();return true;
   }
   private sameSession(sync:CitySync){return sync.cityId===this.sync.cityId&&sync.session===this.sync.session&&sync.engine===this.sync.engine;}
   async enqueue(action:Action):Promise<boolean> {
@@ -98,7 +99,7 @@ export class BatchedCityQueue {
     }
     const entry:SyncCommand={seq:(this.pending.at(-1)?.seq??this.sync.ack)+1,id:crypto.randomUUID(),at,anchor:this.sync.anchor,action:clone(action)};
     if(byteLength({...entry,action})>BATCH_BYTES-1024 || byteLength([...this.pending,entry])>QUEUE_BYTES){this.options.onError?.('Thao tác quá lớn để lưu. Hãy chọn ít dân hơn mỗi lần.');return false;}
-    const next=clone(this.visible),error=applyAction(next,entry.action,at,this.options.rules);
+    const next=cloneCity(this.visible),error=applyAction(next,entry.action,at,this.options.rules);
     if(error){this.options.onError?.(error);return false;}
     this.pending.push(entry);this.visible=next;this.generation++;this.statusAs('queued');this.publish();
     await this.persist();
@@ -122,10 +123,10 @@ export class BatchedCityQueue {
   }
   private schedule(ms:number){this.clearTimer();const run=()=>{this.timer=undefined;void this.flush();};this.timer=this.options.timers?this.options.timers.set(run,ms):setTimeout(run,ms);}
   private replay() {
-    let state=clone(this.base);
+    let state=cloneCity(this.base);
     for(const c of this.pending) {
       if(state.battleId)break;
-      const next=clone(state);
+      const next=cloneCity(state);
       // A rejected optimistic replay stays in the durable queue until server ACK.
       if(!applyAction(next,c.action,Math.max(c.at,state.last),this.options.rules))state=next;
     }
@@ -143,7 +144,7 @@ export class BatchedCityQueue {
       else if(r?.rescheduled)this.options.onError?.('Làng có cập nhật từ bên ngoài; thao tác chờ đã được áp theo trạng thái mới.');
     }
     this.pending=this.pending.filter(c=>c.seq>response.sync.ack);
-    this.sync=clone(response.sync);this.base=clone(response.state);this.replay();await this.persist();
+    this.sync=clone(response.sync);this.base=cloneCity(response.state);this.replay();await this.persist();
     if(response.batchEnabled!==undefined) {
       this.options.delayMs=response.batchEnabled?BATCH_DELAY_MS:0;
       if(!response.batchEnabled&&this.pending.length&&!this.pump&&!this.blocked)this.schedule(0);
