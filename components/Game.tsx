@@ -36,6 +36,7 @@ import { buildAvailability } from "@/lib/build-availability";
 import { placementHint, placementTiles } from "@/lib/build-placement";
 import BattleView from "./BattleView";
 import ArmyManagement from "./ArmyManagement";
+import TroopTypePicker from './TroopTypePicker';
 import DefenseOrientation from './DefenseOrientation';
 import {defenseAxis,type DefenseOrientation as DefenseMode} from '@/lib/fortifications';
 import ArmyRecruitment from "./ArmyRecruitment";
@@ -407,6 +408,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [pickedSoldier, setPickedSoldier] = useState<string | null>(null);
   const [pickedSoldiers,setPickedSoldiers]=useState<Set<string>>(new Set());
   const [regionMode,setRegionMode]=useState<'soldiers'|'people'|null>(null);
+  const [soldierType,setSoldierType]=useState<UKey|null>(null);
   const selectionDrag=useRef<SelectionDrag|null>(null);
   const [guardEditing, setGuardEditing] = useState(false);
   const [armyManagement,setArmyManagement]=useState(false);
@@ -883,7 +885,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       box.end=local(e);
       if(selectionMoved(box)&&cityRef.current){
         if(dragRef.current)dragRef.current.moved=true;
-        const c=cityRef.current,v=view(),soldiers=homeSoldiers(c,now()).filter(s=>{const [x,y]=projectWorld(v,s.x,s.y);return inSelection(box,{x,y});});
+        const c=cityRef.current,v=view(),soldiers=homeSoldiers(c,now()).filter(s=>{if(regionMode==='soldiers'&&soldierType&&s.u!==soldierType)return false;const [x,y]=projectWorld(v,s.x,s.y);return inSelection(box,{x,y});});
         const kind=regionMode??(soldiers.length?'soldiers':'people');
         setPickedSoldier(null);setSelected(null);setHerdSel(null);setPanel(null);setRegionMode(kind);
         if(kind==='soldiers'){
@@ -944,12 +946,12 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if(regionMode){
       const cell=cellAt(e);if(!cell)return;
       if(e.shiftKey||!(regionMode==='soldiers'?pickedSoldiers.size:picked.size)){
-        if(regionMode==='soldiers'){const s=pickHomeSoldier(view(),c,now(),p.x,p.y);if(s)setPickedSoldiers(old=>{const next=new Set(e.shiftKey?old:[]);if(e.shiftKey&&next.has(s.id))next.delete(s.id);else next.add(s.id);return next;});}
+        if(regionMode==='soldiers'){const s=pickHomeSoldier(view(),c,now(),p.x,p.y);if(s&&(!soldierType||s.u===soldierType))setPickedSoldiers(old=>{const next=new Set(e.shiftKey?old:[]);if(e.shiftKey&&next.has(s.id))next.delete(s.id);else next.add(s.id);return next;});}
         else {const target=pickVillageTarget(view(),c,crowdRef.current.list,performance.now(),p.x,p.y,true);if(target?.type==='person'&&target.person.id!==null&&!target.person.fleeing)togglePick(target.person.id,e.shiftKey);}
         return;
       }
       if(regionMode==='soldiers'){
-        if(await act({type:'moveSoldiers',ids:[...pickedSoldiers],...cell}))setMsg({text:`Đã điều ${pickedSoldiers.size} lính tới vị trí gác. Bấm ô khác để đổi lệnh; Esc để bỏ chọn.`});
+        if(await act({type:'moveSoldiers',ids:[...pickedSoldiers],...cell}))setMsg({text:`Đã điều ${pickedSoldiers.size} lính dàn gác quanh vị trí đã chọn. Bấm ô khác để đổi lệnh; Esc để bỏ chọn.`});
       }else if(await act({type:'assign',ids:[...picked],task:{t:'move',to:idx(cell.x,cell.y)}}))setMsg({text:`${picked.size} dân đang tới vị trí đã chọn và giữ lệnh thủ công. Chọn Giao việc để phân công công việc mới.`});
       return;
     }
@@ -1236,7 +1238,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       </header>
 
       <div className="zoom" role="group" aria-label="Điều khiển bản đồ">
-        {!visiting&&!c.battleId&&<><button className="region-toggle" aria-pressed={regionMode==='soldiers'} onClick={()=>{pickTool(null);setPicked(new Set());setPickedSoldier(null);setSelected(null);setGuardEditing(false);setPanel(null);setRegionMode(regionMode==='soldiers'?null:'soldiers');}}>Chọn lính</button><button className="region-toggle" aria-pressed={regionMode==='people'} onClick={()=>{pickTool(null);setPicked(new Set());setPickedSoldier(null);setSelected(null);setGuardEditing(false);setPanel(null);setRegionMode(regionMode==='people'?null:'people');}}>Chọn dân</button></>}
+        {!visiting&&!c.battleId&&<><button className="region-toggle" aria-pressed={regionMode==='soldiers'} onClick={()=>{pickTool(null);setPicked(new Set());setPickedSoldier(null);setSelected(null);setGuardEditing(false);setPanel(null);setSoldierType(null);setRegionMode(regionMode==='soldiers'?null:'soldiers');}}>Chọn lính</button><button className="region-toggle" aria-pressed={regionMode==='people'} onClick={()=>{pickTool(null);setPicked(new Set());setPickedSoldier(null);setSelected(null);setGuardEditing(false);setPanel(null);setRegionMode(regionMode==='people'?null:'people');}}>Chọn dân</button></>}
         <button onClick={() => zoomBy(1.5)} aria-label="Phóng to">+</button>
         <button onClick={() => zoomBy(1 / 1.5)} aria-label="Thu nhỏ">−</button>
         <button onClick={()=>rotateMap(-1)} aria-label="Xoay bản đồ sang trái" aria-keyshortcuts="Q" title="Xoay trái 90° (Q)">↶</button>
@@ -1411,7 +1413,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         {c.era>=4&&<button onClick={()=>openPanel('era')}>{c.modern?`⚡ ${fmt(c.modern.supply)}/${fmt(c.modern.demand)} MW · `:''}{c.industry?`Ô nhiễm ${fmt(c.industry.pollution)}/100`:'Quản lý nước và Trung đại'}</button>}
         <HungerNotice city={c} onFindFood={()=>openPanel("people")}/>
         {!tool && !regionMode && !picked.size && <button className="next-step" onClick={() => openPanel(goal.panel)}>{goal.text}</button>}
-        {regionMode&&<div className="pickbar"><b>{regionMode==='soldiers'?`${pickedSoldiers.size} lính`:`${picked.size} dân`} đã chọn</b><span>Kéo khung để chọn · Shift để chọn thêm · bấm đất để di chuyển. Tắt chế độ để kéo bản đồ.</span>{regionMode==='people'&&picked.size>0&&<button onClick={()=>setRegionMode(null)}>Giao việc</button>}<button onClick={()=>{selectionDrag.current=null;setRegionMode(null);setPickedSoldiers(new Set());setPicked(new Set());}}>Bỏ chọn</button></div>}
+        {regionMode&&<div className="pickbar"><b>{regionMode==='soldiers'?`${pickedSoldiers.size} lính`:`${picked.size} dân`} đã chọn</b>{regionMode==='soldiers'&&<TroopTypePicker counts={c.army} filter={soldierType} onChoose={(type,additive)=>{setSoldierType(type);const ids=homeSoldiers(c,now()).filter(s=>!type||s.u===type).map(s=>s.id);setPickedSoldiers(old=>new Set([...(additive?old:[]),...ids]));}}/>}<span>Kéo khung để chọn · Shift để chọn thêm · bấm đất để {regionMode==='soldiers'?'dàn quân gác quanh điểm bấm':'di chuyển'}. Tắt chế độ để kéo bản đồ.</span>{regionMode==='people'&&picked.size>0&&<button onClick={()=>setRegionMode(null)}>Giao việc</button>}<button onClick={()=>{selectionDrag.current=null;setRegionMode(null);setPickedSoldiers(new Set());setPicked(new Set());}}>Bỏ chọn</button></div>}
         {!regionMode&&picked.size > 0 && (
           <div className="pickbar">
             <b>{picked.size} người đã chọn</b>

@@ -1,0 +1,5 @@
+.picker { display:flex; flex-direction:column; gap:4px; width:100%; min-width:0; font-size:12px; }
+.types { display:flex; gap:6px; overflow-x:auto; padding:3px 1px 5px; }
+.types button { flex-shrink:0; white-space:nowrap; min-height:36px; }
+.types button[aria-pressed="true"] { color:#ffe08a; border-color:#ffe08a; background:#4b452d; }
+.picker small { color:#c8c4ae; font-size:11px; line-height:1.5; }

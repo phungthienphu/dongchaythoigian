@@ -1,3 +1,4 @@
+import {assignFormation,formationSlots} from './formation';
 import {unitCounter} from './era-military';
 import {selectTowerTiles,towerDamage,towerStats} from './tower-balance';
 import {bridgeReady,SHORT_BRIDGE_WATER_TILES,type BridgeSpan} from './bridges';
@@ -102,11 +103,12 @@ export function commandBattle(s:BattleState,side:BattleSide,c:BattleCommand):boo
   if(s.status==='finished')return false;
   if(c.type==='presence'){if(side!=='defender')return false;s.defenderOnline=c.online;return true;}
   if(c.type==='retreat'){if(side!=='attacker'||s.status!=='fighting')return false;s.status='retreating';for(const g of s.groups)if(g.side==='attacker'){g.order={type:'retreat'};delete g.resumeOrder;delete g.retreatExit;}return true;}
-  if(battleCommandError(s,side,c))return false;
+  const destinations=new Map<string,number>();
+  if(battleCommandError(s,side,c,destinations))return false;
   const ids=new Set(c.groupIds??[c.groupId]);
   for(const g of s.groups)if(ids.has(g.id)){
     delete g.resumeOrder;delete g.breachRetryAt;
-    g.order=c.type==='move'?{type:'move',x:c.x,y:c.y}:{type:'attack',targetId:c.targetId};
+    g.order=c.type==='move'?{type:'move',...(destinations.has(g.id)?xy(destinations.get(g.id)!):{x:c.x,y:c.y})}:{type:'attack',targetId:c.targetId};
     delete g.path;g.blocked=false;g.moving=false;
   }
   return true;
@@ -142,7 +144,7 @@ function move(s:BattleState,g:BattleGroup,target:{x:number;y:number},deck:Readon
 }
 /** Validate a defender move before replacing its current order. Own houses are
  * never demolished automatically; a river still requires transport capacity. */
-export function battleCommandError(s:BattleState,side:BattleSide,c:BattleCommand):string|null {
+export function battleCommandError(s:BattleState,side:BattleSide,c:BattleCommand,destinations?:Map<string,number>):string|null {
   if(s.status==='finished')return 'Trận đã kết thúc, không thể điều quân trong báo cáo trận.';
   if(c.type==='presence'||c.type==='retreat')return null;
   if(s.status==='retreating'&&side==='attacker')return 'Đoàn quân đang rút khỏi trận.';
@@ -152,12 +154,49 @@ export function battleCommandError(s:BattleState,side:BattleSide,c:BattleCommand
   if(groups.some(g=>!g))return 'Một số nhóm quân không còn khả dụng hoặc không thuộc phe của bạn. Hãy chọn lại.';
   if(c.type==='attack')return s.groups.some(t=>t.id===c.targetId&&t.side!==side&&living(t))||side==='attacker'&&s.buildings.some(b=>b.id===c.targetId&&!b.burned)?null:'Mục tiêu không còn khả dụng.';
   if(!Number.isFinite(c.x)||!Number.isFinite(c.y)||c.x<0||c.y<0||c.x>=W||c.y>=H)return 'Vị trí nằm ngoài bản đồ.';
+  if(c.groupIds)return battleFormation(s,side,groups as BattleGroup[],c,destinations);
   if(side!=='defender')return null;
   const tile=Math.floor(c.y)*W+Math.floor(c.x);
   if(s.terrain[tile]===R&&groups.some(g=>!g!.naval)&&!battleBridgeTiles(s).has(tile))return 'Không thể qua sông: cần cầu hoàn chỉnh hoặc đủ thuyền vận tải chưa được sử dụng. Chọn vị trí cùng bờ.';
   if(isRock(s.terrain[tile]))return 'Không thể đứng trên núi hoặc mỏ đá. Chọn ô đất trống.';
   if(s.buildings.some(b=>b.tile===tile&&blockingBuilding(b,side)))return 'Công trình của mình đang chiếm ô này. Chọn đất trống hoặc đi qua cổng.';
   for(const g of groups){const probe={...g!,path:undefined};if(!move(s,probe,c))return 'Không có đường tới vị trí này cho toàn bộ nhóm đã chọn. Kiểm tra sông, núi và lối ra qua cổng; quân phòng thủ không tự phá nhà mình.';}
+  return null;
+}
+
+/** One flood per transport profile, rather than a new full-map path search per
+ * soldier. Attackers may breach buildings; terrain still cannot be bypassed. */
+function battleFormation(s:BattleState,side:BattleSide,groups:BattleGroup[],target:{x:number;y:number},destinations?:Map<string,number>):string|null {
+  const deck=battleBridgeTiles(s),blocks=new Set(s.buildings.filter(b=>blockingBuilding(b,side)).map(b=>b.tile));
+  const tile=Math.floor(target.y)*W+Math.floor(target.x),naval=groups.every(g=>g.naval);
+  const ground=(t:number)=>!blockedTerrain(s.terrain[t],naval||deck.has(t));
+  const stand=(t:number)=>ground(t)&&!blocks.has(t),traverse=(t:number)=>ground(t)&&(side==='attacker'||!blocks.has(t));
+  const chosen=new Set(groups.map(g=>g.id)),reserved=new Set<number>();
+  for(const g of s.groups)if(g.side===side&&living(g)&&!chosen.has(g.id)){
+    reserved.add(Math.floor(g.y)*W+Math.floor(g.x));
+    for(const order of [g.order,g.resumeOrder])if(order&&(order.type==='move'||order.type==='guard'))reserved.add(Math.floor(order.y)*W+Math.floor(order.x));
+  }
+  const slots=formationSlots(W,H,tile,groups.length,stand,traverse,reserved);
+  if(!slots)return 'Không đủ chỗ dàn quân quanh điểm này. Chọn vùng đất trống rộng hơn, ngoài núi và công trình; qua sông cần cầu hoặc thuyền.';
+  const reachable=new Map<boolean,Set<number>>();
+  for(const g of groups){
+    const onWater=!!g.naval;
+    let seen=reachable.get(onWater);
+    if(!seen){
+      seen=new Set([tile]);const queue=[tile];
+      for(let head=0;head<queue.length;head++)for(const [dx,dy] of [[0,-1],[-1,0],[1,0],[0,1]]){
+        const at=queue[head],x=at%W+dx,y=Math.floor(at/W)+dy,t=y*W+x;
+        if(x<0||x>=W||y<0||y>=H||seen.has(t)||blockedTerrain(s.terrain[t],onWater||deck.has(t))||side==='defender'&&blocks.has(t))continue;
+        seen.add(t);queue.push(t);
+      }
+      reachable.set(onWater,seen);
+    }
+    const from=Math.floor(g.y)*W+Math.floor(g.x);
+    // A legacy spawn inside a house can still leave through an open neighbour.
+    const canExit=side==='defender'&&blocks.has(from)&&[[0,-1],[-1,0],[1,0],[0,1]].some(([dx,dy])=>{const x=Math.floor(g.x)+dx,y=Math.floor(g.y)+dy;return x>=0&&x<W&&y>=0&&y<H&&seen!.has(y*W+x);});
+    if(!seen.has(from)&&!canExit)return 'Không có đường cho toàn bộ nhóm tới điểm gác. Kiểm tra cầu, thuyền, núi và cổng; chưa thay đổi lệnh của nhóm.';
+  }
+  if(destinations)for(const [id,to] of assignFormation(groups,slots,W))destinations.set(id,to);
   return null;
 }
 

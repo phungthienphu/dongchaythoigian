@@ -1,3 +1,4 @@
+import {assignFormation,formationSlots} from './formation';
 import {isFortification,type DefenseOrientation} from './fortifications';
 import {stepHunger,type HungerState} from './hunger';
 import {ERA_UNITS} from './era-military';
@@ -2758,8 +2759,16 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     // never move a subset or reserve transports without the rest of the group.
     const actors=new Map(homeSoldiers(c,now).map(s=>[s.id,s]));
     if(a.ids.some(id=>!actors.has(id)))return "Một số lính không còn ở làng. Hãy chọn lại nhóm quân.";
-    const trial={...c,homeOrders:{...c.homeOrders},ferryBookings:[...(c.ferryBookings??[])]},context=haulingContext(c,derive(c));
-    for(const id of a.ids)if(!orderHomeSoldier(trial,id,idx(a.x,a.y),now,actors.get(id),context))return "Nhóm quân chưa có đường đi hoặc không đủ thuyền; lính đang qua sông cần lên bờ trước. Chưa thay đổi lệnh của nhóm.";
+    const trial={...c,homeOrders:{...c.homeOrders},ferryBookings:[...(c.ferryBookings??[])]},context=haulingContext(c,derive(c)),chosen=new Set(a.ids),reserved=new Set<number>();
+    for(const s of actors.values())if(!chosen.has(s.id)){
+      reserved.add(idx(Math.floor(s.x),Math.floor(s.y)));
+      const end=c.homeOrders?.[s.id]?.route.at(-1);if(end!==undefined)reserved.add(end);
+    }
+    const pass=(tile:number)=>!!c.seen[tile]&&haulPassable(c,tile,-1,false,context.bridges);
+    const slots=formationSlots(W,H,idx(a.x,a.y),a.ids.length,pass,pass,reserved);
+    if(!slots)return "Không đủ ô đất trống liền nhau để dàn quân gác quanh đây. Chọn một vùng rộng hơn; chưa thay đổi lệnh của nhóm.";
+    const destinations=assignFormation(a.ids.map(id=>actors.get(id)!),slots,W);
+    for(const [id,to] of destinations)if(!orderHomeSoldier(trial,id,to,now,actors.get(id),context))return "Nhóm quân chưa có đường đi hoặc không đủ thuyền; lính đang qua sông cần lên bờ trước. Chưa thay đổi lệnh của nhóm.";
     c.homeOrders=trial.homeOrders;c.ferryBookings=trial.ferryBookings;return null;
   }
   if (a.type === "moveSoldier") {

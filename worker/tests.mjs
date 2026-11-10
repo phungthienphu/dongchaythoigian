@@ -138,7 +138,8 @@ test('one socket group command moves all selected troops and rejects mixed owner
  const command={type:'move',groupIds:['attacker:club','attacker:bow'],x:3.5,y:5.5};
  await h.room.webSocketMessage(ws,JSON.stringify({type:'command',command}));
  assert.equal(ws.frames.filter(f=>f.type==='ack').length,1);assert.equal(ws.frames.find(f=>f.type==='ack').accepted,true);
- for(const g of h.data.get('battle').groups.filter(g=>g.side==='attacker'))assert.deepEqual(g.order,{type:'move',x:3.5,y:5.5});
+ const moved=h.data.get('battle').groups.filter(g=>g.side==='attacker');assert.equal(new Set(moved.map(g=>`${g.order.x}:${g.order.y}`)).size,2);
+ for(const g of moved){assert.equal(g.order.type,'move');assert.ok(Math.hypot(g.order.x-3.5,g.order.y-5.5)<=1);}
  const before=structuredClone(h.data.get('battle').groups.map(g=>g.order));
  await h.room.webSocketMessage(ws,JSON.stringify({type:'command',command:{...command,groupIds:['attacker:club','defender:sword']}}));
  assert.equal(ws.frames.filter(f=>f.type==='ack').at(-1).accepted,false);assert.deepEqual(h.data.get('battle').groups.map(g=>g.order),before);
@@ -155,6 +156,7 @@ test('full 360-group defence selection exceeds 4KB and still receives one accept
  const message=JSON.stringify({type:'command',command:{type:'move',groupIds:groups.map(g=>g.id),x:3.5,y:5.5}});assert.ok(message.length>4096);
  await h.room.webSocketMessage(ws,message);const acks=ws.frames.filter(f=>f.type==='ack');assert.equal(acks.length,1);assert.equal(acks[0].accepted,true);
  assert.ok(h.data.get('battle').groups.filter(g=>g.side==='defender').every(g=>g.order.type==='move'));
+ assert.equal(new Set(h.data.get('battle').groups.filter(g=>g.side==='defender').map(g=>`${g.order.x}:${g.order.y}`)).size,360);
  await h.room.webSocketMessage(ws,' '.repeat(64*1024+1));assert.equal(ws.frames.at(-1).type,'error');
 });
 
