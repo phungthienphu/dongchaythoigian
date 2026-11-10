@@ -1,3 +1,5 @@
+import {ZOMBIE_BUILDINGS} from './zombie-buildings';
+import {activateZombies,stepZombies,zombieBusy,buildingIntegrity,type ZombieState,type Vital} from './zombies';
 import {assignFormation,formationSlots} from './formation';
 import {isFortification,type DefenseOrientation} from './fortifications';
 import {stepHunger,type HungerState} from './hunger';
@@ -83,6 +85,7 @@ export type Def = {
 };
 
 const DEFS = {
+  ...ZOMBIE_BUILDINGS,
   ...MEDIEVAL_BUILDINGS,
   ...INDUSTRIAL_BUILDINGS,
   ...MODERN_BUILDINGS,
@@ -204,7 +207,7 @@ const ERA_UP: Record<number, string> = {
 export const storageLevel = (b: Building, r: ResKey) => b.storageLevels?.[r] ?? b.lvl;
 
 /** Optional metadata preserves old saves without inventing construction dates. */
-export type Building = { orientation?:Exclude<DefenseOrientation,'auto'>; bridge?:BridgeSpan; builtAt?: number; investment?: Partial<Res>; investmentEstimated?: boolean; stranded?: boolean; relocation?: { from: number; startedAt: number; duration: number }; floodUntil?:number; off?:boolean; damageCause?: 'earthquake'; shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
+export type Building = { zombieDamage?:number; orientation?:Exclude<DefenseOrientation,'auto'>; bridge?:BridgeSpan; builtAt?: number; investment?: Partial<Res>; investmentEstimated?: boolean; stranded?: boolean; relocation?: { from: number; startedAt: number; duration: number }; floodUntil?:number; off?:boolean; damageCause?: 'earthquake'; shipQueue?: number[]; storageLevels?: Partial<Record<ResKey, number>>; storageUpgrade?: ResKey; k: BKey; lvl: number; doneAt: number | null; flooded?: boolean; burned?: boolean; fertility?: number; tendUntil?: number };
 export type Task =
   | { t: "idle"; at?: number } // at = where they stand and wait
   | { t: "work"; at: number }
@@ -226,7 +229,7 @@ export type Haul = {
   taskKey: string; workRate?: number; drop?: number;
 };
 export type Refuge = { route: number[]; at: number; arrive: number; pausedAt: number; x: number; y: number; building?: number; returnAt?: number; back?: number; returnProgress?: number };
-export type Person = { assignment?: "manual" | "scout"; gatherRetryAt?: number; refuge?: Refuge; id: number; name: string; task: Task; pos?: number; haul?: Haul }; // pos: tile they last headed to
+export type Person = { vital?:Vital; assignment?: "manual" | "scout"; gatherRetryAt?: number; refuge?: Refuge; id: number; name: string; task: Task; pos?: number; haul?: Haul }; // pos: tile they last headed to
 export type Herd = { id: number; at: number; kind: "deer" | "boar"; n: number; max: number };
 export type DisasterNotice = { id:string; at:number; kind:"flood"|"earthquake"|"river"|"dock"; phase:"warning"|"impact"|"protected"; msg:string; tiles:number[] };
 export type LogEntry = { caravanId?: string; at: number; msg: string; cls?: "warn" | "good" };
@@ -239,6 +242,7 @@ export type SettlementBudget = { maxTicks: number; maxMs: number };
 export const RECOVERY_THRESHOLD_MS = 30 * 60_000;
 
 export type City = {
+  zombies?:ZombieState;
   /** Durable continuation. Only budgeted settlement may advance this timeline. */
   catchUp?: CityCatchUp;
   modern?:ModernState;
@@ -581,6 +585,7 @@ export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
     res: { food: 100, wood: 120, stone: 30, copper: 0, gold: 0, diamond: 0, coal:0 }, pop: 0, popAcc: 0, era: 1,
     t0: now, last: now, economyBalanceStartsAt:now, upkeepStartsAt:now, wheelFuelStartsAt:now, gatherFoodStartsAt:now, farmAutoStartsAt:now, hungerStartsAt:now, hunger:{stressMs:0,lossMs:0,warned:0}, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
   };
+  activateZombies(c,now,true);
   enrichCopperDeposits(c);
   enrichPreciousDeposits(c);
   reveal(c, camp, START_SIGHT);
@@ -729,7 +734,8 @@ export function demolitionQuote(c: City, tile: number, now: number) {
     if (!error && crowded.length) error = `Chưa thể phá: kho còn lại thiếu chỗ cho ${crowded.map(r => `${RN[r].toLowerCase()} (${Math.ceil(c.res[r]-capacity[r])})`).join(", ")}. Dùng bớt tài nguyên hoặc bổ sung Kho trước.`;
     const paid = demolitionInvestment(b);
     for (const r of RES) {
-      const amount = Math.floor((paid[r] ?? 0) * percent / 100);
+      const integrity=b.zombieDamage?buildingIntegrity(b)/(buildingIntegrity(b)+b.zombieDamage):1;
+      const amount = Math.floor((paid[r] ?? 0) * percent / 100 * integrity);
       if (!amount) continue;
       gross[r] = amount;
       const accepted = Math.min(amount, Math.max(0, Math.floor(capacity[r] - c.res[r])));
@@ -863,7 +869,7 @@ function computeStats(c: City, D: Derived, at: number, estimates: boolean): Stat
     cnt[b.k] = (cnt[b.k] ?? 0) + 1;
   }
   const workers = new Map<number, number>();
-  for (const p of c.people) if (!p.refuge && p.task.t === "work") workers.set(p.task.at, (workers.get(p.task.at) ?? 0) + 1);
+  for (const p of c.people) if (!p.refuge && !p.vital?.paused && p.task.t === "work") workers.set(p.task.at, (workers.get(p.task.at) ?? 0) + 1);
   const mult = (1 + 0.1 * Math.min(3, cnt.market ?? 0))*(1+medievalBonus(c));
   const tools = 1 + 0.25 * buildings(c).reduce((n, [, b]) => n + (b.k === "forge" && built(b) && !b.flooded ? b.lvl : 0), 0);
   const winter = seasonAt(c, at) === 3;
@@ -955,10 +961,10 @@ function computeStats(c: City, D: Derived, at: number, estimates: boolean): Stat
 
 export const isScout = (p:Person) => p.assignment === "scout" || p.task.t === "explore";
 /** Explicit moves and waiting scouts are not unassigned workers, including old saves. */
-export const availableForWork = (p:Person) => !p.refuge && p.task.t === "idle" && p.task.at === undefined && !isScout(p);
+export const availableForWork = (p:Person) => !p.refuge && !p.vital?.paused && p.task.t === "idle" && p.task.at === undefined && !isScout(p);
 /** A player clicking a resource explicitly replaces a non-scout standing/move
  * order. Automation and exact workforce plans must still preserve that order. */
-export const availableForQuickAssign = (p:Person) => !p.refuge && p.task.t === "idle" && !isScout(p);
+export const availableForQuickAssign = (p:Person) => !p.refuge && !p.vital?.paused && p.task.t === "idle" && !isScout(p);
 export function quickAssignBlockedReason(c:City) {
   if (!c.people.length) return "Làng chưa có dân để giao việc.";
   const scouts=c.people.filter(isScout).length, sheltered=c.people.filter(p=>!!p.refuge).length;
@@ -1198,7 +1204,7 @@ function stepExplorers(c: City, at: number) {
   let changed = false;
   for (const p of c.people) {
     const tk = p.task;
-    if (p.refuge || tk.t !== "explore" || p.haul?.carried && !p.haul.resting) continue;
+    if (p.refuge || p.vital?.paused || tk.t !== "explore" || p.haul?.carried && !p.haul.resting) continue;
     const [, , prog] = explorerPos(tk, at);
     // reveal every tile along the stretch walked since the last step, not just the end point
     const fx = tk.from % W, fy = (tk.from / W) | 0, tx = tk.to % W, ty = (tk.to / W) | 0;
@@ -1270,6 +1276,7 @@ function nextGatherSource(c:City,p:Person,resource:ResKey,ctx:HaulContext):numbe
 
 /** Tile-centre position along the persisted authoritative route. No client RNG. */
 export function haulPosition(p: Person, now: number): { x: number; y: number; phase: Haul["phase"]; carried: number; resource?: ResKey } | null {
+  if(p.vital?.paused&&p.vital.x!==undefined)return {x:p.vital.x,y:p.vital.y!,phase:'work',carried:p.haul?.carried??0,resource:p.haul?.resource};
   const h = p.haul;
   if (!h) return null;
   let tile = h.tile, x = tile % W + 0.5, y = Math.floor(tile / W) + 0.5;
@@ -1481,7 +1488,7 @@ export function pruneHomeOrders(c: City) {
     if (!UKEYS.includes(u as UKey) || Number(n) >= (c.army[u as UKey] ?? 0)) delete c.homeOrders![key];
   }
 }
-export function homeSoldiers(c: City, now: number, staging = armyStagingTiles(c)) {
+export function homeSoldiers(c: City, now: number, staging = armyStagingTiles(c), includeZombieCombat=true) {
   const deck=bridgeDeck(c);
   const result: { id: string; u: UKey; x: number; y: number; moving: boolean; face: 1 | -1 }[] = [];
   let n = 0;
@@ -1504,6 +1511,8 @@ export function homeSoldiers(c: City, now: number, staging = armyStagingTiles(c)
         distance -= length; x = tx; y = ty;
       }
     }
+    const zg=includeZombieCombat&&c.zombies?.actors.length?c.zombies.guards.find(g=>g.id===id):undefined;
+    if(zg&&!moving){x=zg.x;y=zg.y;moving=!!zg.walking;}
     result.push({ id, u, x, y, moving, face });
   }
   return result;
@@ -1604,12 +1613,15 @@ export function updateRefuges(c:City,at:number){
 
 function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob | null {
   const tk = p.task;
+  const illness=p.vital?.infectedAt!==undefined;
+  if(illness&&(at-p.vital!.infectedAt!>=2*HOUR||taskResource(c,p)==='food'))return null;
+  const healthRate=illness?.5:1;
   if (tk.t === "chop" || tk.t === "mine") {
     if (tk.t === "chop" ? c.t[tk.at] !== F : !isRock(c.t[tk.at])) return null;
     const resource = taskResource(c,p)!;
     if(tk.t === "mine" && mineralResource(c.t[tk.at]) !== resource)return null;
     const rate = gatheringRate(resource);
-    return { tile: tk.at, resource, rate: rate * ctx.tools * ctx.mult, source: { kind: "tile", key: tk.at } };
+    return { tile: tk.at, resource, rate: rate * ctx.tools * ctx.mult * healthRate, source: { kind: "tile", key: tk.at } };
   }
   if (tk.t === "hunt") {
     const herd = herdById(c, tk.herd);
@@ -1623,7 +1635,7 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   if(d.demand&&!powerFraction(c,tk.at))return null;
   if(b.k==='artisan'&&(c.res.wood<20||c.res.stone<10))return null;
   if(d.input&&Object.entries(d.input).some(([r,n])=>c.res[r as ResKey]<(n??0)/production[resource]!))return null;
-  let rate = production[resource]! * LVL_MULT[b.lvl] / buildingJobs(b) * ctx.mult * (b.k==='artisan'||def(b.k).era>=5?1:GATHER_SPEED);
+  let rate = healthRate * production[resource]! * LVL_MULT[b.lvl] / buildingJobs(b) * ctx.mult * (b.k==='artisan'||def(b.k).era>=5?1:GATHER_SPEED);
   rate *= droughtFactor(c,tk.at,b.k,at)*(d.demand?powerFraction(c,tk.at):1);
   const crop = isField(b.k) || b.k === "gather";
   if (crop && ctx.D.fert[tk.at]) rate *= isField(b.k) ? (completedWonder(c,'dam')?1.5:2) : 1.5;
@@ -1683,6 +1695,7 @@ function returnCargo(c: City, p: Person, at: number, ctx: HaulContext) {
   }
 }
 function beginHaul(c: City, p: Person, at: number, ctx: HaulContext) {
+  if(p.vital?.paused||p.vital?.downAt)return;
   if(p.refuge)return;
   if((p.task.t === "chop" || p.task.t === "mine") && (p.gatherRetryAt??0)>at)return;
   let job = haulingJob(c, p, at, ctx);
@@ -1797,7 +1810,7 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: Res, smelt:
       ctx.sight.add(tile);
       if(reveal(c,tile,2)){ctx.sources.clear();ctx.gatherTargets.clear();}
     }
-    if(p.refuge)continue;
+    if(p.refuge||p.vital?.paused||p.vital?.downAt)continue;
     if (!p.haul) { beginHaul(c, p, at, ctx); continue; }
     const h = p.haul;
     if (h.resting) {
@@ -2488,6 +2501,7 @@ export function settle(c: City, now: number, budget?: SettlementBudget) {
     // Service bonuses change when their workers arrive or seek refuge.
     if(c.medieval && medievalBonus(c,services,hauling.civic.bonus)!==hauling.medievalBonus)dirty=true;
     if(c.industry){const network=transportNetwork(c,services,hauling.civic.transport);if(network.bridge!==hauling.transport.bridge||network.stations.join(',')!==hauling.transport.stations.join(','))dirty=true;}
+    if(stepZombies(c,nt))dirty=true;
     if(stepFrontier(c,nt))dirty=true;
     if (updateRefuges(c,nt)) dirty=true;
     if (stepExplorers(c, nt)) dirty = true;
@@ -2509,7 +2523,7 @@ export function settle(c: City, now: number, budget?: SettlementBudget) {
     let furnaceLoad=0;
     if(t>=c.upkeepStartsAt&&c.res.copper<st.storage.copper)for(const p of c.people){
       const b=p.task.t==='work'?c.b[p.task.at]:undefined,haul=p.haul;
-      if(!p.refuge&&b?.k==='smelter'&&isBuildingActive(b)&&haul?.phase==='work'&&haul.source?.kind==='tile'&&c.t[haul.source.key]===O)furnaceLoad+=LVL_MULT[b.lvl]/B.smelter.jobs!;
+      if(!p.refuge&&!p.vital?.paused&&b?.k==='smelter'&&isBuildingActive(b)&&haul?.phase==='work'&&haul.source?.kind==='tile'&&c.t[haul.source.key]===O)furnaceLoad+=LVL_MULT[b.lvl]/B.smelter.jobs!;
     }
     const need = (t<c.upkeepStartsAt?st.woodUse-st.fireWoodUse-st.wheelWoodUse:600*furnaceLoad) * h,stoneNeed=(t<c.upkeepStartsAt?st.stoneUse:600*furnaceLoad)*h;
     const smelt = t>=c.upkeepStartsAt&&c.res.copper>=st.storage.copper?0:Math.max(0,Math.min(1,need>0?c.res.wood/need:1,stoneNeed>0?c.res.stone/stoneNeed:1));
@@ -2521,7 +2535,7 @@ export function settle(c: City, now: number, budget?: SettlementBudget) {
     if(t>=c.wheelFuelStartsAt&&st.wheelWoodUse>0){
       const mills=new Set<number>();
       if(c.res.food<st.storage.food)for(const p of c.people){
-        if(!p.refuge&&p.task.t==='work'&&c.b[p.task.at]?.k==='wheel'&&isBuildingActive(c.b[p.task.at])&&p.haul?.phase==='work'&&p.haul.source?.kind==='building'&&p.haul.source.key===p.task.at)mills.add(p.task.at);
+        if(!p.refuge&&!p.vital?.paused&&p.task.t==='work'&&c.b[p.task.at]?.k==='wheel'&&isBuildingActive(c.b[p.task.at])&&p.haul?.phase==='work'&&p.haul.source?.kind==='building'&&p.haul.source.key===p.task.at)mills.add(p.task.at);
       }
       const millNeed=mills.size*WATERMILL_WOOD_PER_HOUR*h;
       milling=c.res.food>=st.storage.food?0:millNeed>0?Math.min(1,c.res.wood/millNeed):1;
@@ -2580,11 +2594,12 @@ export function settle(c: City, now: number, budget?: SettlementBudget) {
 }
 
 export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rules:EngineRules=RELEASE_RULES,skipCost=false,relocatingDockFrom?:number): string | null {
+  if(c.zombies?.warning===idx(x,y))return "Ổ zombie đang nứt đất; không thể xây đè lên ổ.";
   const d = def(k), i = idx(x, y), t = c.t[i];
   if(d.era>rules.maxEra)return "Thời đại này sắp ra mắt.";
   if (!c.seen[i]) return "Vùng này chưa khám phá.";
   if (d.era > c.era) return "Chưa tới thời đại này.";
-  if(c.modern?.choice===k)return "Kỳ quan đã khánh thành, không thể xây lại hoặc đổi nhánh.";
+  if(c.modern?.choice===k&&Object.values(c.b).some(b=>b.k===k))return "Kỳ quan đã khánh thành, không thể xây lại hoặc đổi nhánh.";
   if (c.b[i]) return "Ô này đã có công trình.";
   if(bridgeExitReserved(c,i)&&k!=='bridgehead')return "Ô này là lối ra của Cầu Sắt. Giữ trống để dân và quân qua cầu.";
   if (t === R) return "Không xây được trên sông.";
@@ -2710,6 +2725,9 @@ export type Action =
   | { type:"setPowerPriority"; priority:PowerGroup[] }
   | { type: "plantTree"; x:number;y:number }
   | { type: "toggleBuilding"; x:number;y:number }
+  | { type:"activateZombies" }
+  | { type:"zombiePatrol"; on:boolean }
+  | { type:"zombieSurvivors" }
   | { type: "advance" }
   | { type: "assign"; ids: number[]; task: TaskInput; pos?: Record<string, number> }
   | { type: "assignN"; n: number; task: TaskInput; pos?: Record<string, number> } // pos: where each person stands on screen
@@ -2725,6 +2743,9 @@ export type Action =
 export function applyAction(c: City, a: Action, now: number, rules:EngineRules=RELEASE_RULES): string | null {
   if (!isActionInput(a)) return "Yêu cầu không hợp lệ.";
   settle(c, now);
+  if(a.type==='activateZombies'){activateZombies(c,now);return null;}
+  if(a.type==='zombiePatrol'){if(!c.zombies)return 'Hãy đọc và bật luật zombie trước.';c.zombies.patrol=a.on;return null;}
+  if(a.type==='zombieSurvivors'){if(!c.zombies||c.people.length||c.zombies.survivorsAt)return 'Chỉ đón dân khi không còn ai và chưa có yêu cầu.';c.zombies.survivorsAt=now+30*MIN;return null;}
   if(a.type==='releaseTroops'){
     const quote=armyReleaseQuote(c,a.units,a.mode,now);if(quote.error)return quote.error;
     for(const u of UKEYS){const n=a.units[u]??0;if(!n)continue;c.army[u]=(c.army[u]??0)-n;}
@@ -2877,6 +2898,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
   }
   if(a.type === "setWorkforce")return setWorkforce(c,{...a.counts,coal:a.counts.coal??0},a.scouts,now);
   if (a.type === "attack") {
+    if(zombieBusy(c,now))return "Zombie đang xuất hiện; giữ quân bảo vệ làng.";
     const camp = campById(c, a.camp);
     if (!camp || !c.seen[camp.at]) return "Không thấy trại này.";
     if (camp.cleared) return "Trại này đã bị phá, chờ chúng dựng lại.";

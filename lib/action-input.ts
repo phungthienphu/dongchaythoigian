@@ -3,7 +3,7 @@ import type { Action, BKey, UKey } from './engine';
 // Exhaustive typed tables keep the JSON boundary in sync with engine keys,
 // without a runtime engine import (the engine itself invokes this guard).
 const BUILDINGS: Record<BKey, true> = {
-  thermal:true,hydro:true,solar:true,apartment:true,complex:true,hospital:true,university:true,park:true,retention:true,dam:true,green:true,
+  refuge:true,healer:true,warningbell:true,thermal:true,hydro:true,solar:true,apartment:true,complex:true,hospital:true,university:true,park:true,retention:true,dam:true,green:true,
   coalmine:true,charcoal:true,machine:true,factory:true,transport:true,tenement:true,treatment:true,nursery:true,ironbridge:true,bridgehead:true,
   grandstore:true, tilehouse:true, well:true, reservoir:true, estate:true, school:true, artisan:true, academy:true,
   dock: true, builderhouse: true, hut: true, gather: true, wood: true, quarry: true, storehouse: true,
@@ -55,7 +55,8 @@ export function isActionInput(value: unknown): value is Action {
   if (!record(value) || !own(value, 'type')) return false;
   switch (value.type) {
     case 'setPowerPriority': return Array.isArray(value.priority)&&value.priority.length===3&&new Set(value.priority).size===3&&value.priority.every(p=>['essential','housing','production'].includes(p));
-    case 'advance': case 'alarm': return true;
+    case 'activateZombies': case 'zombieSurvivors': case 'advance': case 'alarm': return true;
+    case 'zombiePatrol': return typeof value.on==='boolean';
     case 'build': return known(BUILDINGS, value.k) && point(value) && (!own(value,'confirmFinal')||typeof value.confirmFinal==='boolean') && (!own(value,'orientation')||(value.k==='wall'||value.k==='gate')&&orientation(value.orientation));
     case 'orientDefense': return point(value)&&orientation(value.orientation);
     case 'upgradeStorage': return point(value) && RESOURCES.includes(value.resource as typeof RESOURCES[number]);

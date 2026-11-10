@@ -1,6 +1,6 @@
 import {B,RES,RN,availableForQuickAssign,farmRemaining,type City,type Res} from './engine';
 import type {SaveStatus} from './batched-city';
-export type AttentionTarget = {kind:'shop'|'people'|'army'|'era'|'log'|'sync'}|{kind:'tile';tile:number}|{kind:'resource';resource:keyof Res}|{kind:'battle';id:string};
+export type AttentionTarget = {kind:'shop'|'people'|'army'|'era'|'log'|'sync'|'zombies'}|{kind:'tile';tile:number}|{kind:'resource';resource:keyof Res}|{kind:'battle';id:string};
 export type AttentionItem = {id:string;severity:'urgent'|'warning'|'info';title:string;detail:string;action:string;target:AttentionTarget};
 type War = { _id:string;status:string;side:string;attackerName:string;defenderName:string };
 /** Derived presentation only: no timers, requests, simulation or automatic orders. */
@@ -9,6 +9,11 @@ export function villageAttention(c:City,storage:Res,save:SaveStatus,wars:readonl
   if(['offline','error','readonly'].includes(save))items.push({id:'sync',severity:'urgent',title:save==='readonly'?'Làng đang được điều khiển ở tab khác':'Có tiến trình chưa lưu',detail:save==='readonly'?'Tab này chỉ xem. Quay lại tab đang điều khiển.':'Kiểm tra kết nối và thử đồng bộ để bảo vệ tiến trình.',action:save==='readonly'?'Xem hướng dẫn':'Thử đồng bộ',target:{kind:'sync'}});
   for(const war of wars.filter(w=>w.side==='defender'&&(w.status==='marching'||w.status==='fighting')))items.push({id:`war:${war._id}`,severity:'urgent',title:`${war.attackerName} đang tiến đánh`,detail:war.status==='fighting'?'Trận đánh đang diễn ra. Bạn có thể chỉ huy quân phòng thủ.':'Chuẩn bị quân ở nhà và các điểm gác.',action:war.status==='fighting'?'Chỉ huy trận':'Xem quân đội',target:war.status==='fighting'?{kind:'battle',id:war._id}:{kind:'army'}});
   if(c.raid||c.raidEncounter)items.push({id:'raid',severity:'urgent',title:'Man rợ đe dọa làng',detail:'Xem thời điểm địch tới và chuẩn bị phòng thủ tại Quân đội.',action:'Chuẩn bị phòng thủ',target:{kind:'army'}});
+  const zombies=c.zombies;
+  if(!zombies)items.push({id:'zombie-activation',severity:'info',title:'Luật zombie mới đang chờ bạn đọc',detail:'Đợt đầu sau 5 phút kể từ khi bật. Chuẩn bị lính và y tế; công trình bị phá mất vĩnh viễn.',action:'Đọc và chuẩn bị',target:{kind:'zombies'}});
+  else if(zombies.actors.length||zombies.warning!==undefined)items.push({id:'zombies',severity:'urgent',title:zombies.actors.length?`${zombies.actors.length} zombie đang đe dọa làng`:'Đất nứt · zombie sắp trồi',detail:'Bảo vệ dân, chặn lối bằng tường và giữ thợ y tế sẵn sàng. Nhà bị phá phải xây mới.',action:'Xem zombie và cứu hộ',target:{kind:'zombies'}});
+  const down=c.people.filter(p=>p.vital?.downAt!==undefined).length;
+  if(down)items.push({id:'zombie-rescue',severity:'urgent',title:`${down} dân gục cần cứu ngay`,detail:'Có 10 phút để tiếp cận cứu hộ. Giao thợ y tế và chuẩn bị thực phẩm.',action:'Xem cứu hộ',target:{kind:'zombies'}});
   if(c.disaster&&c.disaster.at>now&&c.disaster.at-now<=30*60000)items.push({id:'disaster',severity:'warning',title:`${c.disaster.kind==='earthquake'?'Động đất':'Thiên tai'} có thể sắp tới`,detail:'Xem dự báo và chuẩn bị công trình bảo vệ. Cảnh báo còn hiệu lực vẫn hiện dù đã đọc tin.',action:'Xem thông báo',target:{kind:'log'}});
   if(c.people.length&&(c.res.food<=0||(c.hunger?.stressMs??0)>0))items.push({id:'hunger',severity:c.res.food<=0?'urgent':'warning',title:c.res.food<=0?'Dân đang đói':'Dân đang hồi phục sau đói',detail:c.res.food<=0?'Cần lương thực được nộp vào kho. Giao người kiếm ăn hoặc kiểm tra chuyến hàng đang chờ.':'Giữ nguồn thực đều đặn để mức đói giảm; dân chưa tăng lại ngay.',action:'Kiểm tra lương thực',target:{kind:'resource',resource:'food'}});
   const waiting=Object.fromEntries(RES.map(r=>[r,0])) as Res;

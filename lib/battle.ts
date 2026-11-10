@@ -1,3 +1,4 @@
+import {buildingIntegrity} from './zombies';
 import {assignFormation,formationSlots} from './formation';
 import {unitCounter} from './era-military';
 import {selectTowerTiles,towerDamage,towerStats} from './tower-balance';
@@ -64,7 +65,7 @@ export function createBattle(o: { id: string; attackerId: string; defenderId: st
   const buildings: BattleBuilding[] = Object.entries(o.defender.b).filter(([,b]) => b.lvl > 0).map(([tile,b]) => {
     const value = Object.values(B[b.k].cost).reduce((s,n)=>s+(n??0),0)*b.lvl;
     const maxHp = Math.max(60,value*2);
-    return {id:`b:${tile}`,tile:Number(tile),k:b.k,lvl:b.lvl,hp:(b as typeof b & {burned?:boolean}).burned?0:maxHp,maxHp,burned:!!(b as typeof b & {burned?:boolean}).burned,initiallyBurned:!!(b as typeof b & {burned?:boolean}).burned,inactive:!!b.flooded,value,...(b.k==='ironbridge'&&bridgeReady(o.defender,+tile)?{bridge:structuredClone(b.bridge)}:{})};
+    return {id:`b:${tile}`,tile:Number(tile),k:b.k,lvl:b.lvl,hp:(b as typeof b & {burned?:boolean}).burned?0:Math.min(maxHp,buildingIntegrity(b)),maxHp,burned:!!(b as typeof b & {burned?:boolean}).burned,initiallyBurned:!!(b as typeof b & {burned?:boolean}).burned,inactive:!!b.flooded,value,...(b.k==='ironbridge'&&bridgeReady(o.defender,+tile)?{bridge:structuredClone(b.bridge)}:{})};
   });
   const deck=battleBridgeTiles({buildings});
   const center = xy(Number(Object.keys(o.defender.b).find(k=>o.defender.b[k].k==='hall') ?? o.defender.camp));

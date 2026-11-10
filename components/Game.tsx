@@ -1,4 +1,5 @@
 "use client";
+import ZombiePanel from './ZombiePanel';
 import {towerStats} from '@/lib/tower-balance';
 import {defendingTowers} from '@/lib/engine';
 import {pollutionBirth} from '@/lib/industry';
@@ -1434,9 +1435,10 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
       {panel && (
         <GamePanel feedback={msg?.err?msg.text:undefined} onDismissFeedback={()=>setMsg(null)} title={PANEL_LABELS[panel]} onClose={()=>setPanel(null)} onBack={panelGroup(panel)!==panel?()=>setPanel(panelGroup(panel) as Panel):undefined}>
+            {panel==='zombies'&&<ZombiePanel city={c} now={t} busy={busy} act={act} onLocate={locateTile}/>}
             {panel==='manage'&&<>
               <p className="panel-intro">{name}<span>{ERA_NAMES[c.era]} · {populationStatus}</span></p>
-              <div className="menu-links">
+              <div className="menu-links"><button onClick={()=>setPanel('zombies')}><Icon k="army"/><span>Zombie & cứu hộ<small>{c.zombies?`${c.zombies.actors.length} zombie · bảo vệ, bệnh và thiệt hại`:'Đọc luật mới · 5 phút chuẩn bị sau khi bật'}</small></span><b>›</b></button>
                 <button onClick={()=>setPanel('attention')}><Icon k="log"/><span>Cần chú ý<small>{attention.length} việc · ưu tiên vấn đề đang ảnh hưởng làng</small></span><b>›</b></button>
                 <button onClick={()=>setPanel('resources')}><Icon k="food"/><span>Tài nguyên & thu chi<small>Trong kho, thực nhận và sức chứa</small></span><b>›</b></button>
                 <button onClick={()=>setPanel('era')}><Icon k="era"/><span>Phát triển & vận hành<small>Lên đời, nước, điện, ô nhiễm và kỳ quan</small></span><b>›</b></button>

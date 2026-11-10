@@ -20,7 +20,7 @@ export type IndustryState={version:1;enteredAt:number;minuteAt:number;pollution:
 export const active=(b:Building|undefined):b is Building=>!!b&&b.lvl>0&&!b.burned&&!b.flooded&&!b.off;
 export const distance=(a:number,b:number)=>Math.max(Math.abs(a%SIDE-b%SIDE),Math.abs(Math.floor(a/SIDE)-Math.floor(b/SIDE)));
 export const multiplier=(b:Building)=>[0,1,1.6,2.4][Math.min(3,b.lvl)];
-export function staffCounts(c:City){const map=new Map<number,number>();for(const p of c.people)if(!p.refuge&&p.task.t==='work'&&(p.pos===p.task.at||p.haul?.phase==='work'&&(p.haul.source?.kind==='building'&&p.haul.source.key===p.task.at||p.haul.source?.kind==='tile'&&['coalmine','quarry','wood','smelter'].includes(c.b[p.task.at]?.k))))map.set(p.task.at,(map.get(p.task.at)??0)+1);return map;}
+export function staffCounts(c:City){const map=new Map<number,number>();for(const p of c.people)if(!p.refuge&&!p.vital?.paused&&p.task.t==='work'&&(p.pos===p.task.at||p.haul?.phase==='work'&&(p.haul.source?.kind==='building'&&p.haul.source.key===p.task.at||p.haul.source?.kind==='tile'&&['coalmine','quarry','wood','smelter'].includes(c.b[p.task.at]?.k))))map.set(p.task.at,(map.get(p.task.at)??0)+1);return map;}
 export function initializeIndustry(c:City,at:number){
  if(c.era<5)return;
  c.industry??={version:1,enteredAt:at,minuteAt:Math.floor(at/MIN)*MIN,pollution:0,emission:0,coalSpawned:false,seedlings:{}};

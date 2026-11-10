@@ -1,3 +1,5 @@
+import {drawZombieArt} from './zombie-art';
+import {buildingIntegrity,zombieBuildingHp} from '@/lib/zombies';
 import {defenseAxis,wallMask,wallOutline,wallFootprints,wallHeight,WALL_N,WALL_E,WALL_S,WALL_W,type DefenseOrientation,type DefensePreview} from '@/lib/fortifications';
 import {bridgeDeck,bridgeGeometry,bridgeReady} from '@/lib/bridges';
 import { drawVillagerArt } from "./villager-art";
@@ -532,6 +534,12 @@ export function drawBuilding(r: RC, k: BKey, x: number, y: number, lvl: number, 
   // Existing hand-authored building sprites remain upright; connected infrastructure
   // follows world axes so canals, walls, gates and bridges keep their topology.
   r={...r,billboard:fixedArt(k)};
+  if(k==='refuge'||k==='healer'||k==='warningbell'){
+    const q=tp(r,x,y);shadow(r,x,y,.45);
+    if(k==='warningbell'){for(const u of [-.22,.22])box(r,x,y,u-.03,-.05,u+.03,.05,0,27,'#bda578','#917249','#6a523b');line(r,q(-.28,0,27),q(.28,0,27),'#8e714b',3);box(r,x,y,-.08,-.1,.08,.1,13,23,'#cbac63','#9c733c','#79552e');return;}
+    box(r,x,y,-.36,-.32,.36,.32,0,15,'#baa57b','#947954','#705d45');pyramid(r,x,y,-.47,-.43,.47,.43,15,18,k==='healer'?'#92a68d':'#a4926c',k==='healer'?'#5f7e6d':'#766746');box(r,x,y,-.12,.321,.12,.34,0,12,'#3e5144','#304436','#273d31');
+    if(k==='healer'){line(r,q(.15,.35,20),q(.33,.35,20),'#ebd6aa',3);line(r,q(.24,.35,16),q(.24,.35,24),'#ebd6aa',3);}else for(let n=0;n<lvl;n++)line(r,q(-.28+n*.12,.34,9),q(-.28+n*.12,.34,13),'#d9bd83',1.5);return;
+  }
   if(k==='wall'){drawConnectedWall(r,x,y,lvl);return;}
   if(k==='gate')r={...r,turn:defenseAxis(r.city,idx(x,y),r.defensePreview)==='y'};
   if (lvl >= 2) backExtras(r, k, x, y, lvl, i);
@@ -1708,6 +1716,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
           if (b.lvl === 0 || b.burned) c.globalAlpha = 0.5;
           drawBuilding(r, b.k, x, y, Math.max(1, b.lvl), i);
           c.globalAlpha = 1;
+          if(b.zombieDamage){const [sx,sy]=P(v,x+.5,y+.5);c.fillStyle='#352e2b';c.fillRect(sx-12*v.s,sy-46*v.s,24*v.s,3*v.s);c.fillStyle='#d28b62';c.fillRect(sx-12*v.s,sy-46*v.s,24*v.s*buildingIntegrity(b)/zombieBuildingHp(b),3*v.s);}
           if(b.burned&&b.damageCause==='earthquake'){
             const q=tp(artR,x,y);const [sx,sy]=q(0,0,15);
             c.strokeStyle='#342b24';c.lineWidth=2*v.s;c.beginPath();c.moveTo(sx-8*v.s,sy-12*v.s);c.lineTo(sx+2*v.s,sy-4*v.s);c.lineTo(sx-3*v.s,sy+2*v.s);c.lineTo(sx+9*v.s,sy+10*v.s);c.stroke();
@@ -1771,6 +1780,9 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       items.push({ d, f: () => drawRock(r, x, y, worn > 0.55) });
     }
   }
+  const zombieState=city.zombies;
+  if(zombieState?.warning!==undefined){const tile=zombieState.warning,fx=tile%W+.5,fy=Math.floor(tile/W)+.5;if(onScreen(fx-.5,fy-.5))items.push({d:viewDepth(v,fx,fy)-.1,f:()=>{const [sx,sy]=P(v,fx,fy);c.strokeStyle='#d79468';c.lineWidth=2*v.s;c.beginPath();c.moveTo(sx-12*v.s,sy);c.lineTo(sx-3*v.s,sy-3*v.s);c.lineTo(sx+2*v.s,sy+2*v.s);c.lineTo(sx+12*v.s,sy-2*v.s);c.stroke();c.fillStyle='#efb77d';c.font=`bold ${12*v.s}px sans-serif`;c.fillText('!',sx,sy-12*v.s);}});}
+  for(const z of zombieState?.actors??[]){if((z.emergesAt??0)>o.now)continue;if(!seen[idx(Math.floor(z.x),Math.floor(z.y))]||!onScreen(z.x-.5,z.y-.5))continue;items.push({d:viewDepth(v,z.x,z.y),f:()=>{const [sx,sy]=P(v,z.x,z.y);drawZombieArt(c,z.kind,sx,sy,Math.max(.55,v.s),{time:o.anim,walking:z.walking,attacking:!!z.hitAt&&o.now-z.hitAt<500,face:cameraFace(v,1),hurt:!!z.hitAt&&o.now-z.hitAt<150});if(z.hp<z.maxHp){c.fillStyle='#342b26';c.fillRect(sx-10*v.s,sy-49*v.s,20*v.s,3*v.s);c.fillStyle='#ca6b58';c.fillRect(sx-10*v.s,sy-49*v.s,20*v.s*Math.max(0,z.hp/z.maxHp),3*v.s);}}});}
   for (const k of city.camps) {
     if (!seen[k.at] || !vis[k.at] || city.b[k.at]) continue;
     items.push({ d: viewDepth(v,k.at%W+.5,Math.floor(k.at/W)+.5), f: () => drawCampSite(r, k) });
@@ -1893,7 +1905,8 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
             const [sx, sy] = P(v, vl.fx, vl.fy,deckHeight(r,vl.fx,vl.fy)), s2 = Math.max(v.s * 1.45, 0.7);
             c.strokeStyle = "#7fe0ff"; c.lineWidth = 2; c.beginPath(); c.ellipse(sx, sy, 6 * s2, 3 * s2, 0, 0, Math.PI * 2); c.stroke();
           }
-          drawVillager(r, vl);
+          if(vl.health?.down){const [sx,sy]=P(v,vl.fx,vl.fy);c.save();c.translate(sx,sy);c.rotate(-Math.PI/2);c.translate(-sx,-sy);drawVillager(r,vl);c.restore();}else drawVillager(r, vl);
+          if(vl.health&&(vl.health.hp<100||vl.health.infected)){const [sx,sy]=P(v,vl.fx,vl.fy);const scale=Math.max(v.s,.65);c.fillStyle='#302d28';c.fillRect(sx-9*scale,sy-40*scale,18*scale,2.5*scale);c.fillStyle=vl.health.infected?'#b5ad61':'#d8896c';c.fillRect(sx-9*scale,sy-40*scale,18*scale*Math.max(0,vl.health.hp)/100,2.5*scale);if(vl.health.down||vl.health.infected){c.fillStyle=vl.health.down?'#ecb090':'#d8cd72';c.font=`bold ${Math.max(11,12*scale)}px sans-serif`;c.textAlign='center';c.fillText(vl.health.down?'+':'!',sx,sy-44*scale);}}
           if (isPicked) {
             const [sx, sy] = P(v, vl.fx, vl.fy,deckHeight(r,vl.fx,vl.fy)), s2 = Math.max(v.s * 1.45, 0.7);
             c.font = `600 ${Math.max(11, Math.round(8 * s2))}px system-ui, sans-serif`; c.textAlign = "center"; c.textBaseline = "bottom";

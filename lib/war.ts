@@ -1,3 +1,4 @@
+import {zombieBusy} from "./zombies";
 // MongoDB owns reservations/results; the Durable Object owns live battle ticks.
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { ClientSession } from "mongodb";
@@ -82,6 +83,7 @@ export function validateTroops(input: unknown, available: Troops): Troops {
   return out;
 }
 export function attackRestriction(a: City, d: City, target: string, now: number) {
+  if (zombieBusy(a,now)) return "Zombie đang xuất hiện; giữ quân bảo vệ làng.";
   if (a.battleId) return "Làng đang có trận đánh, hãy chỉ huy phòng thủ.";
   if (!knowsNation(a,target)) return "Cần sứ giả dò tìm vị trí nước này trước.";
   if (!canVisit(a, target, now)) return "Cần sứ giả thăm nước này trong 3 ngày gần nhất.";

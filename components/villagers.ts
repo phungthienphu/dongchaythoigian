@@ -9,6 +9,7 @@ export type Job = "wood" | "quarry" | "gather" | "farm" | "build" | "smith" | "t
 
 export type Villager = {
   fleeing?: boolean;
+  health?:{hp:number;infected:boolean;down:boolean};
   headingX?:number; headingY?:number; previousX?:number; previousY?:number;
   key: string;
   id: number | null; // person id; null for builders (not people)
@@ -316,6 +317,7 @@ export class Crowd {
       v.moving = false;
       v.swing = Math.max(0, v.swing - dt * 3);
       const person = v.id === null ? undefined : people.get(v.id);
+      const health=person?.vital;v.health=health?{hp:health.hp,infected:health.infectedAt!==undefined,down:health.downAt!==undefined}:undefined;
       const refuge=person?refugePosition(person,now):null;
       if(refuge){
         v.fleeing=true;
@@ -328,6 +330,7 @@ export class Crowd {
       }
       if(v.fleeing){delete v.fleeing;v.run=false;if(person && !person.haul)this.start(v,city,false);}
       if(v.id===null && (city.battleId || city.raid || city.raidEncounter)){v.visible=false;continue;}
+      if(person?.vital?.paused){const vital=person.vital;const dx=(vital.x??v.fx)-v.fx,dy=(vital.y??v.fy)-v.fy;v.fx=vital.x??v.fx;v.fy=vital.y??v.fy;v.moving=Math.hypot(dx,dy)>.001;v.run=v.moving;v.state='rest';v.swing=0;v.visible=vital.shelter===undefined&&!(vital.care&&now>=vital.care.arrive);if(Math.abs(dx-dy)>.001)v.face=dx-dy>=0?1:-1;continue;}
       if (person?.haul) { this.haulVisual(v, city, person, dt, now, tnow); continue; }
       if (person && person.task.t !== "idle" && person.task.t !== "explore") {
         // A newly assigned worker waits for the engine's first haul tick; no decorative income cycle.
