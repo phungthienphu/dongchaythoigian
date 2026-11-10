@@ -1554,7 +1554,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
             {panel === "log" && (
               <><DisasterNotifications city={c} onLocate={locateTile}/>{me.user && <BattleReports wars={war.wars} playerId={me.user.id} history />}<DiplomacyMessages messages={diplomacy.messages} busy={diplomacy.busy} error={diplomacy.error} onAction={diplomacy.act} /><ol className="log">
-                {[...c.log].sort((a,b)=>b.at-a.at).map((l, i) => (
+                {[...c.log,...archivedDisasters].sort((a,b)=>b.at-a.at).map((l, i) => (
                   <li key={i} className={l.cls ?? ""}><span className="t">{stamp(c, l.at)}</span>{l.msg}<CaravanNoticeLink id={l.caravanId} onTrack={trackCaravan}/></li>
                 ))}
               </ol></>
