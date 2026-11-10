@@ -246,6 +246,75 @@ for(const era of [2,3])for(const [dx,dy]of directions){
 }
 console.log('PASS: wet/dry canal branches and recessed floors are clickable in all four directions and both eras.');
 
+// Camera turns must preserve world identity, centre, culling and picking.
+const {rotatePoint,projectWorld,screenToWorld,screenToCell,rotateCam,viewDepth,travelFace,zoomAt,drawCity}=await import(pathToFileURL(path.join(temp,'draw.js')).href);
+const {derive}=await import(pathToFileURL(path.join(temp,'engine.js')).href);
+let rotationsChecked=0;
+for(const [width,height]of [[390,844],[1440,900]])for(const zoom of [1,3,8,18])for(const [cx,cy]of [[.5,.5],[48.5,48.5],[95.5,95.5]]){
+ const f=fitView(width,height),cam={zoom,px:0,py:0};focusOn(f,cam,cx,cy,zoom);
+ const start=screenToWorld(camView(f,cam),width/2,height/2);
+ for(let rotation=0;rotation<4;rotation++){
+  const v=camView(f,cam),bounds=visibleTileBounds(v);
+  const centre=screenToWorld(v,width/2,height/2);
+  assert.ok(Math.hypot(centre[0]-start[0],centre[1]-start[1])<1e-8,'turn moved camera centre');
+  for(let y=0;y<96;y++)for(let x=0;x<96;x++){
+   const [sx,sy]=projectWorld(v,x+.5,y+.5);
+   assert.deepEqual(screenToCell(v,sx,sy),{x,y},'rotated cell inverse mismatch');
+   if(sx>-v.TW&&sx<v.width+v.TW&&sy>-v.TW*.5&&sy<v.height+v.TW*2)assert.ok(x>=bounds.x0&&x<=bounds.x1&&y>=bounds.y0&&y<=bounds.y1,'culling dropped a rotated visible tile');
+  }
+  const anchor=projectWorld(v,cx,cy);zoomAt(f,cam,zoom*1.2,...anchor);
+  const after=screenToWorld(camView(f,cam),...anchor);
+  // Edge clamping can limit the zoom anchor only at the full-map limit.
+  if(zoom>1)assert.ok(Math.hypot(after[0]-cx,after[1]-cy)<1e-8,'zoom lost rotated anchor');
+  focusOn(f,cam,...start,zoom);rotateCam(f,cam,1);rotationsChecked++;
+ }
+ assert.equal(cam.rotation,0,'four turns must return to north');
+}
+const rotationCity=newCity(0,123);rotationCity.era=4;rotationCity.t.fill(G);rotationCity.seen.fill(1);rotationCity.b={};rotationCity.camps=[];rotationCity.herds=[];rotationCity.people=[];
+for(const rotation of [0,1,2,3]){
+ const v={...pickView,rotation};
+ for(const [dx,dy]of [[1,0],[-1,0],[0,1],[0,-1]]){
+  const p0=projectWorld(v,10,10),p1=projectWorld(v,10+dx,10+dy);
+  if(Math.abs(p1[0]-p0[0])>1e-6)assert.equal(travelFace(v,dx,dy,-1),p1[0]>p0[0]?1:-1);
+  assert.equal(Math.sign(viewDepth(v,10+dx,10+dy)-viewDepth(v,10,10)),Math.sign(p1[1]-p0[1]));
+  rotationCity.b={[center]:{k:'canal',lvl:1,doneAt:null}};rotationCity.t.fill(G);rotationCity.t[idx(10+dx,10+dy)]=R;
+  assert.deepEqual(pickBuilding(v,rotationCity,...projectWorld(v,10.5+dx*.49,10.5+dy*.49,-3*v.s)),{x:10,y:10});
+ }
+ rotationCity.t.fill(G);
+ for(const key of ['house','envoy','temple']){
+  rotationCity.b={[center]:{k:key,lvl:2,doneAt:null}};
+  const p=projectWorld(v,10.5,10.5,8*v.s);
+  assert.deepEqual(pickBuilding(v,rotationCity,...p),{x:10,y:10},'billboard art and pick must share their footprint');
+ }
+ for(const orientation of ['x','y']){
+  rotationCity.b={[center]:{k:'gate',lvl:2,doneAt:null,orientation}};
+  assert.deepEqual(pickBuilding(v,rotationCity,...projectWorld(v,10.5+(orientation==='x'?.36:0),10.5+(orientation==='y'?.36:0),8*v.s)),{x:10,y:10});
+ }
+}
+let stackDepth=0,renderOps=0;
+const renderContext=new Proxy({}, {set(){return true;},get(_,key){
+ if(key==='save')return ()=>stackDepth++;
+ if(key==='restore')return ()=>{assert.ok(stackDepth>0);stackDepth--;};
+ if(key==='measureText')return text=>({width:String(text).length*7});
+ if(key==='createRadialGradient')return ()=>({addColorStop(){}});
+ return (...args)=>{assert.ok(args.every(n=>typeof n!=='number'||Number.isFinite(n)),`rotated render invalid ${String(key)}`);renderOps++;};
+}});
+rotationCity.b={[center]:{k:'house',lvl:2,doneAt:null},[idx(11,10)]:{k:'wall',lvl:2,doneAt:null},[idx(12,10)]:{k:'gate',lvl:2,doneAt:null,orientation:'y'},[idx(10,11)]:{k:'canal',lvl:1,doneAt:null}};
+const snapshot=JSON.stringify(rotationCity),derived=derive(rotationCity);
+for(const rotation of [0,1,2,3]){
+ const f=fitView(390,844),cam={zoom:8,px:0,py:0,rotation};focusOn(f,cam,10.5,10.5,8);
+ drawCity(renderContext,rotationCity,derived,{v:camView(f,cam),now:0,anim:12345,hover:{x:13,y:10},selected:{x:10,y:10},tool:'house',villagers:[],picked:new Set(),fx:[],chopping:new Set()});assert.equal(stackDepth,0);
+}
+assert.equal(JSON.stringify(rotationCity),snapshot,'camera rendering mutated persisted city');assert.ok(renderOps>1000);
+for(const rotation of [0,1,2,3])for(let era=1;era<=6;era++)for(const orientation of ['x','y']){
+ rotationCity.era=era;rotationCity.b={[center]:{k:'gate',lvl:2,doneAt:null,orientation}};
+ const rc={c:renderContext,v:{...pickView,rotation},city:rotationCity,D:derive(rotationCity),anim:12345,now:0,season:0,deck:new Set()};
+ drawBuilding(rc,'gate',10,10,2,center);assert.equal(stackDepth,0);
+ rotationCity.b[center]={k:'wall',lvl:2,doneAt:null,orientation};drawBuilding(rc,'wall',10,10,2,center);assert.equal(stackDepth,0);
+}
+
+console.log(`PASS: ${rotationsChecked} camera/viewport combinations, exhaustive rotated cell/culling checks, centre retention, zoom anchors, connected infrastructure picking and immutable full renders.`);
+
 const fleeingCity=newCity(0,123);fleeingCity.t.fill(G);fleeingCity.seen.fill(1);fleeingCity.b={};fleeingCity.people=fleeingCity.people.slice(0,1);fleeingCity.camp=idx(10,10);
 fleeingCity.b[idx(12,10)]={k:'house',lvl:1,doneAt:null};
 const fleeingPerson=fleeingCity.people[0];fleeingPerson.pos=idx(20,10);fleeingPerson.task={t:'chop',at:idx(20,10)};

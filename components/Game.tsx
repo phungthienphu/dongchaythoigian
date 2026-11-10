@@ -16,7 +16,9 @@ import {
   armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, farmAutoStatus, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
 } from "@/lib/engine";
-import { MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
+import {mapRotationShortcut} from "./map-shortcuts";
+import {captureMapTurn,paintMapTurn,type MapTurn} from "./map-transition";
+import { rotateCam, screenToWorld, MAX_ZOOM, camView, clampCam, drawCity, drawThumb, fitView, focusOn, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import { Crowd } from "./villagers";
 import { ERAS as ERA_ROADMAP, RELEASED_ERA } from "@/lib/eras";
 import { expeditionReadiness } from "@/lib/expedition-readiness";
@@ -422,6 +424,9 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const frameRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<View>(fitView(800, 500));
   const camRef = useRef<Cam>({ zoom: 1, px: 0, py: 0 });
+  const rotationFadeRef=useRef<MapTurn|null>(null);
+  const [mapRotation,setMapRotation]=useState(0);
+  useEffect(()=>{try{const value=Number(localStorage.getItem('map-rotation'));if(Number.isInteger(value)&&value>=0&&value<4){camRef.current.rotation=value;setMapRotation(value);}}catch{}},[]);
   const focusedRef = useRef(false);
   const crowdRef = useRef(new Crowd());
   // visiting another village: its state, derived data and crowd, shown instead of ours
@@ -718,8 +723,9 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       const cam = camRef.current, v = camView(fitRef.current, cam);
       const f = fitView(w, h);
       fitRef.current = f;
-      const ca = (v.width / 2 - v.ox) / (v.TW / 2), cb = (v.height / 2 - v.oy) / (v.TH / 2);
-      if (focusedRef.current) focusOn(f, cam, (ca + cb) / 2, (cb - ca) / 2, cam.zoom);
+      const [cx,cy]=screenToWorld(v,v.width/2,v.height/2);
+      rotationFadeRef.current=null;
+      if (focusedRef.current) focusOn(f, cam, cx,cy, cam.zoom);
       else clampCam(f, cam);
       dpr = Math.min(2, window.devicePixelRatio || 1);
       cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
@@ -729,6 +735,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     resize();
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      rotationFadeRef.current=null;
       const r = cv.getBoundingClientRect(), cam = camRef.current;
       zoomAt(fitRef.current, cam, cam.zoom * Math.exp(-e.deltaY * 0.0018), e.clientX - r.left, e.clientY - r.top);
     };
@@ -750,6 +757,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const view = vis ? VISIT_VIEW : viewRef.current;
         drawCity(ctx, c, D, { v: camView(fitRef.current, camRef.current), now: now(), anim: rm ? 0 : t, villagers: crowd.list, fx: crowd.fx, chopping: crowd.chopping, ...view, rules });
+        const turn=rotationFadeRef.current;
+        if(turn&&!paintMapTurn(ctx,turn,t,fitRef.current.width,fitRef.current.height))rotationFadeRef.current=null;
       }
       raf = requestAnimationFrame(loop);
     };
@@ -825,6 +834,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
+    rotationFadeRef.current=null;
     e.currentTarget.setPointerCapture(e.pointerId);
     const p = local(e);
     ptrs.current.set(e.pointerId, p);
@@ -861,11 +871,21 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if (dragRef.current) dragRef.current.pinch = 0;
   };
 
+  const rotateMap=(delta:number)=>{
+    const cv=canvasRef.current;if(!cv)return;
+    rotationFadeRef.current=captureMapTurn(cv);
+    rotateCam(fitRef.current,camRef.current,delta);
+    const rotation=camRef.current.rotation??0;setMapRotation(rotation);
+    try{localStorage.setItem('map-rotation',String(rotation));}catch{}
+    viewRef.current.hover=null;setHover(null);
+  };
   const zoomBy = (k: number) => {
+    rotationFadeRef.current=null;
     const f = fitRef.current, cam = camRef.current;
     zoomAt(f, cam, cam.zoom * k, f.width / 2, f.height / 2);
   };
   const focusHome = () => {
+    rotationFadeRef.current=null;
     const c = cityRef.current, f = fitRef.current;
     if (c) focusOn(f, camRef.current, (c.camp % W) + 0.5, Math.floor(c.camp / W) + 0.5, Math.min(MAX_ZOOM, 60 / f.TW));
   };
@@ -988,6 +1008,10 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const turn=mapRotationShortcut(e);
+      if(turn!==null&&canvasRef.current&&cityRef.current&&!renderPausedRef.current){
+        e.preventDefault();rotateMap(turn);return;
+      }
       if(e.key.toLowerCase()==='r'&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.repeat&&!(e.target instanceof HTMLElement&&e.target.closest('input,textarea,select,[contenteditable="true"]'))){
         const view=viewRef.current,c=cityRef.current;
         if(c&&!renderPausedRef.current&&!visitRef.current&&(view.tool==='wall'||view.tool==='gate')){
@@ -1171,8 +1195,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       <div className="zoom" role="group" aria-label="Điều khiển bản đồ">
         <button onClick={() => zoomBy(1.5)} aria-label="Phóng to">+</button>
         <button onClick={() => zoomBy(1 / 1.5)} aria-label="Thu nhỏ">−</button>
+        <button onClick={()=>rotateMap(-1)} aria-label="Xoay bản đồ sang trái" aria-keyshortcuts="Q" title="Xoay trái 90° (Q)">↶</button>
+        <button onClick={()=>rotateMap(1)} aria-label="Xoay bản đồ sang phải" aria-keyshortcuts="E" title="Xoay phải 90° (E)">↷</button>
+        <span className="map-bearing" aria-live="polite" aria-label={`Góc nhìn ${mapRotation*90} độ`}>{mapRotation*90}°</span>
         <button onClick={focusHome} aria-label="Về trại" title="Về trại">⌂</button>
-        <button onClick={() => { camRef.current = { zoom: 1, px: 0, py: 0 }; }} aria-label="Xem toàn bản đồ" title="Xem toàn bản đồ">⤢</button>
+        <button onClick={() => { rotationFadeRef.current=null; camRef.current = { zoom: 1, px: 0, py: 0, rotation:camRef.current.rotation }; }} aria-label="Xem toàn bản đồ" title="Xem toàn bản đồ">⤢</button>
       </div>
 
       {herd && herdTask && (

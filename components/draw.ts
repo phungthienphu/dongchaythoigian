@@ -12,7 +12,7 @@ import { placementTiles } from "@/lib/build-placement";
 import {hungerSpeech,villagersHungry} from "@/lib/villager-mood";
 import type { Fx, Villager } from "./villagers";
 
-export type View = { TW: number; TH: number; ox: number; oy: number; width: number; height: number; s: number };
+export type View = { TW: number; TH: number; ox: number; oy: number; width: number; height: number; s: number; rotation?: number };
 
 export function makeView(width: number): View {
   let TW = Math.max(24, Math.min(160, Math.floor(width / ((W + H) / 2))));
@@ -30,13 +30,13 @@ export function fitView(w: number, h: number): View {
   return { TW, TH, ox, oy, s: TW / 64, width: w, height: h };
 }
 
-export type Cam = { zoom: number; px: number; py: number };
+export type Cam = { zoom: number; px: number; py: number; rotation?: number };
 export const MIN_ZOOM = 1, MAX_ZOOM = 18;
 
 /** The fitted view after zooming by cam.zoom and panning by (px, py). */
 export function camView(f: View, cam: Cam): View {
   const z = cam.zoom, TW = f.TW * z;
-  return { TW, TH: TW / 2, s: TW / 64, ox: cam.px + f.ox * z, oy: cam.py + f.oy * z, width: f.width, height: f.height };
+  return { TW, TH: TW / 2, s: TW / 64, ox: cam.px + f.ox * z, oy: cam.py + f.oy * z, width: f.width, height: f.height, rotation: cam.rotation ?? 0 };
 }
 
 /** Keep the map under the canvas centre so it can't be dragged away. */
@@ -58,17 +58,34 @@ export function zoomAt(f: View, cam: Cam, z2: number, sx: number, sy: number) {
   clampCam(f, cam);
 }
 
-/** Centre the camera on tile coords (fx, fy) at zoom z. */
+/** Quarter-turns are a camera preference; world/save coordinates never change. */
+export function rotatePoint(fx:number,fy:number,rotation=0):Pt {
+  switch(((rotation%4)+4)%4){
+    case 1:return [H-fy,fx];
+    case 2:return [W-fx,H-fy];
+    case 3:return [fy,W-fx];
+    default:return [fx,fy];
+  }
+}
+export function screenToWorld(v:View,sx:number,sy:number):Pt {
+  const a=(sx-v.ox)/(v.TW/2),b=(sy-v.oy)/(v.TH/2);
+  return rotatePoint((a+b)/2,(b-a)/2,-(v.rotation??0));
+}
 export function focusOn(f: View, cam: Cam, fx: number, fy: number, z: number) {
   cam.zoom = z;
-  cam.px = f.width / 2 - z * (f.ox + ((fx - fy) * f.TW) / 2);
-  cam.py = f.height / 2 - z * (f.oy + ((fx + fy) * f.TH) / 2);
+  const [x,y]=rotatePoint(fx,fy,cam.rotation);
+  cam.px = f.width / 2 - z * (f.ox + ((x - y) * f.TW) / 2);
+  cam.py = f.height / 2 - z * (f.oy + ((x + y) * f.TH) / 2);
   clampCam(f, cam);
 }
-
+/** Keep the exact world point under the viewport centre on a quarter-turn. */
+export function rotateCam(f:View,cam:Cam,delta:number){
+  const [x,y]=screenToWorld(camView(f,cam),f.width/2,f.height/2);
+  cam.rotation=((cam.rotation??0)+delta+4)%4;
+  focusOn(f,cam,x,y,cam.zoom);
+}
 export function screenToCell(v: View, sx: number, sy: number) {
-  const a = (sx - v.ox) / (v.TW / 2), b = (sy - v.oy) / (v.TH / 2);
-  const x = Math.floor((a + b) / 2), y = Math.floor((b - a) / 2);
+  const [fx,fy]=screenToWorld(v,sx,sy),x=Math.floor(fx),y=Math.floor(fy);
   return inb(x, y) ? { x, y } : null;
 }
 
@@ -78,7 +95,8 @@ export function visibleTileBounds(v: View) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const [sx, sy] of corners) {
     const a = (sx - v.ox) / (v.TW / 2), b = (sy - v.oy) / (v.TH / 2);
-    const x = (a + b) / 2 - 0.5, y = (b - a) / 2 - 0.5;
+    const [fx,fy]=rotatePoint((a+b)/2,(b-a)/2,-(v.rotation??0));
+    const x=fx-.5,y=fy-.5;
     x0 = Math.min(x0, x); x1 = Math.max(x1, x);
     y0 = Math.min(y0, y); y1 = Math.max(y1, y);
   }
@@ -109,10 +127,26 @@ function hr(seed: number, n: number) {
 
 /* ---------- render context ---------- */
 type Ctx = CanvasRenderingContext2D;
-type RC = { c: Ctx; v: View; city: City; D: Derived; anim: number; now: number; season: number; deck:ReadonlySet<number>; defensePreview?:DefensePreview; turn?:boolean };
+type RC = { c: Ctx; v: View; city: City; D: Derived; anim: number; now: number; season: number; deck:ReadonlySet<number>; defensePreview?:DefensePreview; turn?:boolean; billboard?:boolean };
 type Pt = [number, number];
 
-const P = (v: View, fx: number, fy: number, z = 0): Pt => [v.ox + ((fx - fy) * v.TW) / 2, v.oy + ((fx + fy) * v.TH) / 2 - z];
+export const projectWorld = (v: View, fx: number, fy: number, z = 0): Pt => {
+  let x=fx,y=fy;
+  switch(v.rotation??0){case 1:x=H-fy;y=fx;break;case 2:x=W-fx;y=H-fy;break;case 3:x=fy;y=W-fx;break;}
+  return [v.ox+((x-y)*v.TW)/2,v.oy+((x+y)*v.TH)/2-z];
+};
+const P=projectWorld;
+export const viewDepth=(v:View,x:number,y:number)=>{
+  switch(v.rotation??0){case 1:return H-y+x;case 2:return W+H-x-y;case 3:return y+W-x;default:return x+y;}
+};
+/** Artwork has two facing directions; use the projected travel vector when known. */
+export function travelFace(v:View,dx:number,dy:number,fallback:1|-1):1|-1 {
+  const [a,b]=rotatePoint(0,0,v.rotation),[x,y]=rotatePoint(dx,dy,v.rotation);
+  const horizontal=(x-a)-(y-b);
+  return Math.abs(horizontal)<1e-6?fallback:horizontal>0?1:-1;
+}
+const cameraFace=(v:View,face:1|-1):1|-1=>travelFace(v,face,-face,face);
+const fixedArt=(k:BKey)=>!['wall','gate','canal','levee','ironbridge'].includes(k);
 
 function poly(c: Ctx, pts: Pt[], fill: string) {
   c.beginPath();
@@ -126,33 +160,64 @@ function poly(c: Ctx, pts: Pt[], fill: string) {
 /** Tile-local projector: u, v in [-0.5, 0.5] around the tile centre; z in design units (scaled by s). */
 function tp(r: RC, x: number, y: number) {
   const s = r.v.s;
-  return (u: number, v: number, z = 0): Pt => P(r.v, x + 0.5 + (r.turn?v:u), y + 0.5 + (r.turn?u:v), z * s);
+  const [cx,cy]=P(r.v,x+.5,y+.5);
+  return (u: number, v: number, z = 0): Pt => r.billboard
+    ?[cx+((u-v)*r.v.TW)/2,cy+((u+v)*r.v.TH)/2-z*s]
+    :P(r.v, x + 0.5 + (r.turn?v:u), y + 0.5 + (r.turn?u:v), z * s);
 }
 
 function box(r: RC, x: number, y: number, u0: number, v0: number, u1: number, v1: number, z0: number, z1: number, top: string, left: string, right: string) {
   const q = tp(r, x, y), c = r.c;
   if(r.turn)[left,right]=[right,left];
-  poly(c, [q(u0, v1, z0), q(u1, v1, z0), q(u1, v1, z1), q(u0, v1, z1)], left);
-  poly(c, [q(u1, v0, z0), q(u1, v1, z0), q(u1, v1, z1), q(u1, v0, z1)], right);
+  if(!r.billboard&&(r.v.rotation??0)!==0){
+    const corners:Pt[]=[[u0,v0],[u1,v0],[u1,v1],[u0,v1]];
+    for(let j=0;j<4;j++){
+      const a=corners[j],b=corners[(j+1)%4];
+      if(q(b[0],b[1])[0]>=q(a[0],a[1])[0])continue;
+      const shade=q(a[0],a[1])[1]>q(b[0],b[1])[1]?left:right;
+      poly(c,[q(a[0],a[1],z0),q(b[0],b[1],z0),q(b[0],b[1],z1),q(a[0],a[1],z1)],shade);
+    }
+  }else{
+    poly(c, [q(u0, v1, z0), q(u1, v1, z0), q(u1, v1, z1), q(u0, v1, z1)], left);
+    poly(c, [q(u1, v0, z0), q(u1, v1, z0), q(u1, v1, z1), q(u1, v0, z1)], right);
+  }
   poly(c, [q(u0, v0, z1), q(u1, v0, z1), q(u1, v1, z1), q(u0, v1, z1)], top);
 }
 
 /** Gable roof with the ridge running along u. */
 function gable(r: RC, x: number, y: number, u0: number, v0: number, u1: number, v1: number, z: number, h: number, front: string, back: string, end: string) {
   const q = tp(r, x, y), c = r.c, vm = (v0 + v1) / 2;
+  if(!r.billboard&&(r.v.rotation??0)!==0){
+    const faces:{points:[number,number,number][];color:string}[]=[
+      {points:[[u0,v0,z],[u1,v0,z],[u1,vm,z+h],[u0,vm,z+h]],color:back},
+      {points:[[u1,v0,z],[u1,v1,z],[u1,vm,z+h]],color:end},
+      {points:[[u0,vm,z+h],[u1,vm,z+h],[u1,v1,z],[u0,v1,z]],color:front},
+      {points:[[u0,v0,z],[u0,v1,z],[u0,vm,z+h]],color:end},
+    ];
+    const depth=(f:typeof faces[number])=>f.points.reduce((d,[u,v])=>d+q(u,v)[1],0)/f.points.length;
+    for(const f of faces.sort((a,b)=>depth(a)-depth(b)))poly(c,f.points.map(([u,v,z])=>q(u,v,z)),f.color);
+  }else{
   poly(c, [q(u0, v0, z), q(u1, v0, z), q(u1, vm, z + h), q(u0, vm, z + h)], back);
   poly(c, [q(u1, v0, z), q(u1, v1, z), q(u1, vm, z + h)], end);
   poly(c, [q(u0, vm, z + h), q(u1, vm, z + h), q(u1, v1, z), q(u0, v1, z)], front);
+  }
   c.strokeStyle = darken(front, 0.35); c.lineWidth = Math.max(1, r.v.s);
   c.beginPath(); const a = q(u0, vm, z + h), b = q(u1, vm, z + h); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
 }
 
 function pyramid(r: RC, x: number, y: number, u0: number, v0: number, u1: number, v1: number, z: number, h: number, left: string, right: string) {
   const q = tp(r, x, y), c = r.c, apex = q((u0 + u1) / 2, (v0 + v1) / 2, z + h);
+  if(!r.billboard&&(r.v.rotation??0)!==0){
+    const corners:Pt[]=[[u0,v0],[u1,v0],[u1,v1],[u0,v1]];
+    const faces=corners.map((a,j)=>({a,b:corners[(j+1)%4]}));
+    faces.sort((a,b)=>q(a.a[0],a.a[1])[1]+q(a.b[0],a.b[1])[1]-q(b.a[0],b.a[1])[1]-q(b.b[0],b.b[1])[1]);
+    for(const {a,b}of faces)poly(c,[q(a[0],a[1],z),q(b[0],b[1],z),apex],q(a[0],a[1])[0]<q(b[0],b[1])[0]?right:left);
+  }else{
   poly(c, [q(u0, v0, z), q(u0, v1, z), apex], darken(left, 0.15));
   poly(c, [q(u0, v0, z), q(u1, v0, z), apex], darken(right, 0.1));
   poly(c, [q(u0, v1, z), q(u1, v1, z), apex], left);
   poly(c, [q(u1, v0, z), q(u1, v1, z), apex], right);
+  }
 }
 
 function shadow(r: RC, x: number, y: number, rad: number, u = 0, v = 0) {
@@ -192,10 +257,26 @@ function grassColor(r: RC, i: number) {
   return col;
 }
 
+const BANK_EDGES=[
+  {dx:0,dy:-1,a:[-.5,-.5],b:[.5,-.5]},
+  {dx:1,dy:0,a:[.5,-.5],b:[.5,.5]},
+  {dx:0,dy:1,a:[.5,.5],b:[-.5,.5]},
+  {dx:-1,dy:0,a:[-.5,.5],b:[-.5,-.5]},
+];
+const FACING_BANKS=[[1,2],[0,1],[0,3],[2,3]].map(edges=>edges.map(i=>BANK_EDGES[i]));
+function drawBankEdges(r:RC,x:number,y:number,z:number,water:boolean){
+  const q=tp(r,x,y);
+  for(const {dx,dy,a,b}of FACING_BANKS[r.v.rotation??0]){
+    const inside=inb(x+dx,y+dy);
+    if(water?inside:inside&&r.city.t[idx(x+dx,y+dy)]!==R)continue;
+    const bottom=inside?-5:-16;
+    poly(r.c,[q(a[0],a[1],z),q(b[0],b[1],z),q(b[0],b[1],bottom),q(a[0],a[1],bottom)],water?'#2b5f86':'#795735');
+  }
+}
+
 function drawGroundTile(r: RC, x: number, y: number) {
   const { c, city, v } = r, i = idx(x, y), s = v.s, q = tp(r, x, y);
   const t = city.t[i];
-  const water = (xx: number, yy: number) => !inb(xx, yy) || city.t[idx(xx, yy)] === R;
   if (t === R) {
     const z = -4;
     const deep = r.season === 3 ? "#5d93b8" : "#3d8bc2";
@@ -218,15 +299,13 @@ function drawGroundTile(r: RC, x: number, y: number) {
       if (!inb(x + dx, y + dy) || city.t[idx(x + dx, y + dy)] === R) continue;
       c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
     }
-    if (x === W - 1) poly(c, [q(0.5, -0.5, z), q(0.5, 0.5, z), q(0.5, 0.5, -16), q(0.5, -0.5, -16)], "#2b5f86");
-    if (y === H - 1) poly(c, [q(-0.5, 0.5, z), q(0.5, 0.5, z), q(0.5, 0.5, -16), q(-0.5, 0.5, -16)], "#336d96");
+    drawBankEdges(r,x,y,z,true);
     return;
   }
   const col = isRock(t) ? mix(grassColor(r, i), "#a39272", 0.55) : grassColor(r, i);
   poly(c, [q(-0.5, -0.5), q(0.5, -0.5), q(0.5, 0.5), q(-0.5, 0.5)], col);
   // banks and map edges: show the soil layer
-  if (water(x + 1, y)) poly(c, [q(0.5, -0.5), q(0.5, 0.5), q(0.5, 0.5, inb(x + 1, y) ? -5 : -16), q(0.5, -0.5, inb(x + 1, y) ? -5 : -16)], "#6b4a2b");
-  if (water(x, y + 1)) poly(c, [q(-0.5, 0.5), q(0.5, 0.5), q(0.5, 0.5, inb(x, y + 1) ? -5 : -16), q(-0.5, 0.5, inb(x, y + 1) ? -5 : -16)], "#87613a");
+  drawBankEdges(r,x,y,0,false);
   // surface detail
   if (t === G || t === F) {
     const n = r.D.fert[i] ? 4 : 3;
@@ -450,6 +529,9 @@ function frontExtras(r: RC, k: BKey, x: number, y: number, lvl: number, i: numbe
 }
 
 export function drawBuilding(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) {
+  // Existing hand-authored building sprites remain upright; connected infrastructure
+  // follows world axes so canals, walls, gates and bridges keep their topology.
+  r={...r,billboard:fixedArt(k)};
   if(k==='wall'){drawConnectedWall(r,x,y,lvl);return;}
   if(k==='gate')r={...r,turn:defenseAxis(r.city,idx(x,y),r.defensePreview)==='y'};
   if (lvl >= 2) backExtras(r, k, x, y, lvl, i);
@@ -475,7 +557,7 @@ function drawConnectedWall(r:RC,x:number,y:number,lvl:number){
    for(const d of [.15,.3,.45])posts.push([dx*d,dy*d]);
    for(const z of [5,10])line(r,q(0,0,z),q(dx*.5,dy*.5,z),'#63452b',2.5);
   }
-  for(const [u,v]of posts.sort((a,b)=>a[0]+a[1]-b[0]-b[1])){
+  for(const [u,v]of posts.sort((a,b)=>q(a[0],a[1])[1]-q(b[0],b[1])[1])){
    box(r,x,y,u-.05,v-.05,u+.05,v+.05,0,h,'#b58a51','#87603a','#624329');
    pyramid(r,x,y,u-.05,v-.05,u+.05,v+.05,h,4,'#c69d60','#916c41');
    line(r,q(u-.05,v+.052,h-3),q(u+.05,v+.052,h-3),'#d2b17b',.7);
@@ -485,7 +567,7 @@ function drawConnectedWall(r:RC,x:number,y:number,lvl:number){
  const top=era===2?'#bc9561':era===3?'#b7b7a8':era===4?'#c1b5a0':era===5?'#acb4b0':'#b9cac3';
  const left=era===2?'#9d774c':era===3?'#93988f':era===4?'#9e907e':'#8fa69d';
  const right=era===2?'#795b3c':era===3?'#727d78':era===4?'#7f786e':'#6c887d';
- const outline=wallOutline(mask),edges=outline.map((a,n)=>({a,b:outline[(n+1)%outline.length]})).filter(({a,b})=>b[1]>a[1]||b[0]<a[0]).sort((a,b)=>a.a[0]+a.a[1]+a.b[0]+a.b[1]-b.a[0]-b.a[1]-b.b[0]-b.b[1]);
+ const outline=wallOutline(mask),edges=outline.map((a,n)=>({a,b:outline[(n+1)%outline.length]})).filter(({a,b})=>q(b[0],b[1])[0]<q(a[0],a[1])[0]).sort((a,b)=>q(a.a[0],a.a[1])[1]+q(a.b[0],a.b[1])[1]-q(b.a[0],b.a[1])[1]-q(b.b[0],b.b[1])[1]);
  for(const {a,b}of edges){
   poly(c,[q(...a,0),q(...b,0),q(...b,h),q(...a,h)],b[1]>a[1]?right:left);
   for(let row=1;row<4;row++){
@@ -498,7 +580,7 @@ function drawConnectedWall(r:RC,x:number,y:number,lvl:number){
  // One corner pier and an end merlon on each arm; all share a continuous coping.
  const caps:[number,number][]=[[0,0]];
  for(const [dx,dy,bit]of arms)if(mask&bit)caps.push([dx*.4,dy*.4]);
- for(const [u,v]of caps.sort((a,b)=>a[0]+a[1]-b[0]-b[1])){
+ for(const [u,v]of caps.sort((a,b)=>q(a[0],a[1])[1]-q(b[0],b[1])[1])){
   const w=.12;box(r,x,y,u-w,v-w,u+w,v+w,h,h+4,top,left,right);
   if(era===4)box(r,x,y,u-w-.015,v-w-.015,u+w+.015,v+w+.015,h+4,h+5,'#ad6749','#8d4f39','#713e30');
  }
@@ -1141,6 +1223,7 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
 }
 
 function drawScaffold(r: RC, x: number, y: number, p: number) {
+  r={...r,billboard:true};
   const q = tp(r, x, y), c = r.c, s = r.v.s, h = 22;
   c.strokeStyle = "#a07848"; c.lineWidth = Math.max(1, 1.6 * s);
   const posts: [number, number][] = [[-0.34, -0.34], [0.34, -0.34], [0.34, 0.34], [-0.34, 0.34]];
@@ -1170,7 +1253,7 @@ function drawSwimmer(r: RC, vl: Villager) {
   // shoulders just under the surface, head above
   c.fillStyle = vl.shirt; c.globalAlpha = 0.55; c.beginPath(); c.ellipse(sx, wy + 0.5 * s, 3.4 * s, 1.4 * s, 0, 0, Math.PI * 2); c.fill(); c.globalAlpha = 1;
   // crawl stroke: one arm out of the water at a time
-  const arm = Math.sin(ph), ax = sx + vl.face * (arm > 0 ? 4 : -1) * s, ay = wy - Math.max(0, arm) * 4 * s;
+  const arm = Math.sin(ph), face=travelFace(r.v,vl.headingX??0,vl.headingY??0,cameraFace(r.v,vl.face)), ax = sx + face * (arm > 0 ? 4 : -1) * s, ay = wy - Math.max(0, arm) * 4 * s;
   c.strokeStyle = vl.skin; c.lineWidth = Math.max(1, 1.4 * s); c.lineCap = "round";
   c.beginPath(); c.moveTo(sx + vl.face * 1.5 * s, wy); c.quadraticCurveTo(sx + vl.face * 3 * s, ay - 2 * s, ax, ay); c.stroke(); c.lineCap = "butt";
   c.fillStyle = vl.skin; c.beginPath(); c.arc(sx + vl.face * 0.8 * s, wy - 2.4 * s, 2.3 * s, 0, Math.PI * 2); c.fill();
@@ -1182,16 +1265,16 @@ function drawVillager(r: RC, vl: Villager) {
   if (inWater(r, vl.fx, vl.fy)) { drawSwimmer(r, vl); return; }
   const [x,y] = P(r.v, vl.fx, vl.fy,deckHeight(r,vl.fx,vl.fy));
   drawVillagerArt(r.c,x,y,Math.max(r.v.s*1.12,.54),{
-    time:r.anim,seed:vl.seed,face:vl.face,era:r.city.era,job:vl.job,
+    time:r.anim,seed:vl.seed,face:vl.moving?travelFace(r.v,vl.headingX??0,vl.headingY??0,cameraFace(r.v,vl.face)):cameraFace(r.v,vl.face),era:r.city.era,job:vl.job,
     walking:vl.moving,running:vl.run&&vl.moving,working:vl.state==='work',
     swing:vl.swing,carrying:vl.carrying,resource:vl.carry,
     skin:vl.skin,shirt:vl.shirt,band:vl.band,
   });
 }
 
-function drawAnimal(r: RC, kind: "deer" | "boar", fx: number, fy: number, face: 1 | -1, graze: boolean, buck: boolean, seed: number) {
+function drawAnimal(r: RC, kind: "deer" | "boar", fx: number, fy: number, face: 1 | -1, graze: boolean, buck: boolean, seed: number, heading?:Pt) {
   const [sx, sy] = P(r.v, fx, fy);
-  drawAnimalArt(r.c, kind, sx, sy, Math.max(r.v.s * .8, .38), { time: r.anim, face, walking: !graze, graze, antlers: buck, seed });
+  drawAnimalArt(r.c, kind, sx, sy, Math.max(r.v.s * .8, .38), { time: r.anim, face:heading?travelFace(r.v,...heading,cameraFace(r.v,face)):cameraFace(r.v,face), walking: !graze, graze, antlers: buck, seed });
 }
 
 /** Envoy identity: blue-green cloak, travel staff, scroll and era-specific headwear. */
@@ -1223,12 +1306,13 @@ export function drawTransportBoat(c:CanvasRenderingContext2D,x:number,y:number,s
   c.restore();
 }
 
-export function drawSoldier(r: Pick<RC, "c" | "v" | "anim"> & {deck?:ReadonlySet<number>}, u: UKey, fx: number, fy: number, face: 1 | -1, walking: boolean, seed: number, fighting = false, barbarian = false) {
+export function drawSoldier(r: Pick<RC, "c" | "v" | "anim"> & {deck?:ReadonlySet<number>}, u: UKey, fx: number, fy: number, face: 1 | -1, walking: boolean, seed: number, fighting = false, barbarian = false, heading?:Pt) {
   const [sx, sy] = P(r.v, fx, fy, r.deck?.has(idx(Math.floor(fx),Math.floor(fy)))?5*r.v.s:0);
-  drawSoldierArt(r.c, u, sx, sy, Math.max(r.v.s * 1.08, .52), { time: r.anim, face, walking, seed, fighting, hostile: barbarian });
+  drawSoldierArt(r.c, u, sx, sy, Math.max(r.v.s * 1.08, .52), { time: r.anim, face:heading?travelFace(r.v,...heading,cameraFace(r.v,face)):cameraFace(r.v,face), walking, seed, fighting, hostile: barbarian });
 }
 
 function drawCampSite(r: RC, k: Camp) {
+  r={...r,billboard:true};
   const x = k.at % W, y = Math.floor(k.at / W), c = r.c, s = r.v.s, q = tp(r, x, y);
   if (k.cleared) {
     for (const [u, v] of [[-0.2, 0.1], [0.15, -0.15], [0.1, 0.25]]) {
@@ -1382,7 +1466,7 @@ function pointInPolygon(x: number, y: number, points: Pt[]) {
 
 /** Pick solid building faces in reverse painter order, including roofs above their ground tile. */
 export function pickBuilding(v: View, city: City, sx: number, sy: number): { x: number; y: number } | null {
-  const candidates = buildings(city).filter(([tile]) => city.seen[tile]).sort(([a], [b]) => (b % W + Math.floor(b / W)) - (a % W + Math.floor(a / W)) || Math.floor(b / W) - Math.floor(a / W));
+  const candidates = buildings(city).filter(([tile]) => city.seen[tile]).sort(([a], [b]) => viewDepth(v,b%W,Math.floor(b/W))-viewDepth(v,a%W,Math.floor(a/W)) || b-a);
   for (const [tile, building] of candidates) {
     const x = tile % W, y = Math.floor(tile / W);
     const shapes:HitShape[]=building.k==='canal'
@@ -1391,14 +1475,17 @@ export function pickBuilding(v: View, city: City, sx: number, sy: number): { x: 
       :buildingHitShapes(building.k, Math.max(1, building.lvl), city.era);
     const turn=building.k==='gate'&&defenseAxis(city,tile)==='y';
     for (const h of shapes) {
-      const q = (u: number, w: number, z: number): Pt => P(v, x + .5 + (turn?w:u), y + .5 + (turn?u:w), z * v.s);
+      const [cx,cy]=P(v,x+.5,y+.5);
+      const q = (u: number, w: number, z: number): Pt => fixedArt(building.k)
+        ?[cx+(u-w)*v.TW/2,cy+(u+w)*v.TH/2-z*v.s]
+        :P(v, x + .5 + (turn?w:u), y + .5 + (turn?u:w), z * v.s);
       const z = h.z ?? 0, top = z + h.wall;
       const a = q(h.u0, h.v0, z), b = q(h.u1, h.v0, z), c = q(h.u1, h.v1, z), d = q(h.u0, h.v1, z);
       const A = q(h.u0, h.v0, top), B = q(h.u1, h.v0, top), C = q(h.u1, h.v1, top), D = q(h.u0, h.v1, top);
-      const faces: Pt[][] = [[d, c, C, D], [b, c, C, B], [A, B, C, D]];
+      const faces: Pt[][] = [[a,b,B,A],[a,d,D,A],[d, c, C, D], [b, c, C, B], [A, B, C, D]];
       if (h.roof) {
         if (h.pyramid) { const apex = q((h.u0 + h.u1) / 2, (h.v0 + h.v1) / 2, top + h.roof); faces.push([A, B, apex], [B, C, apex], [C, D, apex], [D, A, apex]); }
-        else { const left = q(h.u0, (h.v0 + h.v1) / 2, top + h.roof), right = q(h.u1, (h.v0 + h.v1) / 2, top + h.roof); faces.push([A, B, right, left], [left, right, C, D], [B, C, right]); }
+        else { const left = q(h.u0, (h.v0 + h.v1) / 2, top + h.roof), right = q(h.u1, (h.v0 + h.v1) / 2, top + h.roof); faces.push([A, B, right, left], [left, right, C, D], [B, C, right],[A,D,left]); }
       }
       if (faces.some((face) => pointInPolygon(sx, sy, face))) return { x, y };
     }
@@ -1494,15 +1581,14 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   };
 
   // 1. ground, back to front
-  for (let d = bounds.x0 + bounds.y0; d <= bounds.x1 + bounds.y1; d++) for (let x = Math.max(bounds.x0, d - bounds.y1); x <= Math.min(bounds.x1, d - bounds.y0); x++) {
-    const y = d - x, i = idx(x, y);
-    if (!vis[i]) continue;
+  visible.sort((a,b)=>viewDepth(v,a%W,Math.floor(a/W))-viewDepth(v,b%W,Math.floor(b/W)) || a-b);
+  for (const i of visible) {
+    const x=i%W,y=Math.floor(i/W);
     if (seen[i]) { drawGroundTile(r, x, y); continue; }
     const q = tp(r, x, y), edge = nearSeen(x, y);
     if (edge) drawGroundTile(r, x, y);
     poly(c, [q(-0.5, -0.5), q(0.5, -0.5), q(0.5, 0.5), q(-0.5, 0.5)], edge ? "rgba(22,33,30,.72)" : "#18241f");
-    if (x === W - 1) poly(c, [q(0.5, -0.5), q(0.5, 0.5), q(0.5, 0.5, -16), q(0.5, -0.5, -16)], "#101814");
-    if (y === H - 1) poly(c, [q(-0.5, 0.5), q(0.5, 0.5), q(0.5, 0.5, -16), q(-0.5, 0.5, -16)], "#131c18");
+    if(!edge)drawBankEdges(r,x,y,0,true);
     if (!lod) {
       const [sx, sy] = q(hr(city.seed, i) - 0.5, hr(city.seed, i * 3) - 0.5, 0);
       c.fillStyle = "rgba(200,215,205,.05)"; c.beginPath(); c.ellipse(sx, sy, v.TW * 0.45, v.TH * 0.45, 0, 0, Math.PI * 2); c.fill();
@@ -1592,12 +1678,11 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     for(const tile of span.tiles){
       if(!vis[tile]||!seen[tile]||city.t[tile]!==R)continue;
       const x=tile%W,y=Math.floor(tile/W),q=tp(r,x,y),p=(u:number,v:number,z:number)=>alongX?q(u,v,z):q(v,u,z);
-      items.push({d:x+y+.9,f:()=>{
+      items.push({d:viewDepth(v,x+.5,y+.5)-.1,f:()=>{
         c.save();if(!ready)c.globalAlpha=b.doneAt ? .65 : .35;
-        poly(c,[p(-.5,-.3,5),p(.5,-.3,5),p(.5,.3,5),p(-.5,.3,5)],ready?'#bdad83':'#9b8c71');
-        poly(c,[p(-.5,.3,5),p(.5,.3,5),p(.5,.3,1),p(-.5,.3,1)],'#435e64');
+        box(r,x,y,alongX?-.5:-.3,alongX?-.3:-.5,alongX?.5:.3,alongX?.3:.5,1,5,ready?'#bdad83':'#9b8c71','#435e64','#374e58');
         for(const u of [-.4,-.2,0,.2,.4])line(r,p(u,-.3,5),p(u,.3,5),'#827761',.7);
-        for(const side of [-.34,.34]){
+        for(const side of [-.34,.34].sort((a,b)=>p(0,a,0)[1]-p(0,b,0)[1])){
           line(r,p(-.5,side,5),p(.5,side,5),'#3a5660',2);
           line(r,p(-.5,side,14),p(.5,side,14),'#72949b',1.6);
           for(const u of [-.5,0]){line(r,p(u,side,5),p(u+.25,side,14),'#547783',1.5);line(r,p(u+.25,side,14),p(u+.5,side,5),'#547783',1.5);}
@@ -1612,47 +1697,48 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     const x = i % W, y = Math.floor(i / W);
     if (!seen[i]) continue;
     const t = city.t[i], b = city.b[i];
-    const d = x + y + 1;
+    const d = viewDepth(v,x+.5,y+.5);
     if (b) {
       items.push({
         d, f: () => {
+          const artR={...r,billboard:fixedArt(b.k)};
           if (b.lvl === 0 || b.burned) c.globalAlpha = 0.5;
           drawBuilding(r, b.k, x, y, Math.max(1, b.lvl), i);
           c.globalAlpha = 1;
           if(b.burned&&b.damageCause==='earthquake'){
-            const q=tp(r,x,y);const [sx,sy]=q(0,0,15);
+            const q=tp(artR,x,y);const [sx,sy]=q(0,0,15);
             c.strokeStyle='#342b24';c.lineWidth=2*v.s;c.beginPath();c.moveTo(sx-8*v.s,sy-12*v.s);c.lineTo(sx+2*v.s,sy-4*v.s);c.lineTo(sx-3*v.s,sy+2*v.s);c.lineTo(sx+9*v.s,sy+10*v.s);c.stroke();
-            for(let k=0;k<3;k++)box(r,x,y,-.36+k*.22,.28,-.23+k*.22,.4,0,3,'#b0a28d','#807565','#6e6253');
+            for(let k=0;k<3;k++)box(artR,x,y,-.36+k*.22,.28,-.23+k*.22,.4,0,3,'#b0a28d','#807565','#6e6253');
           }else if (b.burned) {
-            const q = tp(r, x, y);
+            const q = tp(artR, x, y);
             for (let f = 0; f < 3; f++) {
               const h = 12 + 6 * Math.sin(o.anim / 140 + i + f), u = (f - 1) * 0.2;
               poly(c, [q(u - 0.1, 0.18, 3), q(u + 0.1, 0.18, 3), q(u + 0.025, 0.18, h + 8)], "#ed6327");
               poly(c, [q(u - 0.05, 0.19, 3), q(u + 0.05, 0.19, 3), q(u, 0.19, h)], "#ffd66b");
             }
-            smoke(r, x, y, 0, 0, 24, i);
+            smoke(artR, x, y, 0, 0, 24, i);
           }
           if (b.stranded && !b.relocation) {
-            const [sx,sy]=tp(r,x,y)(0,0,48);
+            const [sx,sy]=tp(artR,x,y)(0,0,48);
             c.fillStyle='#a76b33';c.beginPath();c.arc(sx,sy,8*v.s,0,Math.PI*2);c.fill();
             c.fillStyle='#fff2ce';c.font=`bold ${Math.max(10,Math.round(11*v.s))}px sans-serif`;c.textAlign='center';c.textBaseline='middle';c.fillText('!',sx,sy);
           }
           if (b.flooded) {
-            const q = tp(r, x, y);
+            const q = tp(artR, x, y);
             poly(c, [q(-0.48, -0.48, 2), q(0.48, -0.48, 2), q(0.48, 0.48, 2), q(-0.48, 0.48, 2)], "rgba(70,150,210,.55)");
             const [wx, wy] = q(0, 0, 40);
             c.fillStyle = "#e85d4a"; c.beginPath(); c.arc(wx, wy, 7 * v.s, 0, Math.PI * 2); c.fill();
             c.fillStyle = "#fff"; c.font = `bold ${Math.round(10 * v.s)}px sans-serif`; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText("!", wx, wy + 0.5);
           }
           if(B[b.k].demand&&b.lvl>0&&!b.burned&&!b.flooded&&(b.off||(city.modern?.allocation[i]??0)<1)){
-            const [px,py]=tp(r,x,y)(0,0,48);c.fillStyle='#263f45';c.beginPath();c.arc(px,py,7*v.s,0,Math.PI*2);c.fill();c.fillStyle='#ffe18b';c.font=`bold ${Math.max(10,Math.round(12*v.s))}px sans-serif`;c.textAlign='center';c.fillText(b.off?'⏸':'ϟ',px,py+4*v.s);
+            const [px,py]=tp(artR,x,y)(0,0,48);c.fillStyle='#263f45';c.beginPath();c.arc(px,py,7*v.s,0,Math.PI*2);c.fill();c.fillStyle='#ffe18b';c.font=`bold ${Math.max(10,Math.round(12*v.s))}px sans-serif`;c.textAlign='center';c.fillText(b.off?'⏸':'ϟ',px,py+4*v.s);
           }
           if (b.doneAt) {
             const total = b.relocation?.duration ?? (b.k==='ironbridge'&&b.bridge&&!b.bridge.ready?b.bridge.tiles.length*120000:B[b.k].sec * 1000 * 3 ** b.lvl);
             drawScaffold(r, x, y, Math.max(0, Math.min(1, 1 - (b.doneAt - o.now) / total)));
           }
           if (b.lvl >= 2) {
-            const [lx, ly] = tp(r, x, y)(-0.3, 0.3, 4);
+            const [lx, ly] = tp(artR, x, y)(-0.3, 0.3, 4);
             for (let l = 0; l < b.lvl; l++) poly(c, [[lx - 3 * v.s, ly - l * 4 * v.s], [lx, ly - 3 * v.s - l * 4 * v.s], [lx + 3 * v.s, ly - l * 4 * v.s], [lx, ly - 1.5 * v.s - l * 4 * v.s]], "#f0c766");
           }
         },
@@ -1669,7 +1755,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
         size: 0.8 + hr(city.seed, i * 41 + k) * 0.45, pine: hr(city.seed, i * 43 + k) < 0.4, stump: k >= n,
       })).sort((a, b2) => a.u + a.v - (b2.u + b2.v));
       for (const tr of trees) items.push({
-        d: x + y + 1 + (tr.u + tr.v) * 0.5,
+        d: viewDepth(v,x+.5+tr.u,y+.5+tr.v),
         f: () => {
           if (!tr.stump) { drawTree(r, x, y, tr.u, tr.v, tr.size, tr.pine, o.chopping.has(i) ? Math.sin(o.anim / 45) * 1.6 : 0); return; }
           const [sx, sy] = tp(r, x, y)(tr.u, tr.v);
@@ -1684,12 +1770,12 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   }
   for (const k of city.camps) {
     if (!seen[k.at] || !vis[k.at] || city.b[k.at]) continue;
-    items.push({ d: (k.at % W) + Math.floor(k.at / W) + 1, f: () => drawCampSite(r, k) });
+    items.push({ d: viewDepth(v,k.at%W+.5,Math.floor(k.at/W)+.5), f: () => drawCampSite(r, k) });
     if(!lod && !k.cleared && !city.exps.some(e=>e.camp===k.id && !e.recalled && !e.resolved && o.now>=e.arrive)){
       const defenders=k.garrison??campDefenders(k.power);let n=0;
       for(const u of UKEYS)for(let j=0;j<Math.min(defenders[u]??0,2)&&n<4;j++,n++){
         const fx=k.at%W+.18+n*.18,fy=Math.floor(k.at/W)+.85,seed=k.id+n*.5;
-        items.push({d:fx+fy,f:()=>drawSoldier(r,u,fx,fy,-1,false,seed,false,true)});
+        items.push({d:viewDepth(v,fx,fy),f:()=>drawSoldier(r,u,fx,fy,-1,false,seed,false,true)});
       }
     }
   }
@@ -1698,40 +1784,42 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     if(embassy){
       const count=Math.min(4,Math.max(0,envoyCount(city)-envoysAway(city)));
       for(let n=0;n<count;n++){const fx=embassy[0]%W+1.1+n*.3,fy=Math.floor(embassy[0]/W)+.8;
-        if(onScreen(fx-.5,fy-.5))items.push({d:fx+fy,f:()=>{const [sx,sy]=P(r.v,fx,fy);drawEnvoyActor(r.c,city.era,sx,sy,r.v.s,r.anim,false);}});
+        if(onScreen(fx-.5,fy-.5))items.push({d:viewDepth(v,fx,fy),f:()=>{const [sx,sy]=P(r.v,fx,fy);drawEnvoyActor(r.c,city.era,sx,sy,r.v.s,r.anim,false);}});
       }
     }
     for (const tr of city.trips??[]) {
       const actor=envoyVillagePosition(tr,o.now);if(!actor)continue;
       const {x:fx,y:fy}=actor,ti=idx(Math.floor(fx),Math.floor(fy));
       if(!seen[ti]||!onScreen(fx-.5,fy-.5))continue;
-      items.push({d:fx+fy,f:()=>{const [sx,sy]=P(r.v,fx,fy);drawEnvoyActor(r.c,city.era,sx,sy,r.v.s,r.anim,true,actor.face);}});
+      items.push({d:viewDepth(v,fx,fy),f:()=>{const [sx,sy]=P(r.v,fx,fy);drawEnvoyActor(r.c,city.era,sx,sy,r.v.s,r.anim,true,cameraFace(v,actor.face));}});
     }
     for(const tr of city.merchantJourneys??[]){
       const actor=envoyVillagePosition(tr,o.now);if(!actor||(tr.incoming&&!actor.returning))continue;
       const {x:fx,y:fy}=actor,ti=idx(Math.floor(fx),Math.floor(fy));if(!seen[ti]||!onScreen(fx-.5,fy-.5))continue;
-      items.push({d:fx+fy,f:()=>{if(tr.raider)drawSoldier(r,"spear",fx,fy,actor.face,true,.3);else{const [sx,sy]=P(r.v,fx,fy);drawCaravanActor(r.c,sx,sy,r.v.s*.7,r.anim,true,actor.face);}}});
+      items.push({d:viewDepth(v,fx,fy),f:()=>{if(tr.raider)drawSoldier(r,"spear",fx,fy,actor.face,true,.3);else{const [sx,sy]=P(r.v,fx,fy);drawCaravanActor(r.c,sx,sy,r.v.s*.7,r.anim,true,cameraFace(v,actor.face));}}});
     }
     if (troopCount(city.army)) {
       let staging=stagingCache.get(city);
       if(!staging || staging.at!==city.last){staging={at:city.last,tiles:armyStagingTiles(city)};stagingCache.set(city,staging);}
+      const futureSoldiers=(v.rotation??0)&&city.homeOrders?new Map(homeSoldiers(city,o.now+50,staging.tiles).map(s=>[s.id,s])):null;
       for (const [n, soldier] of homeSoldiers(city,o.now,staging.tiles).entries()) {
         const {x:fx,y:fy}=soldier;
+        const next=futureSoldiers?.get(soldier.id),heading:Pt|undefined=next?[next.x-fx,next.y-fy]:undefined;
         if (!onScreen(fx-.5,fy-.5)) continue;
-        items.push({d:fx+fy,f:()=>{
+        items.push({d:viewDepth(v,fx,fy),f:()=>{
           if(o.pickedSoldier===soldier.id){const [sx,sy]=P(v,fx,fy,deckHeight(r,fx,fy));c.strokeStyle="#f0c766";c.lineWidth=2;c.beginPath();c.ellipse(sx,sy,10*v.s,5*v.s,0,0,Math.PI*2);c.stroke();}
-          if(inWater(r,fx,fy)){const [sx,sy]=P(v,fx,fy);drawTransportBoat(c,sx,sy,v.s*.65,r.anim,soldier.face,1);}else drawSoldier(r,soldier.u,fx,fy,soldier.face,soldier.moving,n*.37);
+          if(inWater(r,fx,fy)){const [sx,sy]=P(v,fx,fy);drawTransportBoat(c,sx,sy,v.s*.65,r.anim,cameraFace(v,soldier.face),1);}else drawSoldier(r,soldier.u,fx,fy,soldier.face,soldier.moving,n*.37,false,false,heading);
         }});
       }
     }
-    for(const ferry of returningFerries(city,o.now))if(inWater(r,ferry.x,ferry.y,true)&&seen[idx(Math.floor(ferry.x),Math.floor(ferry.y))]&&onScreen(ferry.x-.5,ferry.y-.5))items.push({d:ferry.x+ferry.y,f:()=>{const [sx,sy]=P(v,ferry.x,ferry.y);drawTransportBoat(c,sx,sy,v.s*.65,r.anim,ferry.face);}});
+    for(const ferry of returningFerries(city,o.now))if(inWater(r,ferry.x,ferry.y,true)&&seen[idx(Math.floor(ferry.x),Math.floor(ferry.y))]&&onScreen(ferry.x-.5,ferry.y-.5))items.push({d:viewDepth(v,ferry.x,ferry.y),f:()=>{const [sx,sy]=P(v,ferry.x,ferry.y);drawTransportBoat(c,sx,sy,v.s*.65,r.anim,cameraFace(v,ferry.face));}});
     const beast=wildlifePosition(city,o.now);
-    if(beast){const [fx,fy]=beast,ti=idx(Math.floor(fx),Math.floor(fy));if(seen[ti]&&onScreen(fx-.5,fy-.5))items.push({d:fx+fy,f:()=>drawAnimal(r,"boar",fx,fy,1,false,false,.73)});}
+    if(beast){const [fx,fy]=beast,ti=idx(Math.floor(fx),Math.floor(fy));if(seen[ti]&&onScreen(fx-.5,fy-.5))items.push({d:viewDepth(v,fx,fy),f:()=>drawAnimal(r,"boar",fx,fy,1,false,false,.73)});}
     // Barbarians appear only after the warning, on a persisted land route.
     for(const actor of raidActors(city,o.now)){
       const {x:fx,y:fy}=actor,ti=idx(Math.max(0,Math.min(W-1,Math.floor(fx))),Math.max(0,Math.min(H-1,Math.floor(fy))));
       if(!vis[ti]||!seen[ti]||!onScreen(fx-.5,fy-.5))continue;
-      items.push({d:fx+fy,f:()=>drawSoldier(r,"club",fx,fy,actor.face,actor.moving,actor.seed,actor.fighting,true)});
+      items.push({d:viewDepth(v,fx,fy),f:()=>drawSoldier(r,"club",fx,fy,actor.face,actor.moving,actor.seed,actor.fighting,true)});
     }
     // marching expeditions
     for (const e of city.exps) {
@@ -1748,15 +1836,15 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       for (const u of UKEYS) for (let k = 0; k < Math.min(e.units[u] ?? 0, 6) && n < 18; k++, n++) {
         const row = Math.floor(n / 3), col = (n % 3) - 1;
         const back = (going ? -1 : 1) * row * 0.35;
-        const routed=expeditionPosition(e,o.now,row*.35);
+        const routed=expeditionPosition(e,o.now,row*.35),nextRouted=(v.rotation??0)?expeditionPosition(e,o.now+50,row*.35):null;
         const fx = fighting && e.combatVersion ? tx-.3+(n%2)*.12 : routed ? Math.max(Math.floor(routed.x)+.08,Math.min(Math.floor(routed.x)+.92,routed.x+col*.12)) : cx + ((tx - hx) / len) * back + nx * col * 0.35;
         const fy = fighting && e.combatVersion ? ty-.22+Math.floor(n/2)*.06 : routed ? routed.y : cy + ((ty - hy) / len) * back + ny * col * 0.35;
         const ti = idx(Math.max(0, Math.min(W - 1, Math.floor(fx))), Math.max(0, Math.min(H - 1, Math.floor(fy))));
         if (!vis[ti]) continue;
         if(e.ships && inWater(r,fx,fy) && n>=e.ships)continue;
         const nn = n;
-        items.push({ d: fx + fy, f: () => {
-          const fn = () => drawSoldier(r, u, fx, fy, (fighting&&e.combatVersion?1:routed?.face??face), !fighting, nn * 0.41, fighting);
+        items.push({ d: viewDepth(v,fx,fy), f: () => {
+          const fn = () => drawSoldier(r, u, fx, fy, (fighting&&e.combatVersion?1:routed?.face??face), !fighting, nn * 0.41, fighting,false,nextRouted&&routed?[nextRouted.x-routed.x,nextRouted.y-routed.y]:undefined);
           if (inWater(r, fx, fy) && e.ships){const [sx,sy]=P(v,fx,fy);drawTransportBoat(c,sx,sy,v.s*.7,r.anim,routed?.face??face,1);}else fn();
         } });
       }
@@ -1764,9 +1852,9 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
         let defender=0;
         for(const u of UKEYS)for(let k=0;k<Math.min(e.combat.defenders[u]??0,6)&&defender<12;k++,defender++){
           const dx=tx+.18+(defender%2)*.12,dy=ty-.12+Math.floor(defender/2)*.06,seed=defender*.61;
-          if(vis[camp.at])items.push({d:dx+dy,f:()=>drawSoldier(r,u,dx,dy,-1,false,seed,true,true)});
+          if(vis[camp.at])items.push({d:viewDepth(v,dx,dy),f:()=>drawSoldier(r,u,dx,dy,-1,false,seed,true,true)});
         }
-        if(vis[camp.at])items.push({d:tx+ty+2,f:()=>{
+        if(vis[camp.at])items.push({d:viewDepth(v,tx,ty)+2,f:()=>{
           const [sx,sy]=P(r.v,tx,ty),scale=r.v.s;
           r.c.font=`bold ${Math.max(10,11*scale)}px sans-serif`;r.c.textAlign="center";
           r.c.fillStyle="#ffe2b0";r.c.fillText(`⚔ ${troopCount(e.units)} / ${troopCount(e.combat!.defenders)}`,sx,sy-40*scale);
@@ -1785,8 +1873,9 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     }
     for (const h of city.herds) {
       if (!seen[h.at] || !vis[h.at]) continue;
+      const future=(v.rotation??0)?herdAnimals(city,h,(o.anim||1)+40):null;
       herdAnimals(city, h, o.anim || 1).forEach((a, k) => {
-        items.push({ d: a.fx + a.fy, f: () => drawAnimal(r, h.kind, a.fx, a.fy, a.face, a.graze, h.kind === "deer" && k === 0, hr(city.seed, h.id * 7 + k)) });
+        items.push({ d: viewDepth(v,a.fx,a.fy), f: () => drawAnimal(r, h.kind, a.fx, a.fy, a.face, a.graze, h.kind === "deer" && k === 0, hr(city.seed, h.id * 7 + k),future?.[k]?[future[k].fx-a.fx,future[k].fy-a.fy]:undefined) });
       });
     }
     for (const vl of o.villagers) {
@@ -1795,7 +1884,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       if (!vis[ti]) continue;
       const isPicked = vl.id !== null && o.picked.has(vl.id);
       items.push({
-        d: vl.fx + vl.fy,
+        d: viewDepth(v,vl.fx,vl.fy),
         f: () => {
           if (isPicked) {
             const [sx, sy] = P(v, vl.fx, vl.fy,deckHeight(r,vl.fx,vl.fy)), s2 = Math.max(v.s * 1.45, 0.7);
@@ -1816,7 +1905,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   }
   if (o.hover && o.tool && !city.b[idx(o.hover.x, o.hover.y)]) {
     const { x, y } = o.hover, tool = o.tool;
-    items.push({ d: x + y + 1.01, f: () => { c.globalAlpha = ghostOk ? 0.75 : 0.4; drawBuilding(r, tool, x, y, 1, idx(x, y)); c.globalAlpha = 1; } });
+    items.push({ d: viewDepth(v,x+.5,y+.5)+.01, f: () => { c.globalAlpha = ghostOk ? 0.75 : 0.4; drawBuilding(r, tool, x, y, 1, idx(x, y)); c.globalAlpha = 1; } });
   }
   items.sort((a, b) => a.d - b.d);
   for (const it of items) it.f();

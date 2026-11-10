@@ -560,3 +560,5 @@ body:has(.map-loading) { padding: 0; }
 .map-loading progress { display: block; width: 100%; height: 10px; margin: 28px 0 10px; accent-color: #c6ad72; }
 .map-loading .muted { color: #b3baac; }
 .map-loading button { margin-top: 16px; }
+
+.map-bearing { text-align: center; font-size: 10px; color: #d7c99f; padding: 2px 0; border-radius: 5px; background: #17201ecc; pointer-events: none; }

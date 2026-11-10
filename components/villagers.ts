@@ -9,6 +9,7 @@ export type Job = "wood" | "quarry" | "gather" | "farm" | "build" | "smith" | "t
 
 export type Villager = {
   fleeing?: boolean;
+  headingX?:number; headingY?:number; previousX?:number; previousY?:number;
   key: string;
   id: number | null; // person id; null for builders (not people)
   name: string;
@@ -384,6 +385,13 @@ export class Crowd {
           break;
         }
       }
+    }
+    // Retain the actual world-space heading for every path (hauling, fleeing,
+    // swimming and wandering), including paths that returned early above.
+    for(const v of this.list){
+      const dx=v.fx-(v.previousX??v.fx),dy=v.fy-(v.previousY??v.fy);
+      if(Math.hypot(dx,dy)>1e-6){v.headingX=dx;v.headingY=dy;}
+      v.previousX=v.fx;v.previousY=v.fy;
     }
   }
 
