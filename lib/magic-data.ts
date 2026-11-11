@@ -2,6 +2,8 @@
 export const MAGIC_RESOURCES=['aetherCrystal','rune','essence','celestialStone'] as const;
 export type MagicResource=typeof MAGIC_RESOURCES[number];
 export const isMagicResource=(r:string):r is MagicResource=>(MAGIC_RESOURCES as readonly string[]).includes(r);
+/** Each magic good opens (store compartment, market, raids) with its own era. */
+export const magicResourceEra=(r:MagicResource)=>r==='essence'?8:r==='celestialStone'?9:7;
 export type MagicGoods=Partial<Record<MagicResource|'food'|'wood'|'stone'|'copper'|'gold'|'coal',number>>;
 export type Element='fire'|'water'|'wood'|'earth';
 export type Contract='dragon'|'tortoise'|'phoenix';

@@ -17,12 +17,28 @@ export const MAGIC_ERA7_BUILDINGS={
  spiritgarden:base('spiritgarden','3 thợ, 20 mana/giờ: tối đa 2 lều cứu thương/bệnh viện trong 6 ô rút ca chữa 30 → 20 phút; phí ca giữ nguyên. Cần Hộ sinh.'),
  awakeningtower:base('awakeningtower','Kỳ quan thời 7: mọi nguồn mana đang hoạt động +1 chỗ cấp. Khởi công cần Đình 7, 550 dân, Dẫn linh, học viện hoạt động và ít nhất 2 nguồn mana. Không tự tạo mana.'),
 } satisfies Record<string,Def>;
+const station=(k:'firealtar'|'watertemple'|'woodgrove'|'earthtemple',what:string)=>base(k,`3 thợ, duy trì 2 tinh chất + 10 mana/giờ: cấp ấn ${what} cho tối đa 3 nhà trong 6 ô. Cần Tứ nguyên; tối đa 2. Thiếu mana/tinh chất/thợ thì ấn tắt.`);
+export const MAGIC_ERA8_BUILDINGS={
+ essenceforge:base('essenceforge','5 thợ: 24 tinh thạch + 60 than + 30 mana/giờ → 12 tinh chất/giờ. Cần Xưởng cơ khí hoạt động trong 6 ô, có đường nối; hàng mang về kho.',{prod:{essence:12},input:{aetherCrystal:24,coal:60}}),
+ firealtar:station('firealtar','Hỏa; mở Bão lửa (120 mana + 2 tinh chất, 3 phút/làng)'),
+ watertemple:station('watertemple','Thủy; mở Tịnh hóa (100 mana + 2 tinh chất, 30 phút), nối Điện thờ Sông Mẹ để Thanh tẩy phủ 10 ô'),
+ woodgrove:station('woodgrove','Mộc; mở Mưa sinh trưởng và tạo Linh mộc vận tải'),
+ earthtemple:station('earthtemple','Thổ; mở Thạch bích và tuyển golem'),
+ golemworks:base('golemworks','Tuyển golem đá, cần ấn Thổ và Khế ước. Mở 24 chỗ quân ma pháp. Tối đa 1.'),
+ spiritstable:base('spiritstable','Thuần dưỡng linh lộc, cần ấn Mộc và Thủy cùng Khế ước. Mở 12 chỗ quân ma pháp. Tối đa 1.'),
+ harmonizer:base('harmonizer','4 thợ, 2 tinh chất + 20 mana/giờ, cần hai ấn khác loại đã chọn: giảm 8 ô nhiễm/giờ và thêm 1 chỗ cấp cho mỗi nguồn mana trong 6 ô (không cộng nhiều đài trên một nguồn).'),
+ fourspirits:base('fourspirits','Kỳ quan thời 8: nguồn mana +20% sức chứa, mở thời 9. Khởi công cần Đình 8 và đủ bốn ấn trong 6 ô.'),
+} satisfies Record<string,Def>;
 export type MagicEra7Building=keyof typeof MAGIC_ERA7_BUILDINGS;
 export const MAGIC_ERA7_KINDS=Object.keys(MAGIC_ERA7_BUILDINGS) as MagicEra7Building[];
 /** Unit `atk` is damage per second, as everywhere in the engine: per-hit damage
  * from the spec divided by its attack interval (12 per 2 s → 6). */
-const mage=(k:'firemage'|'watermage',d:string):Unit=>{const m=u[k];return {n:m.name,era:m.era,cost:m.cost as Goods,sec:m.seconds,atk:m.damage*1000/m.attackMs,hp:m.hp,space:m.space,range:m.range,attackMs:m.attackMs,speed:m.speed,shot:'arrow',building:'mageacademy',mana:m.mana,research:m.research,d};};
+const mage=(k:'firemage'|'watermage'|'golem'|'spiritdeer',d:string,extra:Partial<Unit>={}):Unit=>{const m=u[k];return {n:m.name,era:m.era,cost:m.cost as Goods,sec:m.seconds,atk:m.damage*1000/m.attackMs,hp:m.hp,space:m.space,range:m.range,attackMs:m.attackMs,speed:m.speed,shot:'arrow',building:m.building,mana:m.mana,research:m.research,d,...extra};};
 export const MAGIC_ERA7_UNITS={
  firemage:mage('firemage','Bắn phép 12 sát thương/2 giây, tầm 6. Hỏa cầu (30 mana, 20 giây): 60 sát thương mục tiêu, 30 trong 1,5 ô, tối đa 5. Yếu khi bị áp sát. Cần Chiến pháp; 40 mana khi tuyển.'),
  watermage:mage('watermage','Bắn phép 6 sát thương/2 giây, tầm 5. Thủy hồi (25 mana, 25 giây): hồi 50 HP tối đa 3 quân trong 2 ô. Cần lính che chắn và Hộ sinh; 40 mana khi tuyển.'),
+} satisfies Record<string,Unit>;
+export const MAGIC_ERA8_UNITS={
+ golem:mage('golem','Đánh 50/2,5 giây, cận chiến, chậm. Chặn đường, sát thương nhà ×1,5; không đánh quân bay. Cần ấn Thổ và Khế ước; 120 mana khi tuyển. Chuyên tu Thổ: +10% HP cho golem tuyển sau khi chọn.',{shot:'melee',buildingAtk:1.5}),
+ spiritdeer:mage('spiritdeer','Đánh 18/1,8 giây, tầm 2, nhanh. Hộ tống: tối đa 4 quân đồng minh trong 3 ô giảm 10% sát thương (không cộng nhiều linh lộc). Cần ấn Mộc + Thủy và Khế ước; 80 mana khi tuyển.',{shot:'melee'}),
 } satisfies Record<string,Unit>;

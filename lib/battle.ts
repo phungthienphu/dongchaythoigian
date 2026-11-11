@@ -19,7 +19,7 @@ export type BattleCommand = ({ type: 'move'; x: number; y: number } & BattleSele
 export type BattleStrike = { id: string; at: number; source: string; kind: 'arrow' | 'stone' | 'melee'|'bullet'|'shell'; from: {x:number;y:number}; to: {x:number;y:number} };
 export type BattleState = { specialization?: Partial<Record<BattleSide, Element>>; towerSlotsReady?:boolean; defenseCenter?:number; strikes?: BattleStrike[]; defenderEra?:number; id: string; attackerId: string; defenderId: string; startedAt: number; lastTick: number; terrain: number[]; groups: BattleGroup[]; buildings: BattleBuilding[]; status: 'fighting' | 'retreating' | 'finished'; winner?: BattleSide; defenderOnline: boolean; initialPopulation: number; populationLoss: number; startingResources: Res; loot: Res; devastation: number };
 export type BattleResult = { winner: BattleSide; attackerSurvivors: Troops; defenderSurvivors: Troops; attackerCasualties: number; defenderCasualties: number; populationLoss: number; burnedTiles: number[]; loot: Res; devastation: number; /** Unused flask mana per side, returned up to the source's free space. */ flask?: Record<BattleSide, number> };
-const emptyRes = (): Res => ({ food: 0, wood: 0, stone: 0, copper: 0 , gold: 0, diamond:0,coal:0,aetherCrystal:0,rune:0});
+const emptyRes = (): Res => ({ food: 0, wood: 0, stone: 0, copper: 0 , gold: 0, diamond:0,coal:0,aetherCrystal:0,rune:0,essence:0});
 const MAGES=new Set<UKey>(['firemage','watermage']);
 export const unitHp=(g:Pick<BattleGroup,'u'|'unitHp'>)=>g.unitHp??UNITS[g.u].hp;
 const dist = (a: {x:number;y:number}, b: {x:number;y:number}) => Math.hypot(a.x-b.x,a.y-b.y);
@@ -75,9 +75,13 @@ export function createBattle(o: { id: string; attackerId: string; defenderId: st
   const deck=battleBridgeTiles({buildings});
   const center = xy(Number(Object.keys(o.defender.b).find(k=>o.defender.b[k].k==='hall') ?? o.defender.camp));
   const groups:BattleGroup[]=[];
+  // Golems recruited under Thổ have +10% HP; squads aggregate units, so the
+  // hardened share is spread evenly over that side's golems.
+  const golemHp=(side:BattleSide)=>{const city=side==='attacker'?o.attacker:o.defender,total=side==='attacker'?o.troops.golem??0:city.army.golem??0,hard=Math.min(total,city.magic?.hardened??0);return UNITS.golem.hp*(10*total+hard)/(10*Math.max(1,total));};
   const add=(side:BattleSide,u:UKey,count:number,p:{x:number;y:number},naval:boolean,suffix='')=>{
     const spawn=safeSpawn(o.defender.t,buildings,side,p,deck);
-    groups.push({naval,id:`${side}:${u}${suffix}`,side,u,count,initial:count,hp:count*UNITS[u].hp,...spawn,...(side==='attacker'&&p.x>1?{entry:p}:{}),order:{type:'guard',...spawn}});
+    const hp=u==='golem'?golemHp(side):UNITS[u].hp;
+    groups.push({naval,id:`${side}:${u}${suffix}`,side,u,count,initial:count,hp:count*hp,...(hp!==UNITS[u].hp?{unitHp:hp}:{}),...spawn,...(side==='attacker'&&p.x>1?{entry:p}:{}),order:{type:'guard',...spawn}});
   };
   const attackerNaval=(o.attackerShips??shipsFree(o.attacker,o.now))>=shipsNeeded(o.troops);
   for(const u of UKEYS){
@@ -241,7 +245,7 @@ function retreatExit(s:BattleState,g:BattleGroup,deck:ReadonlySet<number>){
 function damage(g:BattleGroup,amount:number){g.hp=Math.max(0,g.hp-amount);g.count=Math.ceil(g.hp/unitHp(g));if(g.flask!==undefined)g.flask=Math.min(g.flask,100*g.count);}
 /** Linh lộc escort: at most four allies in three tiles take 10% less; never stacks. */
 function escort(s:BattleState,target:BattleGroup){
-  for(const deer of s.groups)if((deer.u as string)==='spiritdeer'&&deer.side===target.side&&living(deer)&&deer!==target&&dist(deer,target)<=3){
+  for(const deer of s.groups)if(deer.u==='spiritdeer'&&deer.side===target.side&&living(deer)&&deer!==target&&dist(deer,target)<=3){
     const near=s.groups.filter(a=>a.side===deer.side&&a!==deer&&living(a)&&dist(a,deer)<=3).sort((a,b)=>dist(a,deer)-dist(b,deer)||a.id.localeCompare(b.id)).slice(0,4);
     if(near.includes(target))return .9;
   }

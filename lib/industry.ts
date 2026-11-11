@@ -3,7 +3,7 @@ import {buildingOutput} from './economy-balance';
 import {recordResourceFlow} from './resource-history';
 import type {Building,City,Def} from './engine';
 const HOUR=3_600_000,MIN=60_000,SIDE=96;
-const ALL=['food','wood','stone','copper','gold','diamond','coal','aetherCrystal','rune'] as const;
+const ALL=['food','wood','stone','copper','gold','diamond','coal','aetherCrystal','rune','essence'] as const;
 export const INDUSTRIAL_BUILDINGS={
  coalmine:{n:'Mỏ than',era:5,cost:{wood:1000,stone:1500,copper:500},sec:3600,jobs:4,prod:{coal:1200},up:true,d:'Đặt trên mỏ than. 4 thợ khai thác 1.200 than/giờ cấp 1; phải mang về kho. Mỗi mỏ có 30.000 than.'},
  charcoal:{n:'Lò than củi',era:5,cost:{wood:600,stone:800,copper:150},sec:1800,jobs:2,prod:{coal:240},input:{wood:300},emission:1,up:true,d:'2 thợ: 300 gỗ/giờ → 240 than/giờ. Nguồn than thay thế khi mỏ cạn. Đầu vào trừ lúc đóng kiện; hàng phải nộp kho.'},

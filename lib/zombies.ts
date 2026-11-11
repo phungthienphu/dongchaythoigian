@@ -1,7 +1,8 @@
 import {B,W,H,R,N4,UNITS,UKEYS,buildings,isBuildingActive,haulPosition,explorerPos,homeSoldiers,stats,derive,rng,type City,type Person,type Building,type UKey} from './engine';
 import {bridgeDeck} from './bridges';
 import {towerStats,selectTowerTiles} from './tower-balance';
-import {magicStructureDefense,mageAction,zombieSlow} from './magic';
+import {magicStructureDefense,mageAction,zombieSlow,magicGuardHp} from './magic';
+import {magicWallAt,hitMagicWall,magicEscort} from './magic-elements';
 const SECOND=1000,MINUTE=60*SECOND,HOUR=60*MINUTE;
 export type ZombieKind='normal'|'super'|'breaker';
 export type Vital={hp:number;infectedAt?:number;downAt?:number;care?:{tile:number;end:number;pickupAt:number;arrive:number;doctor:number;route:number[];start:number};x?:number;y?:number;paused?:boolean;rescuing?:number;shelter?:number;last:number};
@@ -34,7 +35,7 @@ export function zombieBusy(c:City,at=c.last){return !!c.zombies&&(c.zombies.acto
 export const zombiePersonPosition=(c:City,p:Person,at:number)=>position(c,p,at);
 function position(c:City,p:Person,at:number){if(p.vital?.paused&&p.vital.x!==undefined)return {x:p.vital.x,y:p.vital.y!};const h=haulPosition(p,at);if(h)return h;if(p.task.t==='explore'){const [x,y]=explorerPos(p.task,at);return {x,y};}return point(p.pos??c.camp);}
 function active(b:Building|undefined){return !!b&&isBuildingActive(b);}
-function passable(c:City,tile:number,deck:ReadonlySet<number>,friendly=false){if(tile<0||tile>=W*H||c.t[tile]===R&&!deck.has(tile)||[2,4,5,6,7].includes(c.t[tile]))return false;const b=c.b[tile];return !b||['farm','estate','canal','levee','ironbridge','bridgehead'].includes(b.k)||friendly&&b.k==='gate';}
+function passable(c:City,tile:number,deck:ReadonlySet<number>,friendly=false){if(tile<0||tile>=W*H||c.t[tile]===R&&!deck.has(tile)||[2,4,5,6,7].includes(c.t[tile]))return false;if(!friendly&&c.magic?.walls?.length&&magicWallAt(c,tile))return false;const b=c.b[tile];return !b||['farm','estate','canal','levee','ironbridge','bridgehead'].includes(b.k)||friendly&&b.k==='gate';}
 /** Bounded A* over real cardinal topology. Danger only uses observations
  * persisted by this actor. No global omniscience. The binary heap bounds queue work per expansion. */
 export function zombiePath(c:City,from:number,to:number,known:NonNullable<Zombie['known']>=[],hp=100,friendly=false,deck=bridgeDeck(c)){
@@ -104,7 +105,7 @@ function closest<T>(items:T[],origin:{x:number;y:number},locate:(item:T)=>{x:num
 function combat(c:City,at:number){const s=c.zombies!,deck=bridgeDeck(c);let dirty=false;
  // Reconcile actor IDs with surviving troops. Existing home orders/guard posts
  // remain the authoritative staging and are used as patrol anchors.
- const soldiers=UKEYS.some(u=>(c.army[u]??0)>0)?homeSoldiers(c,at,undefined,false):[];const old=new Map(s.guards.map(g=>[g.id,g]));s.guards=soldiers.filter(g=>UNITS[g.u].atk>0).map(g=>{const previous=old.get(g.id),order=c.homeOrders?.[g.id],orderAt=order?.at,anchor=order?.route.at(-1)??tileOf(g.x,g.y);if(previous&&previous.orderAt===orderAt&&previous.anchor===anchor)return previous;return {...g,hp:previous?.hp??UNITS[g.u].hp,nextHit:previous?.nextHit??at,anchor,orderAt};});
+ const soldiers=UKEYS.some(u=>(c.army[u]??0)>0)?homeSoldiers(c,at,undefined,false):[];const old=new Map(s.guards.map(g=>[g.id,g]));s.guards=soldiers.filter(g=>UNITS[g.u].atk>0).map(g=>{const previous=old.get(g.id),order=c.homeOrders?.[g.id],orderAt=order?.at,anchor=order?.route.at(-1)??tileOf(g.x,g.y);if(previous&&previous.orderAt===orderAt&&previous.anchor===anchor)return previous;return {...g,hp:previous?.hp??magicGuardHp(c,g),nextHit:previous?.nextHit??at,anchor,orderAt};});
  const towers=buildings(c).filter(([,b])=>b.k==='watchtower'&&active(b)).map(([tile,b])=>({tile,lvl:b.lvl}));const enabled=selectTowerTiles(towers,c.era,c.camp);
  for(const tower of towers)if(enabled.has(tower.tile)){const weapon=towerStats(tower.lvl);if(Math.floor((at-SECOND)/weapon.attackMs)===Math.floor(at/weapon.attackMs))continue;const target=s.actors.find(z=>z.hp>0&&(z.emergesAt??0)<=at&&distance(z,point(tower.tile))<=weapon.range);if(target){target.hp-=weapon.damage;target.hitAt=at;}}
  magicStructureDefense(c,at,s.actors,s.guards);
@@ -119,9 +120,10 @@ function combat(c:City,at:number){const s=c.zombies!,deck=bridgeDeck(c);let dirt
   if(!target){const b=localStructures(z,18).filter(([tile])=>c.b[tile]&&distance(point(tile),z)<18).sort((a,b)=>distance(point(a[0]),z)-distance(point(b[0]),z)||a[0]-b[0])[0];if(b)target={...point(b[0]),id:'b:'+b[0],tile:b[0]};else if(guard)target={...guard,id:'g:'+guard.id,g:guard};}
   if(!target){delete z.target;z.walking=false;continue;}
   if(z.era>=5){const known=(z.known??[]).filter(k=>k.until>at);for(const t of towers)if(enabled.has(t.tile)&&distance(z,point(t.tile))<=12){const w=towerStats(t.lvl),k=known.find(k=>k.tile===t.tile);if(k){k.until=at+10*SECOND;k.dps=w.damage/(w.attackMs/1000);}else known.push({tile:t.tile,until:at+10*SECOND,dps:w.damage/(w.attackMs/1000),range:w.range});}for(const g of s.guards)if(distance(z,g)<=6){const tile=tileOf(g.x,g.y),k=known.find(k=>k.tile===tile),unit=UNITS[g.u];if(k)k.until=at+10*SECOND;else known.push({tile,until:at+10*SECOND,dps:unit.atk,range:unit.range??1.1});}z.known=known;}
-  if(distance(z,target)<=1.1){z.walking=false;if((melee.get(target.id)??0)>=4)continue;melee.set(target.id,(melee.get(target.id)??0)+1);if(z.nextHit>at)continue;if(target.p)attackPerson(c,target.p,z,at);else if(target.g){target.g.hp-=spec.damage;z.nextHit=Math.max(z.nextHit,at-spec.attackMs)+spec.attackMs;}else if(target.tile!==undefined){const b=c.b[target.tile];if(b){b.zombieDamage=(b.zombieDamage??0)+spec.damage*spec.building;if(buildingIntegrity(b)<=0){destroy(c,target.tile,at);dirty=true;}}z.nextHit=Math.max(z.nextHit,at-spec.attackMs)+spec.attackMs;}z.hitAt=at;continue;}
+  if(distance(z,target)<=1.1){z.walking=false;if((melee.get(target.id)??0)>=4)continue;melee.set(target.id,(melee.get(target.id)??0)+1);if(z.nextHit>at)continue;if(target.p)attackPerson(c,target.p,z,at);else if(target.g){target.g.hp-=spec.damage*magicEscort(s.guards,target.g);z.nextHit=Math.max(z.nextHit,at-spec.attackMs)+spec.attackMs;}else if(target.tile!==undefined){const b=c.b[target.tile];if(b){b.zombieDamage=(b.zombieDamage??0)+spec.damage*spec.building;if(buildingIntegrity(b)<=0){destroy(c,target.tile,at);dirty=true;}}z.nextHit=Math.max(z.nextHit,at-spec.attackMs)+spec.attackMs;}z.hitAt=at;continue;}
   if(at>=z.repath||z.target!==target.id){z.target=target.id;z.path=zombiePath(c,tileOf(z.x,z.y),tileOf(target.x,target.y),z.known,z.hp,false,deck)??undefined;z.repath=at+2*SECOND;
    if(!z.path){const barriers=localStructures(z,12).filter(([i,b])=>c.b[i]&&['wall','gate'].includes(b.k)&&distance(z,point(i))<12).sort((a,b)=>distance(point(a[0]),z)-distance(point(b[0]),z));for(const [tile]of barriers){const route=zombiePath(c,tileOf(z.x,z.y),tile,z.known,z.hp,false,deck);if(route){z.path=route;z.target='b:'+tile;break;}}}}
+  if(!z.path&&c.magic?.walls?.length&&hitMagicWall(c,z,at,spec.damage*spec.building,spec.attackMs)){z.walking=false;continue;}
   // A blocking wall is a real combat target until it is breached.
   if(z.target?.startsWith('b:')){const tile=Number(z.target.slice(2)),b=c.b[tile];if(b&&distance(z,point(tile))<=1.1&&z.nextHit<=at){b.zombieDamage=(b.zombieDamage??0)+spec.damage*spec.building;z.nextHit=Math.max(z.nextHit,at-spec.attackMs)+spec.attackMs;z.hitAt=at;if(buildingIntegrity(b)<=0){destroy(c,tile,at);dirty=true;}continue;}}
   const from=tileOf(z.x,z.y),next=z.path?.find(tile=>tile!==from);if(next!==undefined&&(occupancy.get(next)??0)>=4){z.walking=false;continue;}occupancy.set(from,Math.max(0,(occupancy.get(from)??1)-1));move(z,spec.speed*(1-zombieSlow(z,at)));const moved=tileOf(z.x,z.y);occupancy.set(moved,(occupancy.get(moved)??0)+1);

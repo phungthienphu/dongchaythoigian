@@ -6,7 +6,7 @@ function fixture():City{
  const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.people=[];c.herds=[];c.camps=[];c.b={};c.era=2;c.camp=idx(10,10);c.army={club:12};
  for(let y=0;y<H;y++)for(let x=15;x<=17;x++)c.t[idx(x,y)]=R;
  c.b[c.camp]={k:'barracks',lvl:2,doneAt:null};c.b[idx(14,12)]={k:'dock',lvl:1,doneAt:null};
- c.res={wood:500,food:500,stone:500,copper:400,gold:200,diamond:0,coal:0,aetherCrystal:0,rune:0};return c;
+ c.res={wood:500,food:500,stone:500,copper:400,gold:200,diamond:0,coal:0,aetherCrystal:0,rune:0,essence:0};return c;
 }
 test('dock placement, expensive ship payment, bounded serial queue and offline completion',()=>{
  const c=fixture(),dock=c.b[idx(14,12)];

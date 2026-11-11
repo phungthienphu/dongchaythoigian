@@ -8,7 +8,7 @@ export default function AutoAssignPanel({c,busy,act}:{c:City;busy:boolean;act:(a
  // Sync accepted/external settings without discarding unsaved edits on each tick.
  useEffect(()=>{setMix(JSON.parse(saved));},[saved]);
  const total=RES.reduce((n,r)=>n+mix[r],0),unsaved=JSON.stringify(mix)!==saved;
- const counts:Record<ResKey,number>={food:0,wood:0,stone:0,copper:0,gold:0,diamond:0,coal:0,aetherCrystal:0,rune:0};
+ const counts:Record<ResKey,number>={food:0,wood:0,stone:0,copper:0,gold:0,diamond:0,coal:0,aetherCrystal:0,rune:0,essence:0};
  let idle=0;
  for(const p of c.people){
   if(p.refuge)continue;

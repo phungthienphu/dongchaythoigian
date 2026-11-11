@@ -5,7 +5,7 @@ import DockPanel from '@/components/DockPanel';
 import {drawCity,type View} from '@/components/draw';
 import {applyAction,derive,G,R,H,idx,newCity,settle,homeSoldiers,type Action,type City} from '@/lib/engine';
 const view:View={TW:68,TH:34,ox:610,oy:-400,width:980,height:650,s:68/64};
-function fixture(){const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.people=[];c.herds=[];c.camps=[];c.b={};c.camp=idx(10,20);c.era=2;c.army={club:2};for(let y=0;y<H;y++)for(let x=15;x<=17;x++)c.t[idx(x,y)]=R;c.b[c.camp]={k:'barracks',lvl:1,doneAt:null};c.b[idx(14,22)]={k:'dock',lvl:1,doneAt:null};c.res={food:500,wood:500,stone:500,copper:500,gold:200,diamond:0,coal:0,aetherCrystal:0,rune:0};return c;}
+function fixture(){const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.people=[];c.herds=[];c.camps=[];c.b={};c.camp=idx(10,20);c.era=2;c.army={club:2};for(let y=0;y<H;y++)for(let x=15;x<=17;x++)c.t[idx(x,y)]=R;c.b[c.camp]={k:'barracks',lvl:1,doneAt:null};c.b[idx(14,22)]={k:'dock',lvl:1,doneAt:null};c.res={food:500,wood:500,stone:500,copper:500,gold:200,diamond:0,coal:0,aetherCrystal:0,rune:0,essence:0};return c;}
 export default function NavalPreview(){
  const [city,setCity]=useState<City>(fixture),[now,setNow]=useState(0),[message,setMessage]=useState('Bản thử độc lập: đóng thuyền rồi ra lệnh qua sông.');
  const canvas=useRef<HTMLCanvasElement>(null),clock=useRef(0),skip=useRef(0),frozen=useRef<number|null>(null);

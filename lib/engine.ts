@@ -1,7 +1,8 @@
 import {ZOMBIE_BUILDINGS} from './zombie-buildings';
-import {MAGIC_ERA7_BUILDINGS,MAGIC_ERA7_UNITS} from './magic-buildings';
-import {MAGIC_ERA_REQUIREMENTS,MAGIC_HALL_UPGRADES,isMagicResource} from './magic-data';
-import {magicSupplyNeed,deliverMagicSupply,initializeMagic,stepMagic,skipMagicTo,magicBuildError,magicSupportError,magicTrainingError,payMagicTraining,magicArmySpace,magicAction,assignMagicUid,type MagicState,type MagicAction} from './magic';
+import {MAGIC_ERA7_BUILDINGS,MAGIC_ERA7_UNITS,MAGIC_ERA8_BUILDINGS,MAGIC_ERA8_UNITS} from './magic-buildings';
+import {MAGIC_ERA_REQUIREMENTS,MAGIC_HALL_UPGRADES,isMagicResource,magicResourceEra} from './magic-data';
+import {magicCargoLimit,chargeMagicCargo,magicGrowth} from './magic-elements';
+import {magicSupplyNeed,deliverMagicSupply,magicSpecialization,initializeMagic,stepMagic,skipMagicTo,magicBuildError,magicSupportError,magicTrainingError,payMagicTraining,magicArmySpace,magicAction,assignMagicUid,type MagicState,type MagicAction} from './magic';
 import {activateZombies,stepZombies,zombieBusy,buildingIntegrity,type ZombieState,type Vital} from './zombies';
 import {assignFormation,formationSlots} from './formation';
 import {isFortification,type DefenseOrientation} from './fortifications';
@@ -59,13 +60,13 @@ const START_SIGHT = 9, SCOUT_SIGHT = 3;
 export const SEASONS = ["Xuân", "Hạ", "Thu", "Đông"];
 export const ERA_NAMES = eraNames;
 export const TERRAIN = ["Đồng cỏ", "Rừng", "Đồi đá", "Sông", "Mỏ đồng", "Mỏ vàng", "Mỏ kim cương", "Mỏ than"];
-export const RES = ["food", "wood", "stone", "copper", "gold", "diamond", "coal", "aetherCrystal", "rune"] as const;
+export const RES = ["food", "wood", "stone", "copper", "gold", "diamond", "coal", "aetherCrystal", "rune", "essence"] as const;
 export type ResKey = (typeof RES)[number];
 export type Res = Record<ResKey, number>;
-export const RN: Record<ResKey, string> = { food: "Lương thực", wood: "Gỗ", stone: "Đá", copper: "Đồng", gold: "Vàng", diamond: "Kim cương", coal:"Than", aetherCrystal:"Tinh thạch", rune:"Phù văn" };
+export const RN: Record<ResKey, string> = { food: "Lương thực", wood: "Gỗ", stone: "Đá", copper: "Đồng", gold: "Vàng", diamond: "Kim cương", coal:"Than", aetherCrystal:"Tinh thạch", rune:"Phù văn", essence:"Tinh chất" };
 /** Coal opens at Industrial and magic goods at the Awakening; hide them before. */
-export const resourceUnlocked=(r:ResKey,era:number)=>r==="coal"?era>=5:isMagicResource(r)?era>=7:true;
-export const emptyRes=():Res=>({food:0,wood:0,stone:0,copper:0,gold:0,diamond:0,coal:0,aetherCrystal:0,rune:0});
+export const resourceUnlocked=(r:ResKey,era:number)=>r==="coal"?era>=5:isMagicResource(r)?era>=magicResourceEra(r):true;
+export const emptyRes=():Res=>({food:0,wood:0,stone:0,copper:0,gold:0,diamond:0,coal:0,aetherCrystal:0,rune:0,essence:0});
 const NAMES = ["Tí", "Tèo", "Mận", "Đào", "Sửu", "Dần", "Bống", "Cò", "Sẻ", "Mít", "Na", "Bưởi", "Cốm", "Gạo", "Nụ", "Lúa", "Cau", "Sen", "Mây", "Gió", "Đá", "Suối", "Trúc", "Tre", "Muối", "Vừng", "Hến", "Ốc", "Ngô", "Khoai"];
 
 type Need = "forest" | "hill" | "ore" | "water" | "river" | "bank";
@@ -96,11 +97,12 @@ const DEFS = {
   ...INDUSTRIAL_BUILDINGS,
   ...MODERN_BUILDINGS,
   ...MAGIC_ERA7_BUILDINGS,
+  ...MAGIC_ERA8_BUILDINGS,
   hut: { n: "Lều", era: 1, cost: { wood: 20 }, sec: 10, house: 3, up: true, d: "Chỗ ở cho 3 người mỗi cấp." },
   gather: { n: "Trại hái lượm", era: 1, cost: { wood: 15 }, sec: 10, jobs: 2, prod: { food: 38 }, use: { food: GATHER_DRY_FOOD_PER_HOUR }, up: true, d: "Nguồn thực đầu game, sản lượng thấp hơn ruộng được chăm. Thêm 50% trên đất phù sa. Khi sản xuất, mỗi trại dùng 2 thực/phút nếu được kênh có nước tưới trong 1 ô, nếu không dùng 4 thực/phút. Cộng riêng với sức ăn dân, cố định mọi cấp và số thợ. Hết thực dân vẫn kiếm ăn." },
   wood: { n: "Trại đốn gỗ", era: 1, cost: { food: 10 }, sec: 10, jobs: 2, prod: { wood: 60 }, need: "forest", up: true, drop: ["wood"], d: "Phải kề rừng. Người chặt cây gần đây đỡ phải đi xa." },
   quarry: { n: "Bãi đá", era: 1, cost: { wood: 20 }, sec: 15, jobs: 2, prod: { stone: 40 }, need: "hill", up: true, drop: ["stone", "copper"], d: "Đặt trên đồi. Người đào đá gần đây đỡ phải đi xa." },
-  storehouse: { n: "Kho", era: 1, cost: { wood: 40, stone: 10 }, sec: 30, storage: 1000, up: true, drop: ["food", "wood", "stone", "copper", "gold", "diamond", "coal", "aetherCrystal", "rune"], d: "Cấp đầu +1.000 mỗi loại. Sau đó nâng riêng từng ngăn tài nguyên." },
+  storehouse: { n: "Kho", era: 1, cost: { wood: 40, stone: 10 }, sec: 30, storage: 1000, up: true, drop: ["food", "wood", "stone", "copper", "gold", "diamond", "coal", "aetherCrystal", "rune", "essence"], d: "Cấp đầu +1.000 mỗi loại. Sau đó nâng riêng từng ngăn tài nguyên." },
   fire: { n: "Bếp lửa chung", era: 1, cost: { wood: 80, stone: 30 }, sec: 60, max: 2, use:{wood:300}, drop: ["food"], d: "Mỗi bếp đốt 50 gỗ / 10 phút để tăng tốc sinh dân. Thiếu củi giảm hiệu quả, hết củi bếp tắt. Tối đa 2 bếp." },
   farm: { n: "Ruộng lúa", era: 2, cost: { wood: 80 }, sec: 120, jobs: 2, prod: { food: 90 }, up: true, d: "Gấp đôi trên đất phù sa." },
   canal: { n: "Kênh tưới", era: 2, cost: { stone: 40 }, sec: 30, need: "water", d: "Nối thẳng vào sông hoặc kênh. Đất quanh kênh thành phù sa." },
@@ -135,11 +137,12 @@ export function defendingTowers(c:City){
 export const def = (k: BKey): Def => B[k];
 
 /* ---------- army ---------- */
-export type UKey = "firemage"|"watermage"|"crossbow"|"cavalry"|"musket"|"cannon"|"infantry"|"armor"| "club" | "sling" | "spear" | "bow" | "sword" | "elephant" | "wagon" | "medic";
-export type Unit = {flying?:boolean;mana?:number;research?:'warcraft'|'lifecraft';range?:number;attackMs?:number;speed?:number;shot?:'arrow'|'melee'|'bullet'|'shell';buildingAtk?:number; n: string; era: number; cost: Partial<Res>; sec: number; atk: number; hp: number; space: number; building?: BKey; d: string };
+export type UKey = "firemage"|"watermage"|"golem"|"spiritdeer"|"crossbow"|"cavalry"|"musket"|"cannon"|"infantry"|"armor"| "club" | "sling" | "spear" | "bow" | "sword" | "elephant" | "wagon" | "medic";
+export type Unit = {flying?:boolean;mana?:number;research?:'warcraft'|'lifecraft'|'pact';range?:number;attackMs?:number;speed?:number;shot?:'arrow'|'melee'|'bullet'|'shell';buildingAtk?:number; n: string; era: number; cost: Partial<Res>; sec: number; atk: number; hp: number; space: number; building?: BKey; d: string };
 export const UNITS: Record<UKey, Unit> = {
   ...ERA_UNITS,
   ...MAGIC_ERA7_UNITS,
+  ...MAGIC_ERA8_UNITS,
   club: { n: "Chiến binh gậy", era: 1, cost: { food: 30, wood: 10 }, sec: 30, atk: 4, hp: 20, space: 1, d: "Rẻ, nhanh, đánh gần." },
   sling: { n: "Lính ném đá", era: 1, cost: { food: 25, stone: 10 }, sec: 40, atk: 6, hp: 12, space: 1, d: "Đánh xa, máu mỏng." },
   spear: { n: "Giáo binh đồng", era: 2, cost: { food: 50, copper: 10 }, sec: 90, atk: 9, hp: 40, space: 1, d: "Chắc chắn, giữ hàng đầu." },
@@ -196,9 +199,15 @@ const FLOODPROOF = new Set<BKey>(["canal", "levee", "wheel", "stonehouse", "temp
 export const isFloodproof = (k: BKey) => FLOODPROOF.has(k);
 export const LVL_MULT = [0, 1, 1.6, 2.4];
 export const MAX_LVL = 3;
+/** Highest era whose gameplay the engine implements, independent of release rules. */
+export const ENGINE_MAX_ERA = 8;
 
 export const ERA_REQ: Record<number, { pop: number; cost: Partial<Res>; hall?: number; wonder?: BKey; wonders?: BKey[] }> = {
   7: { pop:MAGIC_ERA_REQUIREMENTS[7].population, hall:6, wonders:['dam','green'], cost:{...MAGIC_ERA_REQUIREMENTS[7].goods} },
+  8: { pop:MAGIC_ERA_REQUIREMENTS[8].population, hall:7, wonders:['awakeningtower'], cost:{...MAGIC_ERA_REQUIREMENTS[8].goods} },
+  // Era 9 content is not in the engine yet; its entry condition is defined so
+  // the Đại Trận Tứ Linh unlock is testable, but ENGINE_MAX_ERA blocks advancing.
+  9: { pop:MAGIC_ERA_REQUIREMENTS[9].population, hall:8, wonders:['fourspirits'], cost:{...MAGIC_ERA_REQUIREMENTS[9].goods} },
   2: { pop: 15, cost: { food: 300, wood: 300, stone: 150 } },
   3: { pop: 50, cost: { food: 3000, wood: 1000, stone: 2000, copper: 600 }, hall: 3 },
   4: { pop:100, hall:3, wonder:"temple", cost:{food:12000,wood:6000,stone:6000,copper:1800,gold:300} },
@@ -208,6 +217,7 @@ export const ERA_REQ: Record<number, { pop: number; cost: Partial<Res>; hall?: n
 const ERA_UP: Record<number, string> = {
   5: "Bước vào Công nghiệp: mở than, vườn ươm, vận tải, xử lý nước và Cầu Sắt Đại Hà. Chú ý ô nhiễm.",
   6: "Bước vào Hiện đại: điện, dịch vụ đô thị và hai hướng kỳ quan cuối.",
+  8: "Bước vào Vương triều Nguyên tố: lò tinh chất, bốn trạm ấn Hỏa–Thủy–Mộc–Thổ, đài điều hòa, golem và linh lộc. Kho mở ngăn tinh chất cấp 1.",
   7: "Bước vào Thức tỉnh Ma pháp: giếng linh mạch, tinh thạch, phù văn, học viện và pháp sư. Kho mở ngăn tinh thạch và phù văn cấp 1; nhà và quân cũ được giữ nguyên.",
   4: "Bước vào Trung đại: mở Đại kho, nhà ngói, giếng, hồ chứa, nông trang, trường làng, xưởng thủ công và Văn Miếu. Nhà và công việc cũ được giữ nguyên.",
   2: "Bước vào Thời đồ đồng: mở ruộng lúa, kênh tưới, đê đất, nhà gỗ, lò đúc đồng và chợ.",
@@ -406,7 +416,7 @@ export const envoyMs = (c: City, cells: number) => (Math.max(1, cells) / (ENVOY_
 export const canVisit = (c: City, id: string, at: number) => (c.visits?.[id] ?? 0) > at;
 
 export type Mix = Record<ResKey, number>;
-export const DEFAULT_MIX: Mix = { food: 40, wood: 30, stone: 20, copper: 10, gold: 0, diamond: 0, coal:0, aetherCrystal:0, rune:0 };
+export const DEFAULT_MIX: Mix = { food: 40, wood: 30, stone: 20, copper: 10, gold: 0, diamond: 0, coal:0, aetherCrystal:0, rune:0,essence:0 };
 export const RAID_WARNING_MS = 30 * MIN;
 export const RAID_SHELTER_MS = MIN; // Work through the warning; shelter only just before arrival.
 
@@ -517,8 +527,8 @@ export function enrichCopperDeposits(c: City): number {
 }
 
 export function normalizeResources(c:City){
-  c.res.gold ??= 0;c.res.diamond ??= 0;c.res.coal??=0;c.res.aetherCrystal??=0;c.res.rune??=0;
-  if(c.auto){c.auto.mix.gold ??= 0;c.auto.mix.diamond ??= 0;c.auto.mix.coal??=0;c.auto.mix.aetherCrystal??=0;c.auto.mix.rune??=0;}
+  c.res.gold ??= 0;c.res.diamond ??= 0;c.res.coal??=0;c.res.aetherCrystal??=0;c.res.rune??=0;c.res.essence??=0;
+  if(c.auto){c.auto.mix.gold ??= 0;c.auto.mix.diamond ??= 0;c.auto.mix.coal??=0;c.auto.mix.aetherCrystal??=0;c.auto.mix.rune??=0;c.auto.mix.essence??=0;}
 }
 export const speedBuildCost=(b:Building,now:number)=>Math.max(0,Math.ceil(((b.doneAt??now)-now)/30_000));
 const gatheringRate=(r:ResKey)=>r==='wood'?CHOP_RATE:r==='stone'?STONE_RATE:r==='gold'?ORE_RATE*.5:r==='diamond'?ORE_RATE*.08:r==='coal'?60:ORE_RATE;
@@ -596,7 +606,7 @@ export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
     army: {}, queue: [], camps, exps: [], nextExp: 1, wins: 0,
     ver: ENGINE_VER, seed, t, seen: new Array(W * H).fill(0), oldbed: [], xs, camp, b: {}, dep: {}, herds,
     people: [], nextId: 1,
-    res: { food: 100, wood: 120, stone: 30, copper: 0, gold: 0, diamond: 0, coal:0, aetherCrystal:0, rune:0 }, pop: 0, popAcc: 0, era: 1,
+    res: { food: 100, wood: 120, stone: 30, copper: 0, gold: 0, diamond: 0, coal:0, aetherCrystal:0, rune:0,essence:0 }, pop: 0, popAcc: 0, era: 1,
     t0: now, last: now, economyBalanceStartsAt:now, upkeepStartsAt:now, wheelFuelStartsAt:now, gatherFoodStartsAt:now, farmAutoStartsAt:now, hungerStartsAt:now, hunger:{stressMs:0,lossMs:0,warned:0}, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
   };
   activateZombies(c,now,true);
@@ -694,7 +704,7 @@ export function derive(c: City): Derived {
 const count = (c: City, k: BKey) => Object.values(c.b).reduce((n, b) => n + (b.k === k ? 1 : 0), 0);
 export const builders = (c: City) => c.era + 1 + Object.values(c.b).reduce((n,b) => n + (b.k === "builderhouse" && isBuildingActive(b) ? b.lvl : 0), 0);
 export const busyBuilders = (c: City) => Object.values(c.b).reduce((n, b) => n + (b.doneAt ? 1 : 0), 0);
-export const buildMs = (k: BKey, lvl: number) => k==="hall"&&lvl>=4 ? (lvl-3)*2*HOUR : def(k).sec * 1000 * 3 ** (lvl - 1);
+export const buildMs = (k: BKey, lvl: number) => k==="hall"&&lvl>=7&&lvl<=9 ? MAGIC_HALL_UPGRADES[lvl as 7|8|9].seconds*1000 : k==="hall"&&lvl>=4 ? (lvl-3)*2*HOUR : def(k).sec * 1000 * 3 ** (lvl - 1);
 /** Prices depend on the buyer's era; base definitions remain stable for combat
  * valuation and demolition refunds (advancing must never mint refund resources). */
 export const eraCost = (cost: Partial<Res>, era: number, ironMultiplier: number): Partial<Res> => {
@@ -709,7 +719,7 @@ export const levelCost = (k: BKey, lvl: number, era = 1): Partial<Res> => {
   if(k==="hall"&&lvl===4)return {wood:3000,stone:5000,copper:1000,gold:200};
   if(k==="hall"&&lvl===6)return {wood:8000,stone:18000,copper:5000,gold:1500,coal:3000};
   if(k==="hall"&&lvl===5)return {wood:5000,stone:10000,copper:2500,gold:600};
-  if(k==="hall"&&lvl===7)return {...MAGIC_HALL_UPGRADES[7].goods};
+  if(k==="hall"&&(lvl===7||lvl===8))return {...MAGIC_HALL_UPGRADES[lvl].goods};
   const m = 2**Math.max(0,lvl-1), out: Partial<Res> = {};
   for (const r of RES) if (def(k).cost[r]) out[r] = def(k).cost[r]! * m;
   return def(k).era>=4?out:eraCost(out, era, 3);
@@ -745,7 +755,7 @@ export function demolitionQuote(c: City, tile: number, now: number) {
     const capacity = Object.fromEntries(RES.map(r => [r, isMagicResource(r) ? 0 : BASE_STORAGE])) as Res;
     for (const [i, other] of buildings(c)) if (i !== tile && other.lvl >= 1 && !other.burned && !other.flooded)
       for (const r of RES) capacity[r] += storageCapacity(other, r);
-    const crowded = RES.filter(r => (c.era >= 7 || !isMagicResource(r)) && b.lvl >= 1 && !b.burned && !b.flooded && storageCapacity(b,r) > 0 && c.res[r] > capacity[r]);
+    const crowded = RES.filter(r => resourceUnlocked(r, c.era) && b.lvl >= 1 && !b.burned && !b.flooded && storageCapacity(b,r) > 0 && c.res[r] > capacity[r]);
     if (!error && crowded.length) error = `Chưa thể phá: kho còn lại thiếu chỗ cho ${crowded.map(r => `${RN[r].toLowerCase()} (${Math.ceil(c.res[r]-capacity[r])})`).join(", ")}. Dùng bớt tài nguyên hoặc bổ sung Kho trước.`;
     const paid = demolitionInvestment(b);
     for (const r of RES) {
@@ -782,7 +792,7 @@ export function barracksCapacity(era:number,level:number){
 }
 export const armyCap = (c: City) => Object.values(c.b).reduce((a, b) => a + (b.k === "barracks" && isBuildingActive(b) ? barracksCapacity(c.era,b.lvl) : 0), 0) + magicArmySpace(c);
 export const armyUsed = (c: City) => troopSpace(c.army) + troopSpace(c.deployedArmy ?? {}) + c.queue.reduce((a, q) => a + UNITS[q.u].space, 0) + c.exps.reduce((a, e) => a + troopSpace(e.units), 0);
-export type TrainingOrder={u:UKey;doneAt:number;startedAt?:number;source?:number;paused?:'inactive'|'exit'};
+export type TrainingOrder={u:UKey;doneAt:number;startedAt?:number;source?:number;paused?:'inactive'|'exit';/** Golem recruited under Thổ: +10% max HP, locked at recruitment. */ hardened?:true};
 export const MAX_TRAIN_BATCH=50;
 const trainingKind=(u:UKey):BKey=>UNITS[u].building??'barracks';
 const compareTraining=(a:TrainingOrder,b:TrainingOrder)=>a.doneAt-b.doneAt||(a.startedAt??0)-(b.startedAt??0)||(a.source??-1)-(b.source??-1);
@@ -884,7 +894,7 @@ function computeStats(c: City, D: Derived, at: number, estimates: boolean): Stat
     jobs += buildingJobs(b);
     cnt[b.k] = (cnt[b.k] ?? 0) + 1;
   }
-  if (c.era < 7) for (const r of RES) if (isMagicResource(r)) storage[r] = 0;
+  for (const r of RES) if (isMagicResource(r) && !resourceUnlocked(r, c.era)) storage[r] = 0;
   const workers = new Map<number, number>();
   for (const p of c.people) if (!p.refuge && !p.vital?.paused && p.task.t === "work") workers.set(p.task.at, (workers.get(p.task.at) ?? 0) + 1);
   const mult = (1 + 0.1 * Math.min(3, cnt.market ?? 0))*(1+medievalBonus(c));
@@ -1651,6 +1661,7 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   if (!resource || !d.jobs) return null;
   if(d.demand&&!powerFraction(c,tk.at))return null;
   if(d.era>=7&&magicSupportError(c,tk.at,b))return null;
+  if(d.era>=8&&magicCargoLimit(c,b)<1e-9)return null;
   if(b.k==='artisan'&&(c.res.wood<20||c.res.stone<10))return null;
   if(d.input&&Object.entries(d.input).some(([r,n])=>c.res[r as ResKey]<(n??0)/production[resource]!))return null;
   let rate = healthRate * production[resource]! * LVL_MULT[b.lvl] / buildingJobs(b) * ctx.mult * (b.k==='artisan'||def(b.k).era>=5?1:GATHER_SPEED);
@@ -1662,6 +1673,8 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   if (c.cropDamage?.tile===tk.at && at<c.cropDamage.until) rate *= .5;
   if (crop || b.k === "wood" || b.k === "quarry") rate *= ctx.tools;
   if(resource==='food')rate*=foodEraScale(c,at)*pollutionFood(c);
+  // Mưa sinh trưởng adds flat food per field, outside every other multiplier.
+  if (isField(b.k)) rate += magicGrowth(c, tk.at, at) / buildingJobs(b);
   let source: HaulJob["source"] = { kind: "building", key: tk.at };
   let tile = tk.at;
   if (b.k === "wood" || b.k === "quarry" || b.k === "smelter" || b.k === "coalmine") {
@@ -1799,6 +1812,7 @@ function takeCargo(c: City, h: Haul, at: number): number {
     const d=def(b.k);if(d.input&&d.prod){
       const output=buildingOutput(c,b.k,d.prod,at)[h.resource!]??1;let amount=h.capacity;
       for(const r of RES)if(d.input[r])amount=Math.min(amount,c.res[r]*output/d.input[r]!);
+      amount=Math.max(0,Math.min(amount,magicCargoLimit(c,b)));chargeMagicCargo(c,b,amount);
       for(const r of RES)if(d.input[r]){const spent=amount*d.input[r]!/output;c.res[r]=Math.max(0,c.res[r]-spent);recordResourceFlow(c,at,'spent',r,spent);if(c.industry){const ledger=c.industry.inputsSpent??={};ledger[r]=(ledger[r]??0)+spent;}}
       if(c.industry&&d.era>=5&&amount>0)c.industry.processed=true;
       return amount;
@@ -2348,6 +2362,7 @@ function stepTraining(c:City,nt:number){
   for (const q of ready) {
     const k = c.army[q.u] ?? 0;
     c.army[q.u] = k + 1;
+    if (q.hardened && c.magic) c.magic.hardened = (c.magic.hardened ?? 0) + 1;
     const source = q.source??buildings(c).find(([, b]) => b.k === trainingKind(q.u) && isBuildingActive(b))?.[0];
     const exit = source === undefined ? undefined : armyStagingTiles(c,1,source)[0];
     const entrance = exit === undefined ? undefined : {x:exit%W,y:Math.floor(exit/W)};
@@ -2704,8 +2719,12 @@ export function bridgeQuote(c:City,from:number,to:number,rules:EngineRules=RELEA
 }
 
 export function reqMet(c: City, rules:EngineRules=RELEASE_RULES) {
-  const r = ERA_REQ[c.era + 1];
-  return c.era+1<=rules.maxEra && !!r && c.people.length >= r.pop && canAfford(c, r.cost) && hallLevel(c) >= (r.hall ?? 0) && (!r.wonder||Object.values(c.b).some(b=>b.k===r.wonder&&isBuildingActive(b))) && (!r.wonders||Object.values(c.b).some(b=>r.wonders!.includes(b.k)&&isBuildingActive(b)&&!b.doneAt));
+  return c.era+1<=Math.min(rules.maxEra,ENGINE_MAX_ERA) && eraConditionsMet(c,c.era+1);
+}
+/** Population, hall, wonder and goods for entering `era`, ignoring release gates. */
+export function eraConditionsMet(c: City, era: number) {
+  const r = ERA_REQ[era];
+  return !!r && c.people.length >= r.pop && canAfford(c, r.cost) && hallLevel(c) >= (r.hall ?? 0) && (!r.wonder||Object.values(c.b).some(b=>b.k===r.wonder&&isBuildingActive(b))) && (!r.wonders||Object.values(c.b).some(b=>r.wonders!.includes(b.k)&&isBuildingActive(b)&&!b.doneAt));
 }
 
 export function score(c: City) {
@@ -2911,7 +2930,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     return null;
   }
   if (a.type === "advance") {
-    if(c.era+1>rules.maxEra)return "Thời đại tiếp theo sắp ra mắt.";
+    if(c.era+1>Math.min(rules.maxEra,ENGINE_MAX_ERA))return "Thời đại tiếp theo sắp ra mắt.";
     if (!reqMet(c,rules)) return "Chưa đủ điều kiện lên thời đại mới.";
     pay(c, ERA_REQ[c.era + 1].cost);
     c.era++;
@@ -2931,6 +2950,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     const plan=trainingPlan(c,a.u,a.n,now,rules);
     if(plan.error)return plan.error;
     if(UNITS[a.u].mana){const error=payMagicTraining(c,a.u,a.n);if(error)return error;}
+    if(a.u==='golem'&&magicSpecialization(c)==='earth')for(const o of plan.orders)o.hardened=true;
     pay(c,plan.cost);
     c.queue.push(...plan.orders);c.queue.sort(compareTraining);
     return null;
@@ -2967,8 +2987,8 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     autoAssign(c, now);
     return null;
   }
-  if(a.type === "setWorkforce")return setWorkforce(c,{...a.counts,coal:a.counts.coal??0,aetherCrystal:a.counts.aetherCrystal??0,rune:a.counts.rune??0},a.scouts,now);
-  if(a.type==="magicResearch"||a.type==="cancelMagicResearch")return magicAction(c,a,now,rules);
+  if(a.type === "setWorkforce")return setWorkforce(c,{...a.counts,coal:a.counts.coal??0,aetherCrystal:a.counts.aetherCrystal??0,rune:a.counts.rune??0,essence:a.counts.essence??0},a.scouts,now);
+  if(a.type==="magicResearch"||a.type==="cancelMagicResearch"||a.type==="magicSpecialize"||a.type==="magicHarmonize"||a.type==="magicTreant")return magicAction(c,a,now,rules);
   if (a.type === "attack") {
     if(zombieBusy(c,now))return "Zombie đang xuất hiện; giữ quân bảo vệ làng.";
     const camp = campById(c, a.camp);
@@ -3064,7 +3084,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
   }
   if (a.type === "upgradeStorage") {
     if(a.resource==='coal'&&c.era<5)return 'Ngăn than mở từ Công nghiệp.';
-    if(isMagicResource(a.resource)&&(c.era<7||rules.maxEra<7))return 'Ngăn tinh thạch và phù văn mở từ thời Thức tỉnh.';
+    if(isMagicResource(a.resource)&&(!resourceUnlocked(a.resource,c.era)||rules.maxEra<magicResourceEra(a.resource)))return a.resource==='essence'?'Ngăn tinh chất mở từ thời Vương triều Nguyên tố.':'Ngăn tinh thạch và phù văn mở từ thời Thức tỉnh.';
     if(!isStorage(b.k) || b.lvl<1)return "Chọn Kho đã xây xong.";
     if(b.doneAt)return "Kho đang được nâng cấp.";
     if(b.flooded||b.burned)return "Phải sửa Kho trước khi nâng cấp.";

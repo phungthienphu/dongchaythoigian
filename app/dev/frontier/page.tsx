@@ -5,7 +5,7 @@ import FrontierStatus from '@/components/FrontierStatus';
 import {drawCity,fitView,type View} from '@/components/draw';
 import {newCity,settle,derive,idx,G,MIN,W,WILDERNESS_MS,applyAction,type City} from '@/lib/engine';
 const view:View={...fitView(1120,680),TW:10,TH:5,s:10/64,ox:560,oy:65};
-function fixture(){const c=newCity(0,123);c.people=[];c.herds=[];c.camps=[];c.seen.fill(1);c.wildernessAt=WILDERNESS_MS;c.res={wood:500,stone:500,food:500,copper:500,gold:100,diamond:10,coal:0,aetherCrystal:0,rune:0};for(const i of [c.camp,idx(72,70)]){c.t[i]=G;c.b[i]={k:'house',lvl:1,doneAt:null};}return c;}
+function fixture(){const c=newCity(0,123);c.people=[];c.herds=[];c.camps=[];c.seen.fill(1);c.wildernessAt=WILDERNESS_MS;c.res={wood:500,stone:500,food:500,copper:500,gold:100,diamond:10,coal:0,aetherCrystal:0,rune:0,essence:0};for(const i of [c.camp,idx(72,70)]){c.t[i]=G;c.b[i]={k:'house',lvl:1,doneAt:null};}return c;}
 export default function FrontierPreview(){
  const [city,setCity]=useState<City>(fixture),canvas=useRef<HTMLCanvasElement>(null),[detail,setDetail]=useState(false);
  useEffect(()=>{let raf=0;const d=derive(city),center=idx(72,70),v=detail?{TW:76,TH:38,s:76/64,ox:560-(72-70)*38,oy:325-(72+70)*19,width:1120,height:680}:view;

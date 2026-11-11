@@ -12,11 +12,13 @@ const BUILDINGS: Record<BKey, true> = {
   hall: true, envoy: true, barracks: true, wall: true, gate: true,
   watchtower: true, temple: true, logistics: true, infirmary: true,
   aetherwell:true, manarelay:true, crystalworks:true, runeworks:true, mageacademy:true, manaspire:true, rivershrine:true, wardcircle:true, spiritgarden:true, awakeningtower:true,
+  essenceforge:true, firealtar:true, watertemple:true, woodgrove:true, earthtemple:true, golemworks:true, spiritstable:true, harmonizer:true, fourspirits:true,
 };
-const UNITS: Record<UKey, true> = {firemage:true,watermage:true,crossbow:true,cavalry:true,musket:true,cannon:true,infantry:true,armor:true, club: true, sling: true, spear: true, bow: true, sword: true, elephant: true, wagon: true, medic: true };
+const UNITS: Record<UKey, true> = {firemage:true,watermage:true,golem:true,spiritdeer:true,crossbow:true,cavalry:true,musket:true,cannon:true,infantry:true,armor:true, club: true, sling: true, spear: true, bow: true, sword: true, elephant: true, wagon: true, medic: true };
 const RESOURCES = ['food', 'wood', 'stone', 'copper', 'gold', 'diamond','coal'] as const;
 /** Magic goods are optional in workforce/mix payloads so older clients stay valid. */
-const MAGIC_RESOURCES = ['aetherCrystal','rune'] as const;
+const MAGIC_RESOURCES = ['aetherCrystal','rune','essence'] as const;
+const ELEMENTS = ['fire','water','wood','earth'];
 const RESEARCH = ['conduction','warcraft','lifecraft','elements','pact','gatecraft'];
 const MAP_SIDE = 96;
 const own = (object: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(object, key);
@@ -66,6 +68,9 @@ export function isActionInput(value: unknown): value is Action {
     case 'upgradeStorage': return point(value) && ([...RESOURCES,...MAGIC_RESOURCES] as string[]).includes(value.resource as string);
     case 'magicResearch': return typeof value.key==='string'&&RESEARCH.includes(value.key);
     case 'cancelMagicResearch': return true;
+    case 'magicSpecialize': return typeof value.element==='string'&&ELEMENTS.includes(value.element);
+    case 'magicHarmonize': return point(value)&&Array.isArray(value.elements)&&value.elements.length===2&&value.elements.every(e=>typeof e==='string'&&ELEMENTS.includes(e))&&value.elements[0]!==value.elements[1];
+    case 'magicTreant': return point(value);
     case 'plantTree': case 'toggleBuilding': case 'buildShip': case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'tendFarmGroup': case 'speedBuild': return point(value);
     case 'relocateDock': case 'connectBridge': return point(value) && tile(value.to);
     case 'moveSoldier': return soldierId(value.id) && point(value);
