@@ -1,6 +1,6 @@
 /** Only server-owned rules determine releases; action metadata cannot unlock eras. */
-export const RELEASED_ERA = 6;
-export const LOCAL_ERA = 6;
+export const RELEASED_ERA = 9;
+export const LOCAL_ERA = 9;
 export type EngineRules = Readonly<{ maxEra: number }>;
 export const RELEASE_RULES: EngineRules = Object.freeze({ maxEra: RELEASED_ERA });
 export const LOCAL_RULES: EngineRules = Object.freeze({ maxEra: LOCAL_ERA });

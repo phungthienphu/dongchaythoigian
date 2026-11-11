@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {applyAction,armyCap,buildMs,canPlace,derive,ENGINE_MAX_ERA,ERA_REQ,eraConditionsMet,HOUR,idx,levelCost,MIN,reqMet,RES,settle,stats,UNITS,type City,type Building} from './engine';
-import {RELEASE_RULES} from './eras';
+// Rules as they were before eras 7–9 shipped: everything magic stays locked.
+const PRE_MAGIC={maxEra:6} as const;
 import {eraFixture,eraStaff} from './era-fixtures.test-utils';
 import {initializeMagic,stepMagic,magicSiteId,deliverMagicSupply,magicStructureDefense,magicGuardHp,mageAction} from './magic';
 import {magicGrowth,GROWTH_LOAD} from './magic-elements';
@@ -26,7 +27,7 @@ test('era 8 needs Tháp Khai Nguyên, hall 7, 650 people and the spec goods; hal
  for(const r of RES)c.res[r]=ERA_REQ[8].cost[r]??0;
  assert.equal(reqMet(c,RULES),false);
  c.b[idx(40,40)]={k:'awakeningtower',lvl:1,doneAt:null,uid:99};
- assert.equal(reqMet(c,RELEASE_RULES),false);assert.equal(reqMet(c,{maxEra:7}),false);assert.equal(reqMet(c,RULES),true);
+ assert.equal(reqMet(c,PRE_MAGIC),false);assert.equal(reqMet(c,{maxEra:7}),false);assert.equal(reqMet(c,RULES),true);
  c.b[idx(40,40)].burned=true;assert.equal(reqMet(c,RULES),false);delete c.b[idx(40,40)].burned;
  assert.equal(applyAction(c,{type:'advance'},c.last,RULES),null);assert.equal(c.era,8);
  assert.deepEqual([c.res.aetherCrystal,c.res.rune],[0,0]);assert.ok(stats(c,derive(c),c.last).storage.essence>=10000);

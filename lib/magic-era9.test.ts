@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {applyAction,armyCap,buildMs,canPlace,derive,ENGINE_MAX_ERA,ERA_REQ,HOUR,idx,levelCost,MIN,reqMet,RES,settle,stats,UNITS,type City,type Building} from './engine';
-import {RELEASE_RULES} from './eras';
+// Rules as they were before eras 7–9 shipped: everything magic stays locked.
+const PRE_MAGIC={maxEra:6} as const;
 import {eraFixture,eraStaff} from './era-fixtures.test-utils';
 import {initializeMagic,stepMagic,magicSiteId,deliverMagicSupply,magicStructureDefense} from './magic';
 import {careCapacity,patrolReach,guardDamageScale,eyeActive,PACKAGE_TTL} from './magic-myth';
@@ -33,7 +34,7 @@ test('era 9 needs Đại Trận Tứ Linh, hall 8 and 850 people; hall 9 costs 6
  for(let n=0;n<14;n++)c.b[idx(30+n,30)]={k:'grandstore',lvl:3,doneAt:null};
  for(const r of RES)c.res[r]=ERA_REQ[9].cost[r]??0;
  assert.equal(reqMet(c,RULES),false);c.b[idx(40,40)]={k:'fourspirits',lvl:1,doneAt:null,uid:99};
- assert.equal(reqMet(c,RELEASE_RULES),false);assert.equal(reqMet(c,{maxEra:8}),false);assert.equal(reqMet(c,RULES),true);
+ assert.equal(reqMet(c,PRE_MAGIC),false);assert.equal(reqMet(c,{maxEra:8}),false);assert.equal(reqMet(c,RULES),true);
  assert.equal(applyAction(c,{type:'advance'},c.last,RULES),null);assert.equal(c.era,9);
  assert.ok(stats(c,derive(c),c.last).storage.celestialStone>=10000);
  assert.deepEqual(levelCost('hall',9),{stone:60000,copper:20000,gold:10000,essence:200});assert.equal(buildMs('hall',9),18*HOUR);

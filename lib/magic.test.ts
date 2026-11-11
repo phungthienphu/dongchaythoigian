@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {applyAction,armyCap,buildMs,canPlace,derive,ERA_REQ,HOUR,idx,MIN,reqMet,RES,settle,stats,UNITS,type City,type Building} from './engine';
-import {RELEASE_RULES} from './eras';
+// Rules as they were before eras 7–9 shipped: everything magic stays locked.
+const PRE_MAGIC={maxEra:6} as const;
 import {eraFixture,eraStaff} from './era-fixtures.test-utils';
 import {initializeMagic,stepMagic,magicSiteId,deliverMagicSupply,pourFlask,pourDefenseFlask,returnFlask,type ManaFlask,mageAction,magicStructureDefense,zombieSlow} from './magic';
 import {activateZombies,stepZombies,zombieCanEngage,type Zombie,type ZombieGuard} from './zombies';
@@ -23,7 +24,7 @@ test('era 7 opens from either final wonder; hall 7 costs the spec price and eigh
   for(const r of RES)c.res[r]=ERA_REQ[7].cost[r]??0;for(let n=0;n<12;n++)c.b[idx(30+n,30)]={k:'grandstore',lvl:3,doneAt:null};
   assert.equal(reqMet(c,RULES),false);
   c.b[idx(40,40)]={k:wonder,lvl:1,doneAt:null};
-  assert.equal(reqMet(c,RELEASE_RULES),false);assert.match(applyAction(c,{type:'advance'},c.last)!,/sắp ra mắt/);
+  assert.equal(reqMet(c,PRE_MAGIC),false);assert.match(applyAction(c,{type:'advance'},c.last,PRE_MAGIC)!,/sắp ra mắt/);
   assert.equal(reqMet(c,RULES),true);assert.equal(applyAction(c,{type:'advance'},c.last,RULES),null);
   assert.equal(c.era,7);assert.ok(c.magic);assert.equal(c.res.coal,0);
   assert.ok(stats(c,derive(c),c.last).storage.aetherCrystal>=10000);
@@ -36,7 +37,7 @@ test('era 7 opens from either final wonder; hall 7 costs the spec price and eigh
 
 test('era 7 buildings stay locked in production rules and respect research and river placement',()=>{
  const c=era7(),D=derive(c);
- assert.match(canPlace(c,D,'aetherwell',30,30)!,/sắp ra mắt/);
+ assert.match(canPlace(c,D,'aetherwell',30,30,PRE_MAGIC)!,/sắp ra mắt/);
  assert.equal(canPlace(c,D,'aetherwell',30,30,RULES),null);
  assert.match(canPlace(c,D,'manaspire',30,30,RULES)!,/Dẫn linh/);
  assert.match(canPlace(c,D,'rivershrine',30,30,RULES)!,/sông/);
@@ -81,7 +82,7 @@ test('research queue pays atomically, needs academy and university, completes of
  const c=era7();place(c,'mageacademy',32,30,4);c.magic!.knowledge=300;c.res.rune=100;
  assert.match(applyAction(c,{type:'magicResearch',key:'conduction'},0,RULES)!,/đại học/);
  c.b[idx(25,25)]={k:'university',lvl:1,doneAt:null};
- assert.match(applyAction(c,{type:'magicResearch',key:'conduction'},0,RELEASE_RULES)!,/sắp ra mắt/);
+ assert.match(applyAction(c,{type:'magicResearch',key:'conduction'},0,PRE_MAGIC)!,/sắp ra mắt/);
  assert.match(applyAction(c,{type:'magicResearch',key:'warcraft'},0,RULES)!,/tiền đề/);
  assert.equal(applyAction(c,{type:'magicResearch',key:'conduction'},0,RULES),null);assert.equal(c.magic!.knowledge,180);assert.equal(c.res.rune,70);
  assert.match(applyAction(c,{type:'magicResearch',key:'lifecraft'},0,RULES)!,/đang thực hiện/);
@@ -99,7 +100,7 @@ test('mages need research, academy space and mana paid once at the start of trai
  c.magic!.mana[id]=100;const res={...c.res};
  assert.equal(applyAction(c,{type:'train',u:'firemage',n:2},MIN,RULES),null);
  assert.equal(c.magic!.mana[id],20);assert.equal(res.aetherCrystal-c.res.aetherCrystal,40);assert.equal(res.rune-c.res.rune,20);assert.equal(res.food-c.res.food,400);
- assert.ok(c.queue.every(q=>q.source===idx(32,30)));assert.match(applyAction(c,{type:'train',u:'firemage',n:1},MIN,RELEASE_RULES)!,/sắp ra mắt/);
+ assert.ok(c.queue.every(q=>q.source===idx(32,30)));assert.match(applyAction(c,{type:'train',u:'firemage',n:1},MIN,PRE_MAGIC)!,/sắp ra mắt/);
  settle(c,MIN+20*MIN);assert.equal(c.army.firemage,2);void academy;
 });
 

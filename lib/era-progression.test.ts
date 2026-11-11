@@ -5,7 +5,7 @@ import {LOCAL_RULES,RELEASE_RULES} from './eras';
 import {eraFixture,eraStaff} from './era-fixtures.test-utils';
 
 test('released iron-to-modern progression has no hall/wonder/coal circular lock or diamond requirement',()=>{
- assert.equal(RELEASE_RULES.maxEra,6);
+ assert.equal(RELEASE_RULES.maxEra,9);
  const c=eraFixture(3),hall=idx(19,20);c.b[hall].lvl=3;
  for(const next of [4,5,6]){
   const req=ERA_REQ[next];c.people=[];eraStaff(c,c.camp,req.pop);
