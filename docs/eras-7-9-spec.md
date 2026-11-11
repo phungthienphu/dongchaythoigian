@@ -98,14 +98,14 @@ flowchart LR
 
 | Công trình | Giá; xây | Thợ | Công dụng cấp 1 và phụ thuộc |
 |---|---|---:|---|
-| Giếng linh mạch | 4.000Đ + 1.500K + 500V; 1h | 2 | Thu 60 mana/h, trữ 300; tối đa 3 nguồn loại này. Đặt trên đất thường đã khám phá, không ép bản đồ có ô linh mạch hiếm |
+| Giếng linh mạch | 4.000Đ + 1.500K + 500V; 1h | 2 | Thu **240 mana/h, trữ 1.200** *(×4, chốt 11/11)*; tối đa 3 nguồn loại này. Đặt trên đất thường đã khám phá, không ép bản đồ có ô linh mạch hiếm. Có sẵn phép **Linh quang** (mục 3.4) không cần nghiên cứu |
 | Cột dẫn linh | 1.000Đ + 300K; 30 phút | 0 | Relay một cấp, tối đa 18; không tự sinh mana |
 | Xưởng kết tinh | 5.000Đ + 2.000K + 800V; 2h | 4 | 120K + 40V → 24T/h; không cần mana, không phát thải mới |
 | Xưởng phù văn | 3.000Đ + 1.000G + 600V; 2h | 4 | 120G + 12T → 12P/h; không cần mana để giữ đường phục hồi |
 | Học viện pháp thuật | 6.000Đ + 2.000K + 60P; 3h | 4 | 6P + 20 mana → 24 tri thức/h; một cấp, tối đa 2; mỗi viện mở 12 chỗ quân ma pháp, cộng vào trần quân hiện có |
-| Tháp tụ linh | 4.000Đ + 1.500K + 40T + 20P; 2h | 2 | 6T/h → 120 mana/h, trữ 600; tối đa 4, cần nghiên cứu Dẫn linh; không cần mana đầu vào |
+| Tháp tụ linh | 4.000Đ + 1.500K + 40T + 20P; 2h | 2 | 6T/h → **480 mana/h, trữ 2.400** *(×4, chốt 11/11)*; tối đa 4, cần nghiên cứu Dẫn linh; không cần mana đầu vào |
 | Điện thờ Sông Mẹ | 5.000Đ + 1.000G + 60P; 3h | 3 | Một cấp, tối đa 2; nhà nhận mana, mở Thanh tẩy/Thủy hồi. Đặt bờ sông hoặc trong 4 ô hồ có nước; không tự tích nguồn thứ hai |
-| Pháp trận hộ thành | 3.000Đ + 1.000K + 40P; 2h | 0 | Một cấp, tối đa 4; nhà nhận mana, đặt phép phòng thủ trong 6 ô quanh trận; không sửa tường |
+| Pháp trận hộ thành | 3.000Đ + 1.000K + 40P; 2h | 0 | Một cấp, tối đa 4; nhà nhận mana, đặt phép phòng thủ trong 6 ô quanh trận; có sẵn phép thụ động **Hỏa trận** chống zombie (mục 3.4), không cần nghiên cứu; không sửa tường |
 | Vườn linh dược | 2.000G + 3.000Đ + 30T; 2h | 3 | Nhà nhận mana, 20 mana/h → hỗ trợ tối đa 2 cơ sở y tế trong 6 ô, giảm thời gian mỗi ca 30→20 phút; phí ca giữ nguyên; một cấp |
 | Tháp Khai Nguyên | 40.000Đ + 15.000K + 8.000V + 600T + 400P; 18h | 0 | Kỳ quan một cấp; nguồn mana đang hoạt động +1 slot, mở thời 8; không tự tạo mana |
 
@@ -123,12 +123,16 @@ Một hàng chờ/làng, trừ phí khi bắt đầu, chạy offline theo timest
 
 ### 3.4. Phép đã có sức tác động trực tiếp
 
+*Cân bằng chốt 11/11/2026:* nguồn mana thu gấp 4 (giếng 240/h, tháp 480/h), thêm hai phép chống zombie Linh quang và Hỏa trận. Mục tiêu: một làng 450–650 dân có mạng mana đầy đủ thì phép gánh được một phần thật của phòng thủ zombie, không chỉ trang trí. Cần mô phỏng lại sau khi triển khai.
+
 | Phép | Người/nhà thi triển | Phí mana; hồi | Tác dụng baseline |
 |---|---|---|---|
 | Hỏa cầu | Hỏa thuật sư | 30; 20 giây/caster | 60 sát thương tâm, 30 sát thương trong 1,5 ô; tối đa 5 mục tiêu; công trình nhận ×0,5; không cháy nhà dân mình |
 | Thủy hồi | Thủy thuật sư / điện thờ | 25; 25 giây/caster | Hồi 50 HP cho tối đa 3 đơn vị sống trong 2 ô; không vượt HP tối đa, không hồi nhà hoặc cứu dân đã chết |
 | Trói rễ | Pháp trận, cần Chiến pháp | 40; 45 giây/trận pháp | Vùng 3 ô làm chậm tối đa 6 địch 30% trong 6 giây; không khóa cứng, không ảnh hưởng bay |
 | Thanh tẩy | Điện thờ, cần Hộ sinh | 60; 20 phút/làng | Chữa bệnh zombie tối đa 4 dân trong 8 ô; không hồi sinh, không hồi HP nhà |
+| **Linh quang** *(mới 11/11)* | Giếng linh mạch, không cần nghiên cứu | 2 mỗi xung; 10 giây/giếng, chỉ tốn khi có zombie trong vùng | Zombie trong 4 ô quanh giếng nhận 10 sát thương và chậm 40% trong 4 giây. Phép đầu tiên của thời 7, có ngay khi giếng hoạt động |
+| **Hỏa trận** *(mới 11/11)* | Pháp trận hộ thành, thụ động, không cần nghiên cứu | 1 mỗi lần trúng | Mỗi 2 giây đốt tối đa 6 zombie trong 6 ô quanh trận, 40 sát thương mỗi con (zombie thường 90 HP chết sau 3 lần, khoảng 6 giây). Không đánh quân người chơi, không hại công trình; tự tắt khi nguồn hết mana |
 
 Pháp sư thực sự bắn phép tự động, có đạn/diện tích/timing trên bản đồ; không chỉ dùng công trình để bật bonus. Quân hiện đại làm hàng chắn, pháp sư phía sau; zombie có thể áp sát giết pháp sư nếu không có lính bảo vệ.
 
@@ -254,7 +258,8 @@ Mỗi loại pháp sư cần nghiên cứu tương ứng và học viện hoạt
 - Một pháp sư không thi triển và đánh thường đồng thời trong cùng cooldown hành động. Hỏa cầu cần mục tiêu hợp lệ; Thủy hồi chỉ dùng khi tổng HP thiếu trong nhóm ≥50. Hết mana vẫn đánh thường được, không xóa quân.
 - Pháp trận đặt lịch Trói rễ khi ≥3 địch trong vùng; điện thờ ưu tiên Thanh tẩy khi ≥2 dân bệnh. Bão lửa cần ≥4 địch trong vùng; Thạch bích chỉ đặt ở vị trí server kiểm chứng không khóa đường duy nhất. Có thể đổi ngưỡng trước trận, không tự đổi lúc offline.
 - Đại phép cấu hình trước trận: Thiên lôi khi ≥4 địch trong vùng, Hộ giới khi ≥4 quân mình dưới 50% HP. Hai bên dùng cùng quy tắc, kể cả offline. Bấm thủ công chỉ yêu cầu thi triển cùng điều kiện/phí/cooldown, không tạo lần miễn phí hoặc bỏ thời gian báo.
-- Mục tiêu quân bay chỉ bị quân tầm xa có tag chống bay đánh: cung/nỏ/đạn bộ binh/tháp canh và pháp sư. Golem/quân cận chiến không đánh bay. Pháp sư ×1,5 sát thương lên thần thú bay, bộ binh tầm xa hiện đại ×1,25; vẫn cần kiểm tra giá/chỗ và tầm, không tự suy ra khắc chế đã cân bằng.
+- Mục tiêu quân bay (trong PvP) chỉ bị quân tầm xa có tag chống bay đánh: cung/nỏ/đạn bộ binh/tháp canh và pháp sư. Golem/quân cận chiến không đánh bay. Pháp sư ×1,5 sát thương lên thần thú bay, bộ binh tầm xa hiện đại ×1,25; vẫn cần kiểm tra giá/chỗ và tầm, không tự suy ra khắc chế đã cân bằng.
+- **Zombie đánh được quân bay** khi trong tầm cận chiến (chốt 11/11, xem `zombie-spec.md`). Thần thú bay không miễn nhiễm áp lực zombie.
 - Thanh Long/Phượng bay qua vật cản mặt đất trong biên trận, không chiếm kho, không thắng mục tiêu chiếm Đình nếu thiếu quân mặt đất. Tường vẫn chặn zombie/golem và quân đất; không sinh miễn phí quân phía sau tường qua cổng giới.
 - Trần quân = trần doanh trại hiện có (thời 7–9 giữ mốc thời 6) + chỗ ma pháp từ nhà còn hoạt động; mọi quân cùng tính vào một trần. Slot thần thú là trần phụ 4 (tối đa 2 con), không thay chỗ quân 12/con. Nhà bị phá không xóa quân, chỉ chặn tuyển vượt trần.
 - Đánh giá bắt buộc: ngân sách tương đương, quân đất thời 6 đối đầu pháp sư, pháp sư đông bị áp sát, golem bị kite, thần thú bị tập trung chống bay. Không tăng HP/đòn toàn bộ theo đời để ép bỏ quân cũ.

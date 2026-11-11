@@ -6,7 +6,7 @@ Ngày cập nhật: 11/11/2026. Trạng thái: **nền tảng đã phát hành, 
 
 - Có zombie từ **thời Đồ đá**. Làng mới chỉ có **5 phút chuẩn bị**, không phải một giờ.
 - Trồi ngẫu nhiên tại một ổ trên map, kể cả bên trong thành. Báo đất nứt **60 giây trước khi trồi**.
-- Dân càng đông → số lượng mỗi đợt tăng **và** khoảng cách đợt giảm. Không phụ thuộc số lần đăng nhập.
+- Dân càng đông → số lượng mỗi đợt tăng **và** khoảng cách đợt giảm. Làng tồn tại càng lâu → khoảng cách đợt giảm thêm 5 phút mỗi tuần (trần 15 phút). Không phụ thuộc số lần đăng nhập.
 - Zombie đi trên mặt đất; bị tường/cổng chặn, có thể phá vật cản rồi đi qua. Không xuyên nhà, bay hoặc bơi qua sông.
 - Cắn dân gây thương tích và có thể lây bệnh. Có thể giết dân, lính và phá mọi công trình, kể cả kho/Đình/kỳ quan.
 - **Công trình bị zombie phá hủy mất hẳn, không sửa được; phải trả phí xây mới và nâng lại.** Phép không được hồi hoặc tái tạo công trình để lách luật này.
@@ -30,7 +30,7 @@ Ghi mốc đúng một lần; reload/đổi máy không gia hạn. Không tính 
 
 - Tính cả dân bệnh/gục còn cứu được; không tính người đã chết, quân, robot, linh thú hay sứ giả suất riêng. Nếu runtime có dân tạm vắng thì vẫn tính khi họ còn thuộc làng, không né bằng chuyển việc/hành trình.
 - Giữ lịch sự kiện dân số có timestamp để tính P tương đương online/offline. Khi dân giảm, đỉnh cũ hết hiệu lực sau đúng 6h; không giữ áp lực cao vĩnh viễn.
-- Khoảng cách: **`I(P) = max(15, 60 − 5 × floor(P / 100))` phút**.
+- Khoảng cách: **`I(P, w) = max(15, 60 − 5 × floor(P / 100) − 5 × w)` phút**, với `w = floor((thời điểm đợt − activatedAt) / 7 ngày)` là số tuần đã qua kể từ khi bật zombie. *(Chốt 11/11/2026: tần suất tăng theo cả dân và thời gian; trần 15 phút giữ nguyên.)* Tuần tính theo timestamp server, giống nhau online/offline.
 - Số lượng: **`N(P) = max(1, ceil(P / 40))`**.
 - Đợt đầu cố định ở phút 5, chốt P/N/thời làng khi đợt tới hạn. Sau đó `nextAt = waveAt + I(P)`; thay dân không kéo sớm/muộn mốc đã hẹn. UI hiện P hiện tại và dự báo, số thực chốt tại spawn.
 
@@ -316,3 +316,9 @@ Các hạng mục này là yêu cầu cho triển khai sau; lượt viết spec 
 ### Ghi chú vận hành AI
 
 Khi toàn bộ zombie chưa có mục tiêu và quân không di chuyển, tìm mục tiêu lại tối đa mỗi 4 giây; khi giao tranh, mô phỏng theo tick 1 giây. Mốc nghỉ được lưu trong save để replay/checkpoint không thay đổi kết quả. Lệnh điều quân mới, thay đổi số dân/quân và đợt trồi mới đánh thức AI sớm. Không thêm request hoặc timer mạng riêng.
+
+
+## Bổ sung 11/11/2026 — quân bay
+
+- Quân bay (Thanh Long, Phượng Hoàng) **không miễn nhiễm zombie**. Khi thần thú bay tấn công, nó hạ thấp và zombie đánh được nếu trong tầm cận chiến 1,1 ô, như với quân mặt đất. Zombie vẫn không bay, không vượt tường.
+- AI zombie chọn mục tiêu bay theo cùng luật khoảng cách/ưu tiên với quân mặt đất; quân bay đứng xa (tầm 5) chỉ an toàn khi giữ khoảng cách, không mặc định bất khả xâm phạm.
