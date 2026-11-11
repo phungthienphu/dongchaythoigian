@@ -16,12 +16,14 @@
 .header-button-label { display:inline; font-size:12px; }
 .nav-count { display:inline-grid; place-items:center; min-width:19px; padding:1px 4px; border-radius:10px; font-size:10px; background:#66744c; }
 .danger-count { position:absolute; right:0; top:0; background:#a84632; color:#fff; }
+.village-header { container-type:inline-size; }
 .village-ledger { display:flex; align-items:center; flex-wrap:wrap; gap:2px; min-width:0; }
 .ui-game .resource-pill { position:relative; display:flex; align-items:center; gap:5px; padding:6px 8px; background:transparent; border:1px solid transparent; border-radius:4px; text-align:left; flex:1 0 auto; }
 .resource-pill:hover { border-color:var(--ui-line); }
 .resource-pill .ic { background:none; width:24px; height:24px; flex:none; }
 .resource-pill>span:not(.ic) { display:grid; gap:1px; }
-.resource-pill .resource-reading { min-width:0; flex:0 1 86px; grid-template-columns:minmax(0,1fr); }
+.resource-pill .resource-reading { min-width:0; flex:1 1 auto; grid-template-columns:minmax(0,1fr); }
+.resource-pill b { white-space:nowrap; }
 .resource-meter { display:block; width:100%; height:4px; margin-top:3px; overflow:hidden; border-radius:3px; background:#394b3d; }
 .resource-meter>i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#b4842c,#f3ce84); }
 .resource-pill small { color:var(--ui-muted); font-size:11px; white-space:nowrap; }
@@ -206,7 +208,12 @@
   .village-heading { justify-content:space-between; }
   .village-name { flex:0 1 auto; }.header-button-label { display:inline; font-size:12px; }
   .ui-game .village-name h1 { font-size:22px; display:inline; }.village-name .eyebrow { display:inline; margin-right:14px; }
-  .ui-game .resource-pill { flex:1; justify-content:center; }
+  .ui-game .resource-pill { flex:1 0 100px; justify-content:center; }
+}
+/* Use the header's available width, including embedded game previews. */
+@container (max-width:1450px) {
+  .ui-game .resource-pill:not(.essential-resource):not(.population-pill) { display:none; }
+  .ui-game .resource-pill { flex:1 0 auto; }
 }
 @media(min-width:681px) { .ui-game[data-panel] .attention-brief { width:min(365px,calc(100% - 480px)); } }
 @media(max-width:680px) {

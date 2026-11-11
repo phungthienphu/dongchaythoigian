@@ -12,7 +12,7 @@ import { BoundedCache } from "@/lib/bounded-cache";
 // Isometric 2.5D renderer. Tile (x, y) has float coords (fx, fy) in [x, x+1) × [y, y+1);
 // screen = (ox + (fx - fy) * TW/2, oy + (fx + fy) * TH/2 - z).
 import {drawCaravanActor} from "./trade-actors";
-import { B, CAP, GOLD, DIAMOND, COAL, isRock, depositCapacity, F, G, H, HL, N4, N8, O, R, UKEYS, UNITS, W, raidActors, returningFerries,shipsFree,wildlifePosition, homeSoldiers, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
+import { B, CAP, GOLD, DIAMOND, COAL, CRYSTAL_ORE, RUNE_ORE, ESSENCE_ORE, isMagicDeposit, isRock, depositCapacity, F, G, H, HL, N4, N8, O, R, UKEYS, UNITS, W, raidActors, returningFerries,shipsFree,wildlifePosition, homeSoldiers, armyStagingTiles, campDefenders, campStrength, expeditionPosition, farmCapacity, farmRemaining, envoyVillagePosition, envoyCount, envoysAway, buildings, campById, canPlace, idx, inb, riverSet, seasonAt, troopCount, type BKey, type Camp, type City, type Derived, type UKey } from "@/lib/engine";
 import { placementTiles } from "@/lib/build-placement";
 import {hungerSpeech,villagersHungry} from "@/lib/villager-mood";
 import type { Fx, Villager } from "./villagers";
@@ -132,7 +132,7 @@ function hr(seed: number, n: number) {
 
 /* ---------- render context ---------- */
 type Ctx = CanvasRenderingContext2D;
-type RC = { c: Ctx; v: View; city: City; D: Derived; anim: number; now: number; season: number; deck:ReadonlySet<number>; defensePreview?:DefensePreview; turn?:boolean; billboard?:boolean };
+type RC = { c: Ctx; v: View; city: City; D: Derived; anim: number; now: number; season: number; deck:ReadonlySet<number>; defensePreview?:DefensePreview; turn?:boolean; billboard?:boolean; trees?:TreeCache; dpr?:number };
 type Pt = [number, number];
 
 export const projectWorld = (v: View, fx: number, fy: number, z = 0): Pt => {
@@ -411,16 +411,24 @@ export type LayerCache = {
   TW: number; ox: number; oy: number; width: number; height: number; margin: number;
   /** Most recent requested tile width and when it was first seen (zoom settling). */
   wantTW: number; wantAt: number;
+  onBuild?: (ms: number) => void;
 };
 export const createLayerCache = (): LayerCache => ({ canvas: null, sig: -1, season: -1, rotation: -1, dpr: 0, builtAt: 0, TW: 0, ox: 0, oy: 0, width: 0, height: 0, margin: 0, wantTW: 0, wantAt: 0 });
 const ZOOM_SETTLE_MS = 150;
 
+// Queue publications are independent snapshots. Visited villages settle in place,
+// so include the simulation clock and derived identity instead of identity alone.
+const groundSigs = new WeakMap<City, { D: Derived; last: number; sig: number }>();
 function groundSignature(city: City, D: Derived) {
+  const memo = groundSigs.get(city);
+  if (memo?.D === D && memo.last === city.last) return memo.sig;
   let h = (2166136261 ^ city.seed) >>> 0;
   const t = city.t, seen = city.seen, fert = D.fert;
   for (let i = 0; i < t.length; i++) h = Math.imul(h ^ (t[i] * 4 + (seen[i] ? 2 : 0) + (fert[i] ? 1 : 0)), 16777619);
   for (const i of city.oldbed) h = Math.imul(h ^ (i + 0x9e3779b9), 16777619);
-  return h >>> 0;
+  const sig = h >>> 0;
+  groundSigs.set(city, { D, last: city.last, sig });
+  return sig;
 }
 
 // Keyed by village and its clock: a visited village is settled in place.
@@ -452,6 +460,7 @@ function paintLayer(c: Ctx, v: View, g: LayerCache, dpr: number, sig: number, se
   const zooming = v.TW !== g.TW && now - g.wantAt < ZOOM_SETTLE_MS && k >= 0.5 && k <= 2;
   const valid = g.canvas && g.sig === sig && g.season === season && g.rotation === rot && g.dpr === dpr && g.width === v.width && g.height === v.height && now - g.builtAt < maxAge;
   if (!valid || !covers || (v.TW !== g.TW && !zooming)) {
+    const started = g.onBuild ? performance.now() : 0;
     const margin = Math.round(Math.max(v.width, v.height) * 0.25);
     const canvas = g.canvas ?? document.createElement("canvas");
     const w = Math.ceil((v.width + 2 * margin) * dpr), h = Math.ceil((v.height + 2 * margin) * dpr);
@@ -462,6 +471,7 @@ function paintLayer(c: Ctx, v: View, g: LayerCache, dpr: number, sig: number, se
     gc.setTransform(1, 0, 0, 1, 0, 0); gc.clearRect(0, 0, w, h); gc.setTransform(dpr, 0, 0, dpr, 0, 0);
     draw(gc, { ...v, ox: v.ox + margin, oy: v.oy + margin, width: v.width + 2 * margin, height: v.height + 2 * margin });
     Object.assign(g, { canvas, sig, season, rotation: rot, dpr, builtAt: now, TW: v.TW, ox: v.ox, oy: v.oy, width: v.width, height: v.height, margin });
+    g.onBuild?.(performance.now() - started);
   }
   const s = v.TW / g.TW;
   let x = v.ox - s * (g.ox + g.margin), y = v.oy - s * (g.oy + g.margin);
@@ -477,12 +487,38 @@ const paintGround = (r: RC, g: LayerCache, dpr: number, lod: boolean) =>
     (gc, cv) => drawGroundTiles({ ...r, c: gc, v: cv, anim: 0 }, visibleTiles(cv), lod, !lod));
 
 /* ---------- objects ---------- */
+export const createTreeCache = () => new BoundedCache<string, HTMLCanvasElement>(256, 12 * 1024 * 1024, c => c.width * c.height * 4);
+export type TreeCache = ReturnType<typeof createTreeCache>;
 function drawTree(r: RC, x: number, y: number, u: number, v: number, size: number, pine: boolean, shake = 0) {
-  const q = tp(r, x, y), c = r.c, s = r.v.s * size;
+  // Bound crown variants instead of retaining one almost-identical bitmap per tree.
+  // Keep the original shadow size/offset; its projection is independent of crown size.
+  const cached = r.trees && !shake && typeof document !== "undefined";
+  const q = tp(r, x, y), c = r.c, s = r.v.s * (cached ? Math.round(size * 20) / 20 : size);
   shadow(r, x, y, 0.13 * size, u, v);
   const [bx0, by] = q(u, v), bx = bx0 + shake * s;
+  if (r.trees && cached) {
+    const dpr = r.dpr ?? 1, pad = 2, left = 12 * s + pad, top = 35 * s + pad;
+    const key = `${pine}:${r.season}:${s}:${dpr}`;
+    let sprite = r.trees.get(key);
+    if (!sprite) {
+      sprite = document.createElement('canvas');
+      sprite.width = Math.ceil((24 * s + pad * 2) * dpr);
+      sprite.height = Math.ceil((36 * s + pad * 2) * dpr);
+      const gc = sprite.getContext('2d');
+      if (gc) {
+        gc.setTransform(dpr, 0, 0, dpr, 0, 0);
+        drawTreeCrown(gc, left, top, s, pine, r.season);
+        r.trees.set(key, sprite);
+      } else sprite = undefined;
+    }
+    if (sprite) { c.drawImage(sprite, bx - left, by - top, sprite.width / dpr, sprite.height / dpr); return; }
+  }
+  drawTreeCrown(c, bx, by, s, pine, r.season);
+}
+
+function drawTreeCrown(c: Ctx, bx: number, by: number, s: number, pine: boolean, season: number) {
   c.fillStyle = "#6b4526"; c.fillRect(bx - 1.5 * s, by - 9 * s, 3 * s, 9 * s);
-  const snow = r.season === 3;
+  const snow = season === 3;
   if (pine) {
     const greens = ["#2f6b3a", "#3a7c44", "#45894d"];
     for (let k = 0; k < 3; k++) {
@@ -493,7 +529,7 @@ function drawTree(r: RC, x: number, y: number, u: number, v: number, size: numbe
     }
     return;
   }
-  const leaf = [["#5aa845", "#78c25a"], ["#3f8e3a", "#5aa84a"], ["#cf7a2c", "#e6a446"], ["#556b4f", "#6c8467"]][r.season];
+  const leaf = [["#5aa845", "#78c25a"], ["#3f8e3a", "#5aa84a"], ["#cf7a2c", "#e6a446"], ["#556b4f", "#6c8467"]][season];
   c.fillStyle = leaf[0];
   c.beginPath(); c.arc(bx - 4 * s, by - 13 * s, 7 * s, 0, Math.PI * 2); c.arc(bx + 4 * s, by - 13 * s, 7 * s, 0, Math.PI * 2); c.arc(bx, by - 19 * s, 8 * s, 0, Math.PI * 2); c.fill();
   c.fillStyle = leaf[1];
@@ -503,6 +539,15 @@ function drawTree(r: RC, x: number, y: number, u: number, v: number, size: numbe
 
 function drawRock(r: RC, x: number, y: number, low: boolean, lod = false) {
   const i = idx(x, y), h = low ? 6 : 10 + hr(r.city.seed, i * 19) * 9, snow = r.season === 3;
+  if(isMagicDeposit(r.city.t[i])){
+    const t=r.city.t[i],color=t===CRYSTAL_ORE?'#83ddff':t===RUNE_ORE?'#cba0ff':t===ESSENCE_ORE?'#7df3bf':'#ffd775';
+    shadow(r,x,y,.4);
+    box(r,x,y,-.4,-.4,.4,.4,0,4,'#4a5267','#343b50','#282f43');
+    const spikes=lod?[[0,0,14]]:[[-.2,.12,12],[.13,-.15,19],[.22,.22,10]];
+    for(const [u,v,height]of spikes){box(r,x,y,u-.07,v-.07,u+.07,v+.07,4,height*.65,color,'#6679a5','#485575');pyramid(r,x,y,u-.09,v-.09,u+.09,v+.09,height*.65,height*.45,color,'#effaff');}
+    if(!lod){const [sx,sy]=tp(r,x,y)(0,0,27);r.c.fillStyle=color;r.c.font=`bold ${11*r.v.s}px sans-serif`;r.c.textAlign='center';r.c.fillText(t===RUNE_ORE?'ᚱ':t===ESSENCE_ORE?'◈':t===CRYSTAL_ORE?'✦':'☄',sx,sy);}
+    return;
+  }
   if (lod) {
     // Zoomed out a rock is a few pixels: one block and peak, one ore mark.
     box(r, x, y, -0.46, -0.46, 0.46, 0.46, 0, 5 + h * 0.5, snow ? "#eef1f0" : "#c2b294", snow ? "#d5dcda" : "#a99979", snow ? "#bcc5c3" : "#8c7c60");
@@ -1554,6 +1599,20 @@ function drawExpansionBuilding(r:RC,k:BKey,x:number,y:number,lvl:number,i:number
    bx(.22,-.27,.1,.12,H+5,12+lvl*3,metal);if(i<0||magicWorking(r,i))smoke(r,x,y,.27,-.21,H+19+lvl*3,i);
    for(let n=0;n<lvl+1;n++){const u=-.32+n*.23;bx(u,.23,.16,.16,3,7,metal);crystal(r,x,y,u+.08,.31,10,4,accent);}
    const [sx,sy]=q(0,.33,H-3);c.strokeStyle=accent;c.lineWidth=2*s;c.beginPath();c.arc(sx,sy,4*s,0,Math.PI*2);c.stroke();
+   if(k==='runepress'){
+     bx(-.32,-.32,.08,.54,H+7,13,metal);bx(.24,-.32,.08,.54,H+7,13,metal);bx(-.32,-.32,.64,.12,H+20,4,roof);
+     bx(-.1,-.17,.2,.24,H+9,8,metal);bx(-.23,-.2,.46,.3,H+7,2,roof);
+   }else if(k==='essencedistillery'){
+     for(const u of [-.24,.12]){bx(u,-.28,.19,.22,H+9,11,metal);crystal(r,x,y,u+.095,-.17,H+20,6,accent);}line(r,q(-.15,-.17,H+18),q(.215,-.17,H+18),accent,2);
+   }else if(k==='emberkiln'){
+     bx(-.25,.3,.5,.08,4,10,['#3c3435','#2b2629','#201f22']);for(let n=0;n<3;n++)crystal(r,x,y,-.16+n*.16,.4,5,5+n%2*3,'#f4ab58');
+   }else if(k==='transmutationhall'){
+     for(const u of [-.27,.27]){bx(u,-.25,.06,.06,H+8,9,roof);crystal(r,x,y,u+.03,-.22,H+17,5,accent);}crystal(r,x,y,0,0,H+12,13,accent);
+   }else if(k==='starrefinery'){
+     bx(-.26,-.26,.52,.52,H+9,4,metal);for(let n=0;n<5;n++){const a=n*Math.PI*2/5;crystal(r,x,y,Math.cos(a)*.19,Math.sin(a)*.19,H+13,6,accent);}crystal(r,x,y,0,0,H+14,14,accent);
+   }else if(k==='recyclingworks'){
+     for(let n=0;n<4;n++)bx(-.38+n*.17,.28,.14,.2,3,4+n%2*4,metal);bx(-.39,-.39,.12,.72,3,5,metal);
+   }
  }
  if(era===9){for(const u of [-.42,.42]){crystal(r,x,y,u,.4,4,5,accent);glow(r,q(u,.4,9),6,accent,.3*lit);}}
  return true;
@@ -2305,6 +2364,10 @@ export type DrawOpts = {
   layer?: "static";
   /** Device pixel ratio of the target canvas (used by the ground layer). */
   dpr?: number;
+  /** Screen-owned hysteresis; omitted by standalone renderers and regression tests. */
+  lowDetail?: boolean;
+  /** Bounded tree crowns; shadows and chopping stay live and retain depth ordering. */
+  trees?: TreeCache;
 };
 
 const stagingCache=new WeakMap<City,{at:number;tiles:number[]}>();
@@ -2312,9 +2375,9 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   const v = o.v;
   const defensePreview:DefensePreview|undefined=o.hover&&(o.tool==='wall'||o.tool==='gate')&&!city.b[idx(o.hover.x,o.hover.y)]
     ?{tile:idx(o.hover.x,o.hover.y),building:{k:o.tool,lvl:1,doneAt:null,...(o.defenseOrientation&&o.defenseOrientation!=='auto'?{orientation:o.defenseOrientation}:{})}}:undefined;
-  const r: RC = { c, v, city, D, defensePreview, anim: o.anim, now: o.now, season: seasonAt(city, o.now),deck:bridgeDeck(city) };
+  const r: RC = { c, v, city, D, defensePreview, anim: o.anim, now: o.now, season: seasonAt(city, o.now),deck:bridgeDeck(city), trees:o.layer === "static" ? undefined : o.trees, dpr:o.dpr };
   c.clearRect(0, 0, v.width, v.height);
-  const lod = v.TW < 26;
+  const lod = o.lowDetail ?? v.TW < 26;
 
   // visible tile window (with margin for tall objects)
   const onScreen = (x: number, y: number) => {

@@ -14,6 +14,12 @@ test('30-minute renewal hides and regenerates wilderness while structures, start
  assert.ok(c.t.some((t,i)=>t!==old[i]));assert.ok(c.t.includes(GOLD));assert.ok(c.t.includes(DIAMOND));
  const next=structuredClone(c);renewWilderness(c,2*WILDERNESS_MS);assert.notDeepEqual(c.t,next.t);
 });
+test('fully explored maps generate the same wilderness terrain as unexplored maps',()=>{
+ const explored=fixture(),unexplored=structuredClone(explored);unexplored.seen.fill(0);
+ const full=renewWilderness(explored,WILDERNESS_MS),dark=renewWilderness(unexplored,WILDERNESS_MS);
+ assert.ok(full.hidden>0);assert.equal(dark.hidden,0);assert.ok(full.changed>0);
+ assert.deepEqual(explored.t,unexplored.t);assert.deepEqual(explored.dep,unexplored.dep);
+});
 test('actors pin active sources, loaded cargo and journeys; finished orders stop pinning an entire road',()=>{
  const c=fixture(),source=idx(70,70),road=[idx(60,60),idx(61,60),idx(62,60)],trade=idx(75,75);
  c.t[source]=F;c.dep[source]=80;

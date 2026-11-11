@@ -1,7 +1,7 @@
 import {staffCounts} from './industry';
 /** Read-only selectors for the era 7–9 UI. Nothing here changes a city: research
  * previews run the engine check on copies, and the network is read as persisted. */
-import {B,buildingName,type Building,type City,type ResKey} from './engine';
+import {B,buildingName,foodEraScale,type Building,type City,type ResKey} from './engine';
 import {MAGIC_BUILDINGS,MAGIC_RESEARCH,MAGIC_SPELLS,CONTRACT_RESEARCH,magicDef,type Element,type MagicBuilding,type MagicGoods,type MagicSpell,type Research,type Contract} from './magic-data';
 import {beginMagicResearch} from './magic-research';
 import {RESEARCH_NAMES,SOURCES,PRODUCTION,OFF_NETWORK,isMagicBuilding,magicSiteId,magicSupportError,operating,tileDistance,flaskMages} from './magic';
@@ -183,7 +183,7 @@ export function magicDiagnosis(c:City,tile:number,now:number):Diagnosis|null{
  if(SOURCES.has(b.k)){for(const [rid,bind]of Object.entries(m.network.bindings))if(bind.primary===id||bind.backup===id){const r=byId.get(rid);if(r)serves.push({label:`${siteName(c,r)}${bind.primary===id?'':' (dự phòng)'}`,tile:r.tile});}if(!serves.length)serves.push({label:'Chưa nhà nào nhận mana từ nguồn này.'});}
  const element=SEAL_STATIONS[b.k];
  if(element){for(const s of sites)if(s.id!==id&&(m.seals?.[s.id]??[]).includes(element)&&tileDistance(s.tile,tile)<=6)serves.push({label:`Ấn ${ELEMENT_NAMES[element]} → ${siteName(c,s)}`,tile:s.tile});if(!serves.length)serves.push({label:`Chưa nhà nào trong 6 ô cần ấn ${ELEMENT_NAMES[element]}.`});}
- if(d.output&&!PRODUCTION.has(b.k))serves.push({label:`${goodsText(Object.fromEntries(Object.entries(d.output).map(([k,v])=>[k,v*levelScale(b.lvl)])) as MagicGoods)}/giờ về kho làng`});
+ if(d.output&&!PRODUCTION.has(b.k))serves.push({label:`${goodsText(Object.fromEntries(Object.entries(d.output).map(([k,v])=>[k,v*levelScale(b.lvl)*(k==='food'?foodEraScale(c,now):1)])) as MagicGoods)}/giờ công suất trước vận chuyển`});
  if(d.knowledge)serves.push({label:`${d.knowledge} tri thức ma pháp/giờ (trần ${KNOWLEDGE_CAP.toLocaleString('vi-VN')})`});
  if(d.defense)serves.push({label:`Chống zombie: ${d.defense.damage} sát thương, tầm ${d.defense.range} ô, tối đa ${d.defense.targets} mục tiêu mỗi ${d.defense.cooldown/1000} giây; ${d.defense.mana} mana/mục tiêu.`});
  if(d.armySpace)serves.push({label:`${d.armySpace} chỗ quân ma pháp`});

@@ -14,7 +14,7 @@ test('precious minerals unlock by era and enter storage only after hauling',()=>
 test('speedup uses diamonds once and follows normal upgrade and wonder completion',()=>{
  const c=fixture();c.b[0]={k:'hall',lvl:1,doneAt:60001};assert.equal(speedBuildCost(c.b[0],0),3);
  assert.ok(applyAction(c,{type:'speedBuild',x:0,y:0},0));assert.equal(c.b[0].lvl,1);
- c.res.diamond=4;assert.equal(applyAction(c,{type:'speedBuild',x:0,y:0},0),null);assert.equal(c.b[0].lvl,2);assert.equal(c.res.diamond,1);assert.equal(c.b[0].doneAt,null);
+ c.res.wood=10000;c.res.stone=10000;c.res.copper=10000;c.res.diamond=4;assert.equal(applyAction(c,{type:'speedBuild',x:0,y:0},0),null);assert.equal(c.b[0].lvl,2);assert.equal(c.res.diamond,1);assert.equal(c.b[0].doneAt,null);
  assert.ok(applyAction(c,{type:'speedBuild',x:0,y:0},0));assert.equal(c.res.diamond,1);
  c.b[1]={k:'temple',lvl:0,doneAt:30000};assert.equal(applyAction(c,{type:'speedBuild',x:1,y:0},1000),null);assert.equal(c.templeAt,1000);assert.equal(c.b[1].lvl,1);
 });

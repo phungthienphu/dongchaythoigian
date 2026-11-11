@@ -4,6 +4,7 @@ import Game from '@/components/Game';
 import {applyAction,ERA_NAMES,HOUR,MIN,settle,type Action,type City} from '@/lib/engine';
 import {LOCAL_RULES} from '@/lib/eras';
 import {eraPreview} from '@/lib/era-preview';
+import {syncFixture} from '@/tests/sync-workload';
 export default function EraHarness(){
  const city=useRef<City|null>(null),offset=useRef(0),worker=useRef<Worker|null>(null),busyRef=useRef(false);const [busy,setBusy]=useState(false),[ready,setReady]=useState(false),[epoch,setEpoch]=useState(0),[era,setEra]=useState(4),[summary,setSummary]=useState('');
  useEffect(()=>{
@@ -32,6 +33,10 @@ export default function EraHarness(){
   setReady(true);return()=>{save();worker.current?.terminate();window.removeEventListener('pagehide',save);window.fetch=original;};
  },[]);
  const reset=(e:number,wonderReady=false)=>{city.current=eraPreview(e,Date.now(),wonderReady);offset.current=0;setEra(e);setEpoch(n=>n+1);try{localStorage.setItem('dong-eras-local-v1',JSON.stringify({state:city.current,offset:0}));}catch{}setSummary('Làng mẫu độc lập, không dùng tài khoản hay cơ sở dữ liệu production.');};
+ const largeVillage=()=>{
+  const c=syncFixture(1500,true);settle(c,1000);city.current=c;offset.current=1000-Date.now();setEra(c.era);setEpoch(n=>n+1);
+  setSummary('Mẫu đo hiệu năng: 1.500 dân, 776 công trình; dữ liệu giả lập độc lập.');
+ };
  const advance=(ms:number)=>{
   if(busyRef.current||!worker.current)return;const before={...city.current!.res},nextOffset=offset.current+ms;busyRef.current=true;setBusy(true);
   const finish=()=>{busyRef.current=false;setBusy(false);};
@@ -46,6 +51,7 @@ export default function EraHarness(){
  return <><aside className="era-preview-toolbar" style={{position:'fixed',zIndex:10000,top:4,left:'50%',transform:'translateX(-50%)',background:'#193831',color:'#f2e8cb',padding:8,maxWidth:'95vw',border:'1px solid #ad9658',borderRadius:8,fontSize:12}}>
  <b>Phase 2 · thử local · API độc lập</b> <select aria-label="Chọn thời đại thử" value={era} onChange={e=>reset(+e.target.value)}>{[3,4,5,6].map(e=><option key={e} value={e}>{ERA_NAMES[e]}</option>)}</select>
  <button onClick={()=>advance(10*MIN)}>+10 phút</button><button onClick={()=>advance(HOUR)}>+1 giờ</button><button onClick={()=>advance(12*HOUR)}>+12 giờ</button>
+ <button onClick={largeVillage}>Mẫu 1.500 dân</button>
  <details><summary>Kịch bản thử và kết quả</summary><p>{summary}</p><p>Mở Thời đại để xem điện/ô nhiễm/checklist. Chọn nhà để bật/tắt, giao thợ hoặc xem nước. Chọn Vườn ươm để trồng. Bản mẫu có sẵn kho và tài nguyên; không đại diện cân bằng chơi thật.</p><p>Bản thử tự lưu trên trình duyệt. Đổi thời hoặc tạo mẫu sẽ thay thế bản thử đang lưu.</p><button onClick={()=>reset(era)}>Tạo lại làng mẫu thời đang chọn</button><button onClick={()=>reset(6,true)}>Mẫu đủ điều kiện kỳ quan</button></details>
  </aside>{ready&&<Game key={epoch} rules={LOCAL_RULES}/>} {busy&&<div role="status" aria-live="polite" style={{position:'fixed',inset:0,zIndex:10001,background:'#10241fe8',display:'grid',placeItems:'center',color:'#f2e8cb',padding:24,textAlign:'center'}}>Đang mô phỏng thời gian…<br/>Bản thử giữ nguyên cho đến khi có kết quả.</div>}</>;
 }

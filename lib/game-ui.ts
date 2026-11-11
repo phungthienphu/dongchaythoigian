@@ -14,11 +14,11 @@ export function panelGroup(panel:GamePanelKey|null){
 export const BUILD_GROUPS = ['Tất cả','Nhà ở','Lương thực','Khai thác','Quân sự','Hạ tầng','Văn hóa'] as const;
 export type BuildGroup = typeof BUILD_GROUPS[number];
 export function buildingGroup(k:BKey):BuildGroup{
-  if(['refuge','healer','warningbell','barracks','wall','gate','watchtower','logistics','infirmary'].includes(k))return 'Quân sự';
-  if(['gather','farm','estate','wheel','fire'].includes(k))return 'Lương thực';
+  if(['refuge','healer','warningbell','barracks','wall','gate','watchtower','logistics','infirmary','wardbastion','elementbastion','celestialbastion'].includes(k))return 'Quân sự';
+  if(B[k].prod?.food||['gather','farm','estate','wheel','fire'].includes(k))return 'Lương thực';
   if(B[k].house&&k!=='hall')return 'Nhà ở';
   if(B[k].prod||['wood','quarry','forge','charcoal','coalmine'].includes(k))return 'Khai thác';
-  if(['temple','academy','hall','dam','green','university','envoy'].includes(k))return 'Văn hóa';
+  if(['temple','academy','hall','dam','green','university','envoy','runelibrary','astralarchive'].includes(k))return 'Văn hóa';
   return 'Hạ tầng';
 }
 export const searchText=(text:string)=>text.toLocaleLowerCase('vi').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d');

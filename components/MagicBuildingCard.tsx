@@ -1,11 +1,12 @@
 'use client';
 import {useState} from 'react';
 import {RES,RN,resourceUnlocked,type Action,type City,type ResKey} from '@/lib/engine';
-import type {Element} from '@/lib/magic-data';
+import type {Element,MagicBuilding} from '@/lib/magic-data';
 import {ELEMENT_NAMES} from '@/lib/magic-elements';
 import {isMagicBuilding,magicSiteId} from '@/lib/magic';
 import {dockView,magicDiagnosis,packagesView} from '@/lib/magic-view';
 import {magicDuration,type MagicTab} from './MagicPanel';
+import {MAGIC_BUILDING_GUIDE} from '@/lib/magic-guide';
 
 const n=(v:number)=>Math.floor(v).toLocaleString('vi-VN');
 const W=96;
@@ -48,11 +49,14 @@ export default function MagicBuildingCard(props:Props){
  const d=magicDiagnosis(city,tile,now);
  if(!d)return <p className="small muted">Công trình ma pháp sẽ được nối vào mạng ở mốc phút tiếp theo.</p>;
  const packages=b.k==='worldmatrix'?packagesView(city,now):null;
+ const guide: {purpose:string;place:string;defense?:string}=MAGIC_BUILDING_GUIDE[b.k as MagicBuilding];
  return <section className="magic-card" aria-label="Vận hành ma pháp">
+  <p className="small"><b>Cách dùng:</b> {guide.place}</p>
+  {guide.defense&&<p className="small"><b>Phòng thủ:</b> {guide.defense}</p>}
   {d.missing?<div className="inline-warning" role="status"><b>Đang dừng · thiếu gì</b><p>{d.missing.text}{d.missing.tile!==undefined&&d.missing.tile!==tile&&<> <button className="link" onClick={()=>onLocate(d.missing!.tile!)}>Xem nơi lỗi →</button></>}</p></div>:b.lvl>=1&&<p className="ok small" role="status">✓ Đang hoạt động</p>}
   {d.mana&&<><p className="small"><b>Mana:</b> {n(d.mana.stored)}/{n(d.mana.capacity)}</p><progress aria-label="Mana trong nguồn" max={Math.max(1,d.mana.capacity)} value={d.mana.stored} style={{width:'100%'}}/></>}
-  {!!d.needs.length&&<><h4>Cần ai</h4><ul className="magic-needs">{d.needs.map((r,i)=><li key={i} className={r.ok?'ok':'err'}><span aria-hidden="true">{r.ok?'✓':'✗'}</span> <b>{r.label}:</b> {r.detail}{r.tile!==undefined&&r.tile!==tile&&<> <button className="link" onClick={()=>onLocate(r.tile!)}>Xem</button></>}</li>)}</ul></>}
-  {!!d.buffers.length&&<><h4>Bộ đệm đầu vào (2 giờ)</h4>{d.buffers.map(x=><p key={x.resource} className="small">{x.resource}: {n(x.have)}/{n(x.capacity)} · dùng {n(x.perHour)}/giờ. Dân của nhà này mang từ kho gần nhất.</p>)}</>}
+  {!!d.needs.length&&<><h4>Điều kiện hoạt động</h4><ul className="magic-needs">{d.needs.map((r,i)=><li key={i} className={r.ok?'ok':'err'}><span aria-hidden="true">{r.ok?'✓':'✗'}</span> <b>{r.label}:</b> {r.detail}{r.tile!==undefined&&r.tile!==tile&&<> <button className="link" onClick={()=>onLocate(r.tile!)}>Xem</button></>}</li>)}</ul></>}
+  {!!d.buffers.length&&<><h4>Nguyên liệu đã mang tới nhà</h4><p className="small muted">Nhà chứa đủ nguyên liệu cho tối đa 2 giờ. Thợ phải lấy hàng từ kho và mang tới đây trước khi sản xuất.</p>{d.buffers.map(x=><p key={x.resource} className="small">{x.resource}: {n(x.have)}/{n(x.capacity)} · dùng {n(x.perHour)}/giờ.</p>)}</>}
   {!!d.serves.length&&<><h4>Cấp cho ai</h4><ul className="magic-needs">{d.serves.map((s,i)=><li key={i}>→ {s.label}{s.tile!==undefined&&<> <button className="link" onClick={()=>onLocate(s.tile!)}>Xem</button></>}</li>)}</ul></>}
   {!!d.spells.length&&<details className="ui-details" open><summary>Phép · {d.spells.length}</summary>{d.spells.map(s=><div key={s.key} className="magic-row"><div className="magic-row-head"><b>{s.name}</b><span className="magic-chip">{s.locked?'Chưa mở':s.readyIn>0?`Hồi ${magicDuration(s.readyIn)}`:'Sẵn sàng'}</span></div><p className="small">{s.cost} · {s.cooldown} · {s.area}</p><p className="small muted">Tự thi triển: {s.trigger}</p>{s.locked&&<p className="small err">{s.locked}</p>}</div>)}</details>}
   {b.k==='harmonizer'&&b.lvl>=1&&<Harmonizer {...props}/>}

@@ -9,6 +9,7 @@ import {CONTRACT_NAMES,DOMAIN_NAMES,type Domain} from '@/lib/magic-myth';
 import {CONTRACT_EFFECTS,DOMAIN_EFFECTS,SPECIALIZATION_EFFECTS,SPELL_TRIGGERS,choicesView,goodsText,magicDiagnosis,manaView,packagesView,researchView,type ResearchItem} from '@/lib/magic-view';
 import {MAGIC_SPELLS,type MagicSpell} from '@/lib/magic-data';
 import {manaOverlayEnabled,setManaOverlay,subscribeManaOverlay} from '@/lib/mana-overlay';
+import {MAGIC_GLOSSARY} from '@/lib/magic-guide';
 
 export type MagicTab='research'|'mana'|'choices'|'spells';
 type Props={city:City;now:number;busy:boolean;act:(a:Action)=>unknown;maxEra:number;onLocate:(tile:number)=>void;initialTab?:MagicTab};
@@ -50,6 +51,7 @@ function Mana({city,now,onLocate}:Props){
  const v=manaView(city);if(!v)return null;
  const problems=v.receivers.filter(r=>!r.primary||r.blocked);
  return <section aria-label="Mạng mana">
+  <p className="small">Hiểu như mạng điện: <b>giếng/tháp là nguồn</b>, <b>Cột dẫn linh là trạm tiếp</b>, còn <b>nhà phép là nơi dùng năng lượng</b>. Xây cột nối tới nơi cần dùng; thêm giếng hoặc tháp nếu nguồn đã hết mana hay cấp đủ số nhà.</p>
   <ManaOverlayToggle/>
   <div className="metric-pair"><div><span>Mana trong các nguồn</span><b>{n(v.stored)}<small> / {n(v.capacity)}</small></b></div><div><span>Nhà nhận · cột dẫn</span><b>{v.receivers.length}<small> · {v.relays.length}/18</small></b></div></div>
   <p className="small muted">Mana trữ riêng ở từng giếng/tháp, không vào kho, không bán hay bị cướp. Nguồn phủ 6 ô; cột dẫn nối tiếp tối đa 3 cột, cần đường đi, không qua sông thiếu cầu.</p>
@@ -123,6 +125,13 @@ export default function MagicPanel(props:Props){
  if(!props.city.magic)return <p>Ma pháp mở từ thời Thức tỉnh Ma pháp.</p>;
  const tabs:[MagicTab,string][]=[['research','Nghiên cứu'],['mana','Mana'],...(props.maxEra>=8&&props.city.era>=8?[['choices','Lựa chọn'] as [MagicTab,string]]:[]),['spells','Phép']];
  return <div className="magic-panel">
+  <details className="ui-details"><summary>Mới chơi ma pháp? Xem cách dùng và phòng thủ</summary>
+   <p className="small"><b>Bắt đầu:</b> xây Giếng linh mạch để có mana → dựng Xưởng kết tinh và Xưởng phù văn để có vật liệu → xây Học viện pháp thuật để nghiên cứu. Cột dẫn linh chỉ giúp nối nguồn tới nhà ở xa.</p>
+   <p className="small"><b>Bảo vệ làng:</b> Pháp trận hộ thành tự đánh zombie; Giếng linh mạch đánh và làm chậm zombie tới gần. Pháp sư và golem phải tuyển riêng trong Quân đội. Các nhà chữa trị giúp dân và quân sống lâu hơn.</p>
+   {props.city.era>=8&&<p className="small"><b>Thời Nguyên tố:</b> Hỏa đàn mở Bão lửa; Thổ điện mở tường đá tạm thời và cho Xưởng tượng linh đủ điều kiện tuyển golem; linh lộc hỗ trợ che chắn đồng đội.</p>}
+   {props.city.era>=9&&<p className="small"><b>Thời Thần thoại:</b> Đài thiên văn báo zombie sớm; Cổng Linh giới tuyển thần thú theo khế ước. Trận đồ thiên địa chuẩn bị phép mạnh để mang vào trận.</p>}
+   <dl className="small">{MAGIC_GLOSSARY.map(([term,text])=><div key={term}><dt><b>{term}</b></dt><dd>{text}</dd></div>)}</dl>
+  </details>
   <div className="tabs" role="group" aria-label="Ma pháp">{tabs.map(([k,label])=><button key={k} className={'tab'+(tab===k?' on':'')} aria-pressed={tab===k} onClick={()=>setTab(k)}>{label}</button>)}</div>
   {tab==='research'&&<Research {...props}/>}
   {tab==='mana'&&<Mana {...props}/>}

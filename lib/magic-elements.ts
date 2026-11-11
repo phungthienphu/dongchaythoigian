@@ -2,7 +2,7 @@
  * specialization, the four elemental spells, spirit-wood carriers and golem
  * hardening. Called from magic.ts at absolute seconds/minutes, so online,
  * offline and chunked settlement agree. Functions only (imported in a cycle). */
-import {B,UNITS,hallLevel,type City,type Building,type BKey,type UKey,type ResKey} from './engine';
+import {B,UNITS,hallLevel,foodEraScale,type City,type Building,type BKey,type UKey,type ResKey} from './engine';
 import {spendMana} from './mana-network';
 import type {MagicFactory} from './magic-production';
 import {MAGIC_SPELLS,magicDef,type Element,type MagicBuilding} from './magic-data';
@@ -257,11 +257,11 @@ export function magicEscort(guards:ZombieGuard[],target:ZombieGuard){
  return 1;
 }
 /** Essence forge mana: 30 per 12 essence, paid per carried load from its bound source. */
-const cargoRate=(k:string)=>{const d=k in B&&magicDef(k as MagicBuilding);return d&&d.mana&&d.output?d.mana/Object.values(d.output)[0]!:0;};
-export function magicCargoLimit(c:City,b:Building){
- const rate=cargoRate(b.k),m=c.magic;if(!rate)return Infinity;if(!m)return 0;
+const cargoRate=(c:City,k:string,at:number)=>{const d=k in B&&magicDef(k as MagicBuilding);return d&&d.mana&&d.output?d.mana/(Object.values(d.output)[0]!*(d.output.food?foodEraScale(c,at):1)):0;};
+export function magicCargoLimit(c:City,b:Building,at=c.last){
+ const rate=cargoRate(c,b.k,at),m=c.magic;if(!rate)return Infinity;if(!m)return 0;
  const binding=m.network.bindings[magicSiteId(b)];if(!binding?.primary)return 0;
  const backup=binding.backup&&m.network.sources[binding.backup]&&m.network.sources[binding.backup].used<m.network.sources[binding.backup].slots?m.mana[binding.backup]??0:0;
  return Math.max(m.mana[binding.primary]??0,backup)/rate;
 }
-export function chargeMagicCargo(c:City,b:Building,amount:number){const rate=cargoRate(b.k);if(!rate||!(amount>0)||!c.magic)return;const debit=spendMana(c.magic.network,c.magic.mana,magicSiteId(b),amount*rate);if(!('error'in debit)&&c.magic.craft&&craftActive(c))recordCraftMana(c,debit.source,amount*rate);}
+export function chargeMagicCargo(c:City,b:Building,amount:number,at=c.last){const rate=cargoRate(c,b.k,at);if(!rate||!(amount>0)||!c.magic)return;const debit=spendMana(c.magic.network,c.magic.mana,magicSiteId(b),amount*rate);if(!('error'in debit)&&c.magic.craft&&craftActive(c))recordCraftMana(c,debit.source,amount*rate);}

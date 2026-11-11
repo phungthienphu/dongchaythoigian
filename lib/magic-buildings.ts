@@ -1,20 +1,20 @@
 import {MAGIC_EXPANSION,type ExpansionBuilding} from './building-expansion';
 /** Era 7 engine definitions derived from magic-data. Data-only (type imports
  * from the engine are erased) so engine initialization stays acyclic in ESM. */
-import {MAGIC_BUILDINGS,MAGIC_UNITS} from './magic-data';
+import {MAGIC_BUILDINGS,MAGIC_UNITS,magicDef} from './magic-data';
 import {MAGIC_BUILDING_GUIDE} from './magic-guide';
 import type {Def,Unit} from './engine';
 type Goods=Def['cost'];
 const b=MAGIC_BUILDINGS,u=MAGIC_UNITS;
 const base=(k:keyof typeof b,d:string,extra:Partial<Def>={}):Def=>{const m=b[k] as typeof b[keyof typeof b]&{jobs:number;max?:number;upgrade?:boolean};return {n:m.name,era:m.era,cost:m.cost as Goods,sec:m.seconds,...(m.jobs?{jobs:m.jobs}:{}),...(m.max?{max:m.max}:{}),...(m.upgrade?{up:true}:{}),d:`${MAGIC_BUILDING_GUIDE[k].purpose} ${d}`,...extra};};
 const expanded=(era:7|8|9)=>Object.fromEntries(Object.entries(MAGIC_EXPANSION).filter(([,d])=>d.era===era).map(([k])=>{
- const d=MAGIC_BUILDINGS[k as ExpansionBuilding],extra:Partial<Def>={};
- if('output'in d)extra.prod=d.output;
- if('output'in d&&'input'in d)extra.input=d.input;
+ const d=magicDef(k as ExpansionBuilding),extra:Partial<Def>={};
+ if(d.output)extra.prod=d.output;
+ if(d.output&&d.input)extra.input=d.input;
  if('house'in d)extra.house=d.house;
  if('storage'in d){extra.storage=d.storage;extra.drop=['food','wood','stone','copper','gold','diamond','coal','aetherCrystal','rune','essence','celestialStone'];}
- const rates=[('jobs'in d&&d.jobs)?`${d.jobs} thợ`:'',('input'in d)?`Tiêu hao/giờ: ${Object.entries(d.input).map(([r,v])=>`${v} ${resourceName(r)}`).join(' + ')}`:'',('mana'in d&&d.mana)?`${d.mana} mana/giờ`:'',('output'in d)?`Sản lượng cơ bản/giờ: ${Object.entries(d.output).map(([r,v])=>`${v} ${resourceName(r)}`).join(' + ')}`:''].filter(Boolean).join('. ');
- return [k,base(k as ExpansionBuilding,`${d.place} ${rates}. Sản lượng còn phụ thuộc cấp, thưởng làng và thời gian chở hàng.`,extra)];
+ const rates=[d.source?`Nguồn ${d.source.perHour} mana/giờ, trữ ${d.source.capacity}`:'',d.knowledge?`${d.knowledge} tri thức/giờ`:'',d.house?`${d.house} chỗ ở mỗi cấp`:'',d.storage?`Trữ ${d.storage} mỗi tài nguyên mỗi cấp`:'',d.defense?`Tầm ${d.defense.range} ô, ${d.defense.damage} sát thương mỗi ${d.defense.cooldown/1000} giây, tối đa ${d.defense.targets} zombie; ${d.defense.mana} mana/mục tiêu`:'',('jobs'in d&&d.jobs)?`${d.jobs} thợ`:'',(d.input)?`Tiêu hao/giờ: ${Object.entries(d.input).map(([r,v])=>`${v} ${resourceName(r)}`).join(' + ')}`:'',('mana'in d&&d.mana)?`${d.mana} mana/giờ`:'',(d.output)?`Sản lượng cơ bản/giờ: ${Object.entries(d.output).map(([r,v])=>`${v} ${resourceName(r)}`).join(' + ')}`:''].filter(Boolean).join('. ');
+ return [k,base(k as ExpansionBuilding,`${d.place} Định mức cấp 1: ${rates}. ${d.output&&'food'in d.output?'Lương thực còn nhân công cụ theo đời. ':''}${d.output?'Hàng chỉ cộng kho sau khi thợ giao về; công suất phụ thuộc cấp, thưởng làng và quãng đường.':d.source||d.knowledge?'Cần thợ tới nơi và đủ nguyên liệu để hoạt động.':''}`,extra)];
 })) as Record<ExpansionBuilding,Def>;
 const resourceName=(r:string)=>({food:'lương thực',wood:'gỗ',stone:'đá',copper:'đồng',gold:'vàng',coal:'than',aetherCrystal:'tinh thạch',rune:'phù văn',essence:'tinh chất',celestialStone:'thiên thạch'}[r]??r);
 export const MAGIC_ERA7_BUILDINGS={

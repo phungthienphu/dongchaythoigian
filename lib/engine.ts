@@ -26,10 +26,11 @@ import {bridgeDeck,bridgeGeometry,bridgeHeadSite,bridgeExitReserved,bridgeReady,
 export const ENGINE_VER = 3;
 export const W = 96;
 export const H = 96;
-export const G = 0, F = 1, HL = 2, R = 3, O = 4, GOLD = 5, DIAMOND = 6, COAL = 7;
-export const isRock = (t: number) => t === HL || t === O || t === GOLD || t === DIAMOND || t === COAL;
-export const mineralResource = (t:number): ResKey => t===COAL?"coal":t===GOLD?"gold":t===DIAMOND?"diamond":t===O?"copper":"stone";
-export const depositCapacity = (t:number) => t===COAL?CAP.coal:t===F?CAP.forest:t===GOLD?CAP.gold:t===DIAMOND?CAP.diamond:t===O?CAP.ore:t===HL?CAP.hill:0;
+export const G = 0, F = 1, HL = 2, R = 3, O = 4, GOLD = 5, DIAMOND = 6, COAL = 7, CRYSTAL_ORE=8, RUNE_ORE=9, ESSENCE_ORE=10, CELESTIAL_ORE=11;
+export const isMagicDeposit=(t:number)=>t>=CRYSTAL_ORE&&t<=CELESTIAL_ORE;
+export const isRock = (t: number) => t === HL || t === O || t === GOLD || t === DIAMOND || t === COAL || isMagicDeposit(t);
+export const mineralResource = (t:number): ResKey => t===CRYSTAL_ORE?'aetherCrystal':t===RUNE_ORE?'rune':t===ESSENCE_ORE?'essence':t===CELESTIAL_ORE?'celestialStone':t===COAL?"coal":t===GOLD?"gold":t===DIAMOND?"diamond":t===O?"copper":"stone";
+export const depositCapacity = (t:number) => t===CRYSTAL_ORE?80:t===RUNE_ORE?40:t===ESSENCE_ORE?30:t===CELESTIAL_ORE?20:t===COAL?CAP.coal:t===F?CAP.forest:t===GOLD?CAP.gold:t===DIAMOND?CAP.diamond:t===O?CAP.ore:t===HL?CAP.hill:0;
 
 export const MIN = 60_000;
 export const HOUR = 60 * MIN;
@@ -59,7 +60,7 @@ const START_SIGHT = 9, SCOUT_SIGHT = 3;
 
 export const SEASONS = ["Xuân", "Hạ", "Thu", "Đông"];
 export const ERA_NAMES = eraNames;
-export const TERRAIN = ["Đồng cỏ", "Rừng", "Đồi đá", "Sông", "Mỏ đồng", "Mỏ vàng", "Mỏ kim cương", "Mỏ than"];
+export const TERRAIN = ["Đồng cỏ", "Rừng", "Đồi đá", "Sông", "Mỏ đồng", "Mỏ vàng", "Mỏ kim cương", "Mỏ than", "Mỏ tinh thạch", "Di tích phù văn", "Mạch tinh chất", "Mảnh thiên thạch"];
 export const RES = ["food", "wood", "stone", "copper", "gold", "diamond", "coal", "aetherCrystal", "rune", "essence", "celestialStone"] as const;
 export type ResKey = (typeof RES)[number];
 export type Res = Record<ResKey, number>;
@@ -277,6 +278,7 @@ export type City = {
   wheelFuelStartsAt?: number;
   gatherFoodStartsAt?: number;
   farmAutoStartsAt?: number;
+  frontierResourcesStartsAt?: number;
   hungerStartsAt?: number;
   economyBalanceStartsAt?: number;
   resourceHistory?:ResourceHistory;
@@ -532,7 +534,18 @@ export function normalizeResources(c:City){
   if(c.auto){c.auto.mix.gold ??= 0;c.auto.mix.diamond ??= 0;c.auto.mix.coal??=0;c.auto.mix.aetherCrystal??=0;c.auto.mix.rune??=0;c.auto.mix.essence??=0;c.auto.mix.celestialStone??=0;}
 }
 export const speedBuildCost=(b:Building,now:number)=>Math.max(0,Math.ceil(((b.doneAt??now)-now)/30_000));
-const gatheringRate=(r:ResKey)=>r==='wood'?CHOP_RATE:r==='stone'?STONE_RATE:r==='gold'?ORE_RATE*.5:r==='diamond'?ORE_RATE*.08:r==='coal'?60:ORE_RATE;
+/** Rush fees are consumables, never part of refundable building investment. */
+export function speedBuildQuote(c:City,b:Building,now:number):Partial<Res>{
+  const remaining=Math.max(0,(b.doneAt??now)-now);
+  if(!remaining)return {};
+  const target=b.storageUpgrade?storageLevel(b,b.storageUpgrade)+1:b.lvl+1;
+  const fraction=Math.min(1,remaining/(b.relocation?.duration??buildMs(b.k,target)));
+  const premium=target>=3?1:target===2?.5:.25;
+  const materials=levelCost(b.k,target,c.era),cost:Partial<Res>={diamond:speedBuildCost(b,now)};
+  for(const r of RES)if(r!=='diamond'&&(materials[r]??0)>0)cost[r]=Math.ceil(materials[r]!*premium*fraction);
+  return cost;
+}
+const gatheringRate=(r:ResKey)=>isMagicResource(r)?12:r==='wood'?CHOP_RATE:r==='stone'?STONE_RATE:r==='gold'?ORE_RATE*.5:r==='diamond'?ORE_RATE*.08:r==='coal'?60:ORE_RATE;
 /** Deterministic additive migration on untouched hills; never builds over a route. */
 export function enrichPreciousDeposits(c:City){
   normalizeResources(c);if((c.preciousDepositsVersion??0)>=1)return 0;
@@ -608,7 +621,7 @@ export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
     ver: ENGINE_VER, seed, t, seen: new Array(W * H).fill(0), oldbed: [], xs, camp, b: {}, dep: {}, herds,
     people: [], nextId: 1,
     res: { food: 100, wood: 120, stone: 30, copper: 0, gold: 0, diamond: 0, coal:0, aetherCrystal:0, rune:0,essence:0,celestialStone:0 }, pop: 0, popAcc: 0, era: 1,
-    t0: now, last: now, economyBalanceStartsAt:now, upkeepStartsAt:now, wheelFuelStartsAt:now, gatherFoodStartsAt:now, farmAutoStartsAt:now, hungerStartsAt:now, hunger:{stressMs:0,lossMs:0,warned:0}, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
+    t0: now, last: now, economyBalanceStartsAt:now, upkeepStartsAt:now, wheelFuelStartsAt:now, gatherFoodStartsAt:now, farmAutoStartsAt:now, frontierResourcesStartsAt:now, hungerStartsAt:now, hunger:{stressMs:0,lossMs:0,warned:0}, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
   };
   activateZombies(c,now,true);
   enrichCopperDeposits(c);
@@ -773,7 +786,9 @@ export function demolitionQuote(c: City, tile: number, now: number) {
 }
 export const repairCost = (k: BKey, lvl = 1, burned = false, era = 1): Partial<Res> => {
   const out: Partial<Res> = {};
-  for (const r of RES) if (def(k).cost[r]) out[r] = Math.ceil((levelCost(k, Math.max(1, lvl))[r] ?? 0) * (burned ? 0.5 : 0.25));
+  const level=Math.max(1,lvl),rate=burned?(level>=3?.9:level===2?.7:.5):(level>=3?.6:level===2?.4:.25);
+  const base=levelCost(k,level);
+  for (const r of RES) if (base[r]) out[r] = Math.ceil(base[r]! * rate);
   return def(k).era>=4||k==="hall"&&lvl>=4?out:eraCost(out, era, 2);
 };
 /** Resource value used to weigh building damage in multiplayer battles. */
@@ -1065,7 +1080,7 @@ function autoAssign(c: City, now: number, context?: HaulContext) {
 
 /** Nearest sensible job producing `r`: an open building slot first, then gathering by hand. */
 function autoTarget(c: City, r: ResKey, p: Person, now: number, ctx: HaulContext, occupied?:ReadonlyMap<number,number>): TaskInput | null {
-  if(r==='gold'&&c.era<2||r==='diamond'&&c.era<3||r==='coal'&&c.era<5)return null;
+  if(!resourceUnlocked(r,c.era)||r==='gold'&&c.era<2||r==='diamond'&&c.era<3||r==='coal'&&c.era<5)return null;
   const from = p.pos ?? c.camp;
   // Use the same source and path rules as actual harvesting. An empty logging
   // camp or an exhausted farm must not absorb workers who could gather elsewhere.
@@ -1169,7 +1184,7 @@ function taskError(c: City, tk: TaskInput, adding: number): string | null {
   if (!Number.isInteger(tk.at) || tk.at < 0 || tk.at >= W * H) return "Ô không hợp lệ.";
   if (!c.seen[tk.at]) return "Vùng này chưa khám phá.";
   if (tk.t === "chop") return c.t[tk.at] === F ? null : "Chỉ chặt được ô rừng.";
-  if (tk.t === "mine") return isRock(c.t[tk.at]) ? (c.t[tk.at]===COAL&&c.era<5?"Than mở từ Công nghiệp.":c.t[tk.at]===GOLD&&c.era<2?"Vàng mở từ đời đồng.":c.t[tk.at]===DIAMOND&&c.era<3?"Kim cương mở từ đời sắt.":null) : "Chỉ đào được đồi đá hoặc mỏ khoáng sản.";
+  if (tk.t === "mine") return isRock(c.t[tk.at]) ? (!resourceUnlocked(mineralResource(c.t[tk.at]),c.era)?"Chưa tới thời đại khai thác tài nguyên này.":c.t[tk.at]===COAL&&c.era<5?"Than mở từ Công nghiệp.":c.t[tk.at]===GOLD&&c.era<2?"Vàng mở từ đời đồng.":c.t[tk.at]===DIAMOND&&c.era<3?"Kim cương mở từ đời sắt.":null) : "Chỉ đào được đồi đá hoặc mỏ khoáng sản.";
   const b = c.b[tk.at];
   if (!b || !def(b.k).jobs) return "Công trình này không cần người làm.";
   if (!b || b.lvl < 1) return "Công trình chưa xây xong.";
@@ -1663,7 +1678,7 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   if (!resource || !d.jobs) return null;
   if(d.demand&&!powerFraction(c,tk.at))return null;
   if(d.era>=7&&magicSupportError(c,tk.at,b))return null;
-  if(d.era>=7&&magicCargoLimit(c,b)<1e-9)return null;
+  if(d.era>=7&&magicCargoLimit(c,b,at)<1e-9)return null;
   if(b.k==='artisan'&&(c.res.wood<20||c.res.stone<10))return null;
   if(d.input&&Object.entries(d.input).some(([r,n])=>c.res[r as ResKey]<(n??0)/production[resource]!))return null;
   let rate = healthRate * production[resource]! * LVL_MULT[b.lvl] / buildingJobs(b) * ctx.mult * (b.k==='artisan'||def(b.k).era>=5?1:GATHER_SPEED);
@@ -1810,9 +1825,9 @@ function takeCargo(c: City, h: Haul, at: number): number {
   if (h.source.kind === "building") {
     const b=c.b[h.source.key];if(!isBuildingActive(b))return 0;
     const d=def(b.k);if(d.input&&d.prod){
-      const output=buildingOutput(c,b.k,d.prod,at)[h.resource!]??1;let amount=h.capacity;
+      const output=(buildingOutput(c,b.k,d.prod,at)[h.resource!]??1)*(h.resource==='food'?foodEraScale(c,at):1);let amount=h.capacity;
       for(const r of RES)if(d.input[r])amount=Math.min(amount,c.res[r]*output/d.input[r]!);
-      amount=Math.max(0,Math.min(amount,magicCargoLimit(c,b)));chargeMagicCargo(c,b,amount);
+      amount=Math.max(0,Math.min(amount,magicCargoLimit(c,b,at)));chargeMagicCargo(c,b,amount,at);
       for(const r of RES)if(d.input[r]){const spent=amount*d.input[r]!/output;c.res[r]=Math.max(0,c.res[r]-spent);recordResourceFlow(c,at,'spent',r,spent);if(c.industry){const ledger=c.industry.inputsSpent??={};ledger[r]=(ledger[r]??0)+spent;}}
       if(c.industry&&d.era>=5&&amount>0)c.industry.processed=true;
       return amount;
@@ -1943,14 +1958,14 @@ export const WILDERNESS_MS=30*MIN;
 export const FRONTIER_WARNING_MS=5*MIN;
 /** Permanent land is the starter clearing plus two tiles around every structure.
  * Active actors pin their route/source until the next cycle, never their cargo. */
-export function wildernessKeep(c:City,at:number){
+export function wildernessKeep(c:City,at:number,openLand=false){
   const keep=new Uint8Array(W*H);
   const around=(tile:number,rad=1)=>{if(tile<0||tile>=W*H)return;const x=tile%W,y=Math.floor(tile/W);for(let dy=-rad;dy<=rad;dy++)for(let dx=-rad;dx<=rad;dx++)if(inb(x+dx,y+dy))keep[idx(x+dx,y+dy)]=1;};
   const route=(tiles:number[]|undefined)=>{for(const i of tiles??[])around(i);};
   for(const tile of Object.keys(c.industry?.seedlings??{}))around(+tile);
-  for(let i=0;i<c.t.length;i++)if(c.t[i]===COAL)around(i,0);
-  around(c.camp,START_SIGHT);
-  for(const [i,b]of buildings(c)){around(i,2);if(b.bridge){around(b.bridge.to);route(b.bridge.tiles);}}
+  for(let i=0;i<c.t.length;i++)if(c.t[i]===COAL||isMagicDeposit(c.t[i]))around(i,0);
+  around(c.camp,openLand?1:START_SIGHT);
+  for(const [i,b]of buildings(c)){around(i,openLand?0:2);if(b.bridge){around(b.bridge.to);route(b.bridge.tiles);}}
   for(const p of c.people){
     around(p.pos??c.camp);const tk=p.task;
     if(tk.t==='explore'){
@@ -1985,6 +2000,69 @@ function scheduleDisaster(c:City,at:number){
   const targets=buildings(c).filter(([,b])=>isBuildingActive(b)).sort(([a],[b])=>cheb(b,c.camp)-cheb(a,c.camp)||a-b);
   c.disaster={kind:r()<.5?'flood':'earthquake',at:at+risk.interval,level:risk.level,center:targets[0]?.[0]??c.camp};
 }
+export const MAGIC_DEPOSIT_CHANCE=.02;
+export const DISASTER_RESOURCE_CHANCE={earthquake:.2,flood:.1};
+function rareDeposit(c:City,random:()=>number){
+  const options=[CRYSTAL_ORE,CRYSTAL_ORE,CRYSTAL_ORE,RUNE_ORE,...(c.era>=8?[ESSENCE_ORE]:[]),...(c.era>=9?[CELESTIAL_ORE]:[])];
+  return c.era>=7?options[Math.min(options.length-1,Math.floor(random()*options.length))]:null;
+}
+function naturalResource(c:City,random:()=>number,allowRare=true){
+  if(allowRare&&c.era>=7&&c.t.filter(isMagicDeposit).length<4&&random()<.002){const rare=rareDeposit(c,random);if(rare!==null)return rare;}
+  const roll=random();return roll<.45?F:roll<.75?HL:roll<.9?O:roll<.98?GOLD:DIAMOND;
+}
+/** Do not place an impassable deposit across a narrow passage. */
+function openDepositSite(c:City,tile:number){
+  const x=tile%W,y=Math.floor(tile/W),neighbors:number[]=[];
+  for(const [dx,dy]of N4)if(inb(x+dx,y+dy)){const i=idx(x+dx,y+dy);if(c.t[i]!==R&&!isRock(c.t[i])&&!c.b[i])neighbors.push(i);}
+  if(neighbors.length<2)return false;
+  const reached=new Set([neighbors[0]]),queue=[neighbors[0]];
+  for(let n=0;n<queue.length;n++)for(const [dx,dy]of N4){const nx=queue[n]%W+dx,ny=Math.floor(queue[n]/W)+dy;
+    if(!inb(nx,ny)||Math.abs(nx-x)>1||Math.abs(ny-y)>1)continue;const i=idx(nx,ny);
+    if(i===tile||reached.has(i)||c.b[i]||c.t[i]===R||isRock(c.t[i]))continue;reached.add(i);queue.push(i);
+  }
+  return neighbors.every(i=>reached.has(i));
+}
+/** Connected four-neighbor clearings, including empty ground inside the old
+ * building buffer. Actors, live routes, bridge decks and the camp stay pinned. */
+export function seedOpenLand(c:City,at:number,random:()=>number){
+  const keep=wildernessKeep(c,at,true),visited=new Uint8Array(W*H),candidates:number[]=[];
+  for(const camp of c.camps)keep[camp.at]=1;for(const herd of c.herds)keep[herd.at]=1;
+  let spawned=0;
+  for(let start=0;start<c.t.length;start++){
+    if(visited[start]||keep[start]||c.t[start]!==G)continue;
+    const region=[start];visited[start]=1;
+    for(let n=0;n<region.length;n++)for(const [dx,dy]of N4){const x=region[n]%W+dx,y=Math.floor(region[n]/W)+dy;if(!inb(x,y))continue;const i=idx(x,y);if(visited[i]||keep[i]||c.t[i]!==G)continue;visited[i]=1;region.push(i);}
+    if(region.length<4)continue;
+    candidates.push(...region);
+    const quota=Math.min(4,Math.max(1,Math.floor(region.length/64)));
+    // Seeded shuffle avoids always choosing the top-left cell of a clearing.
+    for(let n=region.length-1;n>0;n--){const j=Math.min(n,Math.floor(random()*(n+1)));[region[n],region[j]]=[region[j],region[n]];}
+    let added=0;
+    for(const i of region){if(added>=quota)break;if(!openDepositSite(c,i))continue;c.t[i]=naturalResource(c,random,false);delete c.dep[i];added++;spawned++;}
+  }
+  let rare=0;
+  if(c.era>=7&&c.t.filter(isMagicDeposit).length<4&&random()<MAGIC_DEPOSIT_CHANCE){
+    const eligible=candidates.filter(i=>c.t[i]===G&&openDepositSite(c,i));
+    if(eligible.length){const i=eligible[Math.min(eligible.length-1,Math.floor(random()*eligible.length))],kind=rareDeposit(c,random)!;c.t[i]=kind;delete c.dep[i];rare=1;}
+  }
+  return {spawned,rare};
+}
+/** Permanent loss uses a dedicated event stream, independent of the damage
+ * roll. Carried goods survive, but training/construction and investments do not. */
+export function disasterResource(c:City,tile:number,kind:'earthquake'|'flood',at:number,random:()=>number){
+  const b=c.b[tile];if(!b||at<(c.frontierResourcesStartsAt??-Infinity)||random()>=DISASTER_RESOURCE_CHANCE[kind])return false;
+  delete c.b[tile];c.queue=c.queue.filter(q=>q.source!==tile);
+  if(c.magic&&b.uid!==undefined){const id=`m${b.uid}`;delete c.magic.factories[id];delete c.magic.mana[id];c.magic.topology='';}
+  // River tiles must retain their channel; a destroyed waterside structure
+  // leaves harvestable driftwood on the nearest free bank instead.
+  const resourceTile=c.t[tile]===R?nearestTile(c,tile,i=>c.t[i]===G&&!c.b[i],3):tile;
+  if(resourceTile>=0){c.t[resourceTile]=c.t[tile]===R?F:naturalResource(c,random);delete c.dep[resourceTile];}
+  for(const p of c.people)if(p.task.t==='work'&&p.task.at===tile)setTask(c,p,{t:'idle'},at);
+  if(b.k==='levee')replanProtectedCourse(c,at);
+  const capacity=stats(c,derive(c),at).storage;
+  for(const r of RES)c.res[r]=Math.min(c.res[r],capacity[r]);
+  return true;
+}
 /** Seeded land patches; rivers retain their channel until a warned river shift. */
 export function renewWilderness(c:City,at:number){
   const keep=wildernessKeep(c,at),terrainKeep=keep.slice();
@@ -2002,8 +2080,9 @@ export function renewWilderness(c:City,at:number){
     if(next!==c.t[i]||c.dep[i])changed++;c.t[i]=next;delete c.dep[i];
   }
   c.oldbed=c.oldbed.filter(i=>terrainKeep[i]||c.t[i]===R);
-  log(c,at,`Sương phủ đất hoang: che lại ${hidden} ô, tái tạo ${changed} ô rừng/mỏ/đất. Công trình, vùng đệm 2 ô, điểm tập kết và tuyến đang dùng được giữ nguyên. Khám phá lại để tìm nguồn mới.`);
-  return {hidden,changed};
+  const open=at<(c.frontierResourcesStartsAt??-Infinity)?{spawned:0,rare:0}:seedOpenLand(c,at,rng(c.seed^Math.imul(Math.floor(at/WILDERNESS_MS)+101,2246822519)));
+  log(c,at,`Sương phủ đất hoang: che lại ${hidden} ô, tái tạo ${changed} ô rừng/mỏ/đất. Cụm đất trống từ 4 ô: thêm ${open.spawned} nguồn${open.rare?' và 1 mỏ ma pháp cực hiếm':''}. Giữ công trình, điểm tập kết và tuyến đang dùng. Khám phá lại để tìm nguồn mới.`);
+  return {hidden,changed,...open};
 }
 function stepFrontier(c:City,at:number){
   let changed=false;
@@ -2024,8 +2103,9 @@ function stepFrontier(c:City,at:number){
     if(d.kind==='flood')flood(c,derive(c),at,random,true);
     else{
       const targets=buildings(c).filter(([i,b])=>isBuildingActive(b)&&!b.doneAt&&cheb(i,d.center)<=3).sort(([a],[b])=>cheb(a,d.center)-cheb(b,d.center)||a-b).slice(0,d.level+1);
-      for(const [,b]of targets){b.burned=true;b.damageCause='earthquake';}
-      notifyDisaster(c,at,'earthquake',targets.length?'impact':'protected',`Động đất ${targets.length?`làm hư ${targets.length} công trình (${targets.map(([,b])=>def(b.k).n).join(', ')})`:'không làm hư công trình nào'} quanh ô (${d.center%W+1},${Math.floor(d.center/W)+1}). Công trình vẫn giữ vị trí và cấp; bấm Sửa để hoạt động lại.`,targets.map(([tile])=>tile));
+      const lossRandom=rng(c.seed^Math.imul(Math.floor(d.at/MIN)+107,1597334677));let lost=0;
+      for(const [tile,b]of targets){if(disasterResource(c,tile,'earthquake',at,lossRandom)){lost++;continue;}b.burned=true;b.damageCause='earthquake';}
+      notifyDisaster(c,at,'earthquake',targets.length?'impact':'protected',`Động đất làm hư ${targets.length-lost} công trình, phá hủy vĩnh viễn ${lost} công trình và thay bằng tài nguyên quanh ô (${d.center%W+1},${Math.floor(d.center/W)+1}). Nhà còn lại giữ cấp, bấm Sửa; phí phục hồi tăng theo cấp.`,targets.map(([tile])=>tile));
     }
     delete c.disaster;scheduleDisaster(c,at);changed=true;
   }
@@ -2066,17 +2146,18 @@ function replanProtectedCourse(c:City,at:number){
 
 function flood(c: City, D: Derived, at: number, r: () => number, extra=false) {
   if (!extra && r() > 0.6) { log(c, at, "Mùa thu êm, sông không tràn bờ."); return; }
-  const hit: string[] = [],tiles:number[]=[];
+  const hit: string[] = [],tiles:number[]=[],lossRandom=rng(c.seed^Math.imul(Math.floor(at/MIN)+131,1597334677));let lost=0;
   for (const [i, b] of buildings(c)) {
     if (!floodProtection(c,i) && !b.flooded && D.rd[i] === 1 && !isFloodproof(b.k) && !D.prot[i] && r() < 0.45) {
+      hit.push(def(b.k).n);tiles.push(i);
+      if(disasterResource(c,i,'flood',at,lossRandom)){lost++;continue;}
       b.flooded = true;
       if(c.era>=6)b.floodUntil=at+(retentionProtected(c,i)?.5:1)*6*HOUR*(!extra&&c.modern?.floodForecast?.at===at&&c.modern.floodForecast.major?1.5:1);
-      hit.push(def(b.k).n);tiles.push(i);
     }
   }
   for (const p of c.people) if (p.task.t === "work" && c.b[p.task.at]?.flooded) p.task = { t: "idle" };
   c.boostUntil = at + 4 * SEASON_MS;
-  const tail = "Phù sa mới: hái lượm và ruộng trên đất phù sa +50% trong một năm.";
+  const tail = `${lost?`${lost} công trình bị phá hủy vĩnh viễn, thay bằng tài nguyên. `:''}Nhà còn lại có thể phục hồi, phí tăng theo cấp. Phù sa mới: hái lượm và ruộng trên đất phù sa +50% trong một năm.`;
   notifyDisaster(c, at, "flood",hit.length?"impact":"protected", hit.length
     ? `${extra?'Lũ bất thường':'Lũ mùa thu'} làm ngập ${hit.length} công trình (${[...new Set(hit)].join(", ")}). Bấm vào để sửa. ${tail}`
     : `Lũ tràn bờ nhưng không gây hại. Đê và vị trí công trình giúp làng an toàn. ${tail}`, tiles);
@@ -2525,6 +2606,7 @@ export function settle(c: City, now: number, budget?: SettlementBudget) {
   c.wheelFuelStartsAt??=now;
   c.gatherFoodStartsAt??=now;
   c.farmAutoStartsAt??=now;
+  c.frontierResourcesStartsAt??=now;
   c.hungerStartsAt??=now;
   c.economyBalanceStartsAt??=now;
   if (now <= c.last) return;
@@ -2870,12 +2952,12 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
   if (a.type === "speedBuild") {
     const b=c.b[idx(a.x,a.y)];
     if(!b?.doneAt||b.doneAt<=now)return "Công trình không còn đang xây.";
-    const cost=speedBuildCost(b,now);
-    if(c.res.diamond<cost)return `Cần ${cost} kim cương để hoàn tất.`;
-    c.res.diamond-=cost;recordResourceFlow(c,now,'spent','diamond',cost);b.doneAt=now;
+    const cost=speedBuildQuote(c,b,now),error=missing(c,cost);
+    if(error)return error;
+    pay(c,cost,-1,now);b.doneAt=now;
     // Use the normal construction completion path, including staffing and wonders.
     completeBuilding(c,b,now);autoStaff(c, now);
-    log(c,now,`Dùng ${cost} kim cương hoàn tất ${def(b.k).n}.`,"good");return null;
+    log(c,now,`Dùng ${costText(cost)} hoàn tất ${def(b.k).n}.`,"good");return null;
   }
   if(a.type==='tendFarmGroup'){
     const quote=farmGroupCareQuote(c,idx(a.x,a.y));if(quote.error)return quote.error;

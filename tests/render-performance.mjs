@@ -370,6 +370,48 @@ fleeingCrowd.update(fleeingCity,.1,10000);assert.equal(fleeingActor.visible,fals
 delete fleeingCity.raid;updateRefuges(fleeingCity,10000);fleeingCrowd.update(fleeingCity,.1,11000);assert.equal(fleeingActor.visible,true);assert.equal(fleeingActor.run,true);
 console.log('PASS: a loaded worker runs to shelter before hauling logic, hides only on arrival and returns with cargo intact.');
 
+// Exercise the optional browser caches without changing persisted simulation state.
+const {createLayerCache,createTreeCache}=await import(pathToFileURL(path.join(temp,'draw.js')).href);
+const {F}=await import(pathToFileURL(path.join(temp,'engine.js')).href);
+const forest=newCity(0,123);forest.t.fill(G);forest.seen.fill(1);forest.b={};forest.people=[];forest.camps=[];forest.herds=[];
+for(let y=8;y<=12;y++)for(let x=8;x<=12;x++)forest.t[idx(x,y)]=F;
+const forestD=derive(forest),trees=createTreeCache(),ground=createLayerCache();let builds=0,blits=0;
+ground.onBuild=()=>builds++;
+const oldDocument=globalThis.document;
+const offscreen=()=>new Proxy({}, {set(){return true;},get(_,key){
+ if(key==='measureText')return text=>({width:String(text).length*7});
+ if(String(key).startsWith('create'))return()=>({addColorStop(){}});
+ return(...args)=>assert.ok(args.every(n=>typeof n!=='number'||Number.isFinite(n)),`cache invalid ${String(key)}`);
+}});
+globalThis.document={createElement:()=>({width:0,height:0,getContext:()=>offscreen()})};
+const cachedContext=new Proxy(renderContext,{get(target,key){if(key==='drawImage')return()=>blits++;return target[key];}});
+try{
+ const f=fitView(390,844),cam={zoom:3,px:0,py:0,rotation:0};focusOn(f,cam,10.5,10.5,3);
+ const options={v:camView(f,cam),now:0,anim:12345,hover:null,selected:null,tool:null,villagers:[],picked:new Set(),fx:[],chopping:new Set(),trees,dpr:2};
+ const before=JSON.stringify(forest);
+ drawCity(cachedContext,forest,forestD,options);const size=trees.size;
+ assert.ok(size>0&&size<=20,'crown variants must be quantized and reusable');
+ const warmBlits=blits;drawCity(cachedContext,forest,forestD,options);
+ assert.equal(trees.size,size);assert.ok(blits>warmBlits,'warm crowns use bitmaps');
+ for(const rotation of [1,2,3]){
+  cam.rotation=rotation;focusOn(f,cam,10.5,10.5,3);
+  drawCity(cachedContext,forest,forestD,{...options,v:camView(f,cam)});
+  assert.equal(trees.size,size,'billboard crowns reuse sprites after rotation');
+ }
+ blits=0;drawCity(cachedContext,forest,forestD,{...options,chopping:new Set(Array.from({length:96*96},(_,i)=>i))});
+ assert.equal(blits,0,'chopping crowns must stay live');
+ drawCity(cachedContext,forest,forestD,{...options,ground});const first=builds;
+ drawCity(cachedContext,forest,forestD,{...options,ground});assert.equal(builds,first);
+ const changed=structuredClone(forest);changed.seen[idx(10,10)]=0;
+ drawCity(cachedContext,changed,derive(changed),{...options,ground});assert.equal(builds,first+1,'new snapshot invalidates fog');
+ // The visited village is settled in place, rather than replaced by queue snapshots.
+ changed.last++;changed.t[idx(10,10)]=G;
+ drawCity(cachedContext,changed,derive(changed),{...options,ground});assert.equal(builds,first+2,'in-place settlement invalidates terrain');
+ assert.equal(JSON.stringify(forest),before,'cache rendering mutated the game');
+ assert.ok(trees.weight<=12*1024*1024,'sprite retention exceeds memory budget');
+ console.log('PASS: bounded tree sprites, rotation reuse, live chopping, immutable cached renders and terrain/fog invalidation.');
+}finally{if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;}
+
 // Expanded buildings must never silently share the old industrial fallback.
 const {MAGIC_EXPANSION}=await import(pathToFileURL(path.join(temp,'building-expansion.js')).href);
 function expansionTrace(k,lvl,rotation){

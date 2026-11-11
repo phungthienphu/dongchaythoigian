@@ -1,5 +1,8 @@
 "use client";
 import ZombiePanel from './ZombiePanel';
+import {RenderQuality,mapDetailLow} from '@/lib/render-quality';
+import {FrameProfile} from '@/lib/frame-profile';
+import FrameProfilePanel from './FrameProfilePanel';
 import {towerStats} from '@/lib/tower-balance';
 import {defendingTowers} from '@/lib/engine';
 import {pollutionBirth} from '@/lib/industry';
@@ -13,14 +16,14 @@ import { ReadFlights } from "@/lib/read-flights";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, CAP, GATHER_SPEED, resourceUnlocked, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  dockRelocationPlan, buildingJobs,storageCapacity, availableForQuickAssign, quickAssignBlockedReason, isScout, taskResource, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
+  dockRelocationPlan, buildingJobs,storageCapacity, availableForQuickAssign, quickAssignBlockedReason, isScout, taskResource, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildQuote, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
   armyCap, armyUsed, barracksCapacity, buildingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   homeSoldiers, armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, farmAutoStatus, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
 } from "@/lib/engine";
 import {mapRotationShortcut} from "./map-shortcuts";
 import {captureMapTurn,paintMapTurn,type MapTurn} from "./map-transition";
-import { createLayerCache, projectWorld, rotateCam, screenToWorld, MAX_ZOOM, camView, clampCam, drawCity, fitView, focusOn, pickBuilding, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
+import { createTreeCache, createLayerCache, projectWorld, rotateCam, screenToWorld, MAX_ZOOM, camView, clampCam, drawCity, fitView, focusOn, pickBuilding, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import {drawSelectionBox,inSelection,selectionMoved,type SelectionDrag} from './map-selection';
 import { Crowd } from "./villagers";
 import { erasUpTo, RELEASED_ERA } from "@/lib/eras";
@@ -335,6 +338,18 @@ function ControlPanel(props: {
 }
 
 export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
+  const profileRef=useRef<FrameProfile|null>(null);
+  useEffect(()=>{
+    if(new URLSearchParams(location.search).get('perf')!=='1')return;
+    profileRef.current=new FrameProfile();
+    if(typeof PerformanceObserver==='undefined')return;
+    const observer=new PerformanceObserver(list=>{
+      if(document.hidden)return;
+      for(const entry of list.getEntries())profileRef.current?.add('longTask',entry.duration);
+    });
+    try{observer.observe({type:'longtask',buffered:false});}catch{/* Unsupported browser. */}
+    return()=>{observer.disconnect();profileRef.current=null;};
+  },[]);
   const hudRef=useCallback((header:HTMLElement|null)=>{
     if(!header)return;
     const game=header.parentElement;
@@ -703,11 +718,13 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if (authErr) { setMsg({ text: authErr === 'session' ? "Chưa xác nhận được phiên chơi trên máy chủ trận đánh. Hãy thử đăng nhập lại." : "Đăng nhập Google không thành công, thử lại.", err: true }); history.replaceState(null, "", "/"); }
     const tick = setInterval(() => {
       const c = cityRef.current;
-      if (!c || recoveringRef.current) return;
+      if (!c || recoveringRef.current || document.hidden) return;
+      const started=profileRef.current?performance.now():0;
       actionQueue.current?.advance(now());
       const vis = visitRef.current;
       if (vis) { if (!vis.city.battleId) settle(vis.city, now()); vis.D = derive(vis.city); vis.crowd.sync(vis.city); }
       bump();
+      if(profileRef.current)profileRef.current.add('tick',performance.now()-started);
     }, 1000);
     const refreshVisible = () => {
       if (document.visibilityState !== "visible" || recoveringRef.current) return;
@@ -739,8 +756,9 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if (!cv || !frame) return;
     const ctx = cv.getContext("2d")!;
     const rm = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    // Pixel ratio cap; lowered once per step when the device cannot keep up while active.
-    let dpr = 1, dprCap = 2;
+    // Lower resolution under sustained load; recover only after prolonged headroom.
+    let dpr = 1;
+    const quality = new RenderQuality();
     const resize = () => {
       const w = frame.clientWidth, h = frame.clientHeight;
       const cam = camRef.current, v = camView(fitRef.current, cam);
@@ -750,7 +768,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       rotationFadeRef.current=null;
       if (focusedRef.current) focusOn(f, cam, cx,cy, cam.zoom);
       else clampCam(f, cam);
-      dpr = Math.min(dprCap, window.devicePixelRatio || 1);
+      dpr = Math.min(quality.cap, window.devicePixelRatio || 1);
       cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
     };
     const ro = new ResizeObserver(resize);
@@ -765,11 +783,21 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     cv.addEventListener("wheel", onWheel, { passive: false });
     let raf = 0, last = 0;
     const ground = createLayerCache(), items = createLayerCache();
+    // Development-only A/B comparison; production always uses bounded crown sprites.
+    const trees=process.env.NODE_ENV!=='production'&&new URLSearchParams(location.search).get('trees')==='0'?undefined:createTreeCache();
+    if(profileRef.current){
+      ground.onBuild=items.onBuild=ms=>profileRef.current?.add('cache',ms);
+    }
     // Full frame rate while the player moves the camera or pointer; ~30 fps when idle.
     let activeAt = 0, cx = NaN, cy = NaN, cz = NaN, cr = NaN, ch: unknown = null, cd: unknown = null;
-    let slowSum = 0, slowN = 0;
+    let lowDetail:boolean|undefined;
+    let inputAt:number|null=null;
+    const input=(event:Event)=>{inputAt??=event.timeStamp;activeAt=performance.now();};
+    for(const type of ['pointerdown','pointermove','pointerup','wheel'])cv.addEventListener(type,input,{passive:true});
+    const resume=()=>{last=0;inputAt=null;quality.sample(performance.now(),0,false,window.devicePixelRatio||1);};
+    document.addEventListener('visibilitychange',resume);
     const loop = (t: number) => {
-      if(document.hidden || renderPausedRef.current){last=t;raf=requestAnimationFrame(loop);return;}
+      if(document.hidden || renderPausedRef.current){last=0;inputAt=null;raf=requestAnimationFrame(loop);return;}
       const cam = camRef.current, drag = selectionDrag.current, hov = viewRef.current.hover;
       if (cam.px !== cx || cam.py !== cy || cam.zoom !== cz || (cam.rotation ?? 0) !== cr || hov !== ch || drag?.end !== cd) {
         cx = cam.px; cy = cam.py; cz = cam.zoom; cr = cam.rotation ?? 0; ch = hov; cd = drag?.end; activeAt = t;
@@ -777,34 +805,39 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       if (t - activeAt > 1000 && t - last < 30) { raf = requestAnimationFrame(loop); return; }
       const vis = visitRef.current;
       const c = vis ? vis.city : cityRef.current, D = vis ? vis.D : dRef.current, crowd = vis ? vis.crowd : crowdRef.current;
-      const dt = last ? Math.min(0.1, (t - last) / 1000) : 0;
+      const frameMs=last?t-last:0;
+      const dt = Math.min(0.1, frameMs / 1000);
       last = t;
-      // Below ~35 fps over 90 active frames: drop half a step of pixel ratio (not below 1).
-      if (dt > 0 && t - activeAt <= 1000) {
-        slowSum += dt;
-        if (++slowN === 90) {
-          if (slowSum / slowN > 0.028 && dpr > 1) { dprCap = Math.max(1, dpr - 0.5); resize(); }
-          slowSum = 0; slowN = 0;
-        }
-      }
+      const active=t-activeAt<=1000;
+      if(quality.sample(t,frameMs,active,window.devicePixelRatio||1))resize();
+      const profile=profileRef.current;
+      if(frameMs>0){profile?.add('frame',frameMs);if(active)profile?.add('activeFrame',frameMs);}
       if (c && D) {
         if (!focusedRef.current) {
           const f = fitRef.current;
           focusOn(f, camRef.current, (c.camp % W) + 0.5, Math.floor(c.camp / W) + 0.5, Math.min(MAX_ZOOM, 60 / f.TW));
           focusedRef.current = true;
         }
+        const started=profile?performance.now():0;
         if (!rm) crowd.update(c, dt, now());
+        const drawStarted=profile?performance.now():0;
+        profile?.add('crowd',drawStarted-started);
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const view = vis ? VISIT_VIEW : viewRef.current;
-        drawCity(ctx, c, D, { v: camView(fitRef.current, camRef.current), now: now(), anim: rm ? 0 : t, villagers: crowd.list, fx: crowd.fx, chopping: crowd.chopping, ...view, rules, ground, items, dpr });
+        const v=camView(fitRef.current,camRef.current);
+        lowDetail=mapDetailLow(v.TW,lowDetail);
+        if(profile)profile.view=`TW=${v.TW.toFixed(1)} DPR=${dpr} detail=${lowDetail?'low':'full'} trees=${!!trees}`;
+        drawCity(ctx, c, D, { v, now: now(), anim: rm ? 0 : t, villagers: crowd.list, fx: crowd.fx, chopping: crowd.chopping, ...view, rules, ground, items, dpr, lowDetail, trees: v.TW >= 24 && v.TW <= 60 ? trees : undefined });
         const turn=rotationFadeRef.current;
         if(turn&&!paintMapTurn(ctx,turn,t,fitRef.current.width,fitRef.current.height))rotationFadeRef.current=null;
         if(!vis)drawSelectionBox(ctx,selectionDrag.current);
+        profile?.add('draw',performance.now()-drawStarted);
+        if(inputAt!==null){profile?.add('input',performance.now()-inputAt);inputAt=null;}
       }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); cv.removeEventListener("wheel", onWheel); };
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); cv.removeEventListener("wheel", onWheel);document.removeEventListener('visibilitychange',resume);for(const type of ['pointerdown','pointermove','pointerup','wheel'])cv.removeEventListener(type,input); };
   }, [loading, needsName]);
 
   const act = async (a: Action) => {
@@ -1196,6 +1229,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
   return (
     <main className={"game ui-game" + (visiting ? " visiting" : "") + (largeText?" large-text":"")} data-panel={panel??undefined} data-overlay={worldOpen||!!battleOpen?true:undefined}>
+      <FrameProfilePanel profile={profileRef}/>
       <div className="mapframe" ref={frameRef}>
         <canvas
           ref={canvasRef}
@@ -1355,7 +1389,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                 const reason=lv>=MAX_LVL?"Đã tối đa":locked?"Cần xây/nâng Đình làng":sel.doneAt?"Kho đang nâng cấp":sel.flooded||sel.burned?"Cần sửa Kho":"";
                 return <div key={r}><p>{RN[r]} · cấp {lv} · {fmt(storageCapacity(sel,r))} chỗ{sel.storageUpgrade===r?` · đang nâng (${fmtDur((sel.doneAt??t)-t)})`:""}</p><button disabled={busy||!!reason} onClick={()=>act({type:"upgradeStorage",...selected,resource:r})}>{reason||`Nâng ${RN[r]} lên cấp ${lv+1} · ${costText(levelCost(sel.k,lv+1,c.era))} · ${fmtDur(buildMs(sel.k,lv+1))}`}</button></div>;
               })}</div>}
-              {sel.doneAt && <button disabled={busy||c.res.diamond<speedBuildCost(sel,t)} onClick={()=>act({type:"speedBuild",...selected})}>Hoàn tất ngay · {speedBuildCost(sel,t)} kim cương (30 giây / viên)</button>}
+              {sel.doneAt && (()=>{const fee=speedBuildQuote(c,sel,t),short=RES.filter(r=>c.res[r]<(fee[r]??0));return <div><button disabled={busy||short.length>0} onClick={()=>act({type:"speedBuild",...selected})}>Hoàn tất ngay · {costText(fee)}</button><p className="small muted">Phí thêm: kim cương (30 giây/viên) và vật liệu theo thời gian còn lại. Cấp 1: tối đa 25%, cấp 2: 50%, từ cấp 3: 100% giá vật liệu lần nâng. Không hoàn phí tăng tốc.{short.length>0?` Thiếu: ${costText(Object.fromEntries(short.map(r=>[r,Math.ceil((fee[r]??0)-c.res[r])])))}.`:''}</p></div>;})()}
               {(sel.flooded || sel.burned) && <button className="primary" disabled={busy} onClick={() => act({ type: "repair", ...selected })}>Sửa ({costText(repairCost(sel.k, sel.lvl, !!sel.burned, c.era))})</button>}
               {!["storehouse","grandstore"].includes(sel.k) && B[sel.k].up && sel.lvl >= 1 && sel.lvl < (sel.k==="hall"?rules.maxEra:MAX_LVL) && sel.lvl >= levelCap(c, sel.k) && (
                 <p className="muted small">{hallLv ? `Nâng Đình làng lên cấp ${sel.lvl + 1} để nâng tiếp.` : "Xây Đình làng (Thời đồ đồng) để nâng cấp công trình."}</p>

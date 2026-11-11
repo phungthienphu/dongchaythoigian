@@ -1,3 +1,4 @@
+import {MAGIC_BUILDINGS,magicDef,type MagicBuilding} from './magic-data';
 import {RELEASE_RULES,type EngineRules} from './eras';
 import { B, RES, W, canPlace, type BKey, type City, type Derived } from './engine';
 
@@ -17,6 +18,8 @@ export function placementTiles(c: City, d: Derived, tool: BKey,rules:EngineRules
   };
 }
 export function placementHint(k: BKey) {
+  if(k in MAGIC_BUILDINGS){const d=magicDef(k as MagicBuilding),support=d.support?.map(s=>B[s as BKey].n).join(' hoặc ');if(support)return `Cần ${support} hoạt động trong 6 ô và có đường nối${d.mana?' cùng nguồn mana':''}. Đặt trên đất trống; thiếu điều kiện thì xây xong chưa sản xuất.`;}
+
   if(k==='bridgehead')return 'Đặt ở bờ đối diện Cầu Sắt đã xây, thẳng hàng qua hơn 2 ô nước liên tục.';
   if (k === 'coalmine')return 'Đặt trên ô mỏ than có vân đen, đã khám phá.';
   if (k === 'quarry') return 'Đặt trên ô đồi đá đã khám phá.';
