@@ -370,4 +370,29 @@ fleeingCrowd.update(fleeingCity,.1,10000);assert.equal(fleeingActor.visible,fals
 delete fleeingCity.raid;updateRefuges(fleeingCity,10000);fleeingCrowd.update(fleeingCity,.1,11000);assert.equal(fleeingActor.visible,true);assert.equal(fleeingActor.run,true);
 console.log('PASS: a loaded worker runs to shelter before hauling logic, hides only on arrival and returns with cargo intact.');
 
+// Expanded buildings must never silently share the old industrial fallback.
+const {MAGIC_EXPANSION}=await import(pathToFileURL(path.join(temp,'building-expansion.js')).href);
+function expansionTrace(k,lvl,rotation){
+ const trace=[],stack=[];let state={globalAlpha:1};
+ const c=new Proxy({}, {set(_,key,value){state[key]=value;trace.push(['style',key,value]);return true;},get(_,key){
+  if(key==='save')return ()=>stack.push({...state});
+  if(key==='restore')return ()=>{assert.ok(stack.length);state=stack.pop();};
+  if(key in state)return state[key];
+  if(key==='createRadialGradient'||key==='createLinearGradient')return (...args)=>{assert.ok(args.every(Number.isFinite));return {addColorStop(){}};};
+  if(key==='measureText')return text=>({width:String(text).length*7});
+  return (...args)=>{assert.ok(args.every(v=>typeof v!=='number'||Number.isFinite(v)),k+': invalid coordinate');trace.push([key,...args]);};
+ }});
+ const rc={c,v:{...pickView,rotation},city:rotationCity,D:derived,anim:0,now:0,season:0,deck:new Set()};
+ drawBuilding(rc,k,10,10,lvl,-1);assert.equal(stack.length,0);return JSON.stringify(trace);
+}
+const screenshotKeys=['crystalgranary','wardbastion','herbalconservatory','forestenclave','stonecircle','arcaneresidence'];
+for(const rotation of [0,1,2,3]){
+ const traces=screenshotKeys.map(k=>expansionTrace(k,1,rotation));assert.equal(new Set(traces).size,screenshotKeys.length,'distinct building roles');
+ for(const [k,d]of Object.entries(MAGIC_EXPANSION)){
+  const first=expansionTrace(k,1,rotation);
+  if(d.upgrade){const second=expansionTrace(k,2,rotation),third=expansionTrace(k,3,rotation);assert.notEqual(first,second,k+': level 2');assert.notEqual(second,third,k+': level 3');}
+ }
+}
+console.log('PASS: expansion art has distinct roles, upgrades differ, and all four rotations have finite coordinates and balanced state.');
+
 } finally { fs.rmSync(temp, { recursive: true, force: true }); }

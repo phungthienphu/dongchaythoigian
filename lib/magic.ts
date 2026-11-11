@@ -28,10 +28,10 @@ const CONTRACT_OF=Object.fromEntries(Object.entries(CONTRACT_RESEARCH).map(([k,v
 const KINDS=new Set<string>(Object.keys(MAGIC_BUILDINGS));
 /** Buildings whose mana, inputs and outputs run in magic-production. Crystal,
  * rune and essence workshops use the ordinary carried-goods pipeline instead. */
-export const PRODUCTION=new Set<string>(['aetherwell','manaspire','mageacademy','spiritgarden','rivershrine','wardcircle','firealtar','watertemple','woodgrove','earthtemple','harmonizer','observatory','riverpalace']);
-export const SOURCES=new Set<string>(['aetherwell','manaspire']);
+export const PRODUCTION=new Set<string>(Object.keys(MAGIC_BUILDINGS).filter(k=>{const d=magicDef(k as MagicBuilding);return !d.output&&(!!d.source||d.mana!==undefined||!!d.knowledge);}));
+export const SOURCES=new Set<string>(Object.keys(MAGIC_BUILDINGS).filter(k=>magicDef(k as MagicBuilding).source));
 /** Not mana receivers: carried workshops (except the essence forge, which pays mana per load) and wonders. */
-const OFF_NETWORK=new Set<string>(['crystalworks','runeworks','awakeningtower','fourspirits']);
+export const OFF_NETWORK=new Set<string>(Object.keys(MAGIC_BUILDINGS).filter(k=>{const d=magicDef(k as MagicBuilding);return !d.source&&!d.relay&&d.mana===undefined;}));
 const W=96;
 export const point=(tile:number)=>({x:tile%W+.5,y:Math.floor(tile/W)+.5});
 export const distance=(a:{x:number;y:number},b:{x:number;y:number})=>Math.hypot(a.x-b.x,a.y-b.y);
@@ -157,12 +157,13 @@ export function magicBuildError(c:City,k:BKey,tile:number):string|null{
 }
 /** Old industry must keep running: no mana bypass for the crystal/rune chains. */
 export function magicSupportError(c:City,tile:number,b:Building):string|null{
- const support=b.k==='crystalworks'?['forge']:b.k==='runeworks'?['artisan','machine']:b.k==='essenceforge'?['machine']:b.k==='celestialforge'?['complex']:null;if(!support)return null;
+ const support=isMagicBuilding(b.k)?magicDef(b.k as MagicBuilding).support:null;if(!support?.length)return null;
  // Runs on every carried load: scan only the 6-tile box (ascending tile order, as
  // Object.entries would) and build the bridge deck only when a candidate exists.
  let deck:ReturnType<typeof bridgeDeck>|undefined;const x=tile%W,y=Math.floor(tile/W);
  for(let ny=Math.max(0,y-6);ny<=Math.min(W-1,y+6);ny++)for(let nx=Math.max(0,x-6);nx<=Math.min(W-1,x+6);nx++){const i=ny*W+nx,o=c.b[i];
   if(o&&support.includes(o.k)&&operating(o)&&tileDistance(tile,i)<=6&&routeConnected(c,tile,i,deck??=bridgeDeck(c)))return null;}
+ if(!['crystalworks','runeworks','essenceforge','celestialforge'].includes(b.k))return `Cần ${support.map(k=>({forge:'Xưởng dụng cụ',artisan:'Xưởng thủ công',machine:'Xưởng cơ khí',complex:'Tổ hợp sản xuất'}[k]??k)).join(' hoặc ')} hoạt động trong 6 ô, có đường nối.`;
  return b.k==='celestialforge'?'Cần Tổ hợp sản xuất hoạt động trong 6 ô, có đường nối.':b.k==='crystalworks'?'Cần Xưởng dụng cụ hoạt động trong 6 ô, có đường nối.':b.k==='essenceforge'?'Cần Xưởng cơ khí hoạt động trong 6 ô, có đường nối.':'Cần Xưởng thủ công hoặc Xưởng cơ khí hoạt động trong 6 ô, có đường nối.';
 }
 /** Academies, golem works and spirit stables each open their own magic army space. */
@@ -239,6 +240,11 @@ export function magicStructureDefense(c:City,at:number,actors:Zombie[],guards:Zo
  elementSpells(c,at,zombies);
  if(c.era>=9)mythDefense(c,at,zombies,guards);
  for(const [tile,b]of magicEntries(c)){if(!operating(b))continue;const id=magicSiteId(b),origin=point(tile);
+  const extraDefense=magicDef(b.k as MagicBuilding).defense;
+  if(extraDefense&&due(at,extraDefense.cooldown))for(const z of nearest(zombies.filter(z=>z.hp>0&&distance(z,origin)<=extraDefense.range),origin,z=>z.id).slice(0,extraDefense.targets)){
+    if('error'in spendMana(m.network,m.mana,id,extraDefense.mana))break;
+    z.hp-=extraDefense.damage;z.hitAt=at;
+  }
   if(b.k==='aetherwell'&&due(at,MAGIC_SPELLS.lightpulse.cooldown)){const s=MAGIC_SPELLS.lightpulse,hit=zombies.filter(z=>z.hp>0&&distance(z,origin)<=s.radius);
    if(hit.length&&(m.mana[id]??0)>=s.mana){m.mana[id]-=s.mana;for(const z of hit.slice(0,s.targets)){z.hp-=s.damage;z.hitAt=at;applySlow(z,'lightpulse',s.slow,at,at+s.duration);}}}
   if(b.k==='wardcircle'){

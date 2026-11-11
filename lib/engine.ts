@@ -714,7 +714,7 @@ export const eraCost = (cost: Partial<Res>, era: number, ironMultiplier: number)
   return out;
 };
 export const buildingCost = (k: BKey, era: number) => def(k).era>=4 ? {...def(k).cost} : eraCost(def(k).cost, era, 3);
-export const storageCapacity = (b:Building,r:ResKey) => isMagicResource(r)&&!isStorage(b.k) ? 0 : b.k==="grandstore" ? 10000*2**(storageLevel(b,r)-1) : (def(b.k).storage??0)*(b.k==="storehouse"?storageLevel(b,r):b.lvl);
+export const storageCapacity = (b:Building,r:ResKey) => isMagicResource(r)&&!isStorage(b.k)&&!(def(b.k).era>=7&&def(b.k).storage) ? 0 : b.k==="grandstore" ? 10000*2**(storageLevel(b,r)-1) : (def(b.k).storage??0)*(b.k==="storehouse"?storageLevel(b,r):b.lvl);
 export const trainingCost = (u: UKey, era: number) => UNITS[u].era>=4?{...UNITS[u].cost}:eraCost(UNITS[u].cost, era, 2);
 export const levelCost = (k: BKey, lvl: number, era = 1): Partial<Res> => {
   if(k==="hall"&&lvl===4)return {wood:3000,stone:5000,copper:1000,gold:200};
@@ -1663,7 +1663,7 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   if (!resource || !d.jobs) return null;
   if(d.demand&&!powerFraction(c,tk.at))return null;
   if(d.era>=7&&magicSupportError(c,tk.at,b))return null;
-  if(d.era>=8&&magicCargoLimit(c,b)<1e-9)return null;
+  if(d.era>=7&&magicCargoLimit(c,b)<1e-9)return null;
   if(b.k==='artisan'&&(c.res.wood<20||c.res.stone<10))return null;
   if(d.input&&Object.entries(d.input).some(([r,n])=>c.res[r as ResKey]<(n??0)/production[resource]!))return null;
   let rate = healthRate * production[resource]! * LVL_MULT[b.lvl] / buildingJobs(b) * ctx.mult * (b.k==='artisan'||def(b.k).era>=5?1:GATHER_SPEED);

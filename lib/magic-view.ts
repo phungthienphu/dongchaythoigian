@@ -1,9 +1,10 @@
+import {staffCounts} from './industry';
 /** Read-only selectors for the era 7–9 UI. Nothing here changes a city: research
  * previews run the engine check on copies, and the network is read as persisted. */
 import {B,buildingName,type Building,type City,type ResKey} from './engine';
 import {MAGIC_BUILDINGS,MAGIC_RESEARCH,MAGIC_SPELLS,CONTRACT_RESEARCH,magicDef,type Element,type MagicBuilding,type MagicGoods,type MagicSpell,type Research,type Contract} from './magic-data';
 import {beginMagicResearch} from './magic-research';
-import {RESEARCH_NAMES,SOURCES,PRODUCTION,isMagicBuilding,magicSiteId,magicSupportError,operating,tileDistance,flaskMages} from './magic';
+import {RESEARCH_NAMES,SOURCES,PRODUCTION,OFF_NETWORK,isMagicBuilding,magicSiteId,magicSupportError,operating,tileDistance,flaskMages} from './magic';
 import {ELEMENT_NAMES,SEAL_STATIONS} from './magic-elements';
 import {BEAST_SLOTS,CONTRACT_NAMES,DOMAIN_NAMES,MAX_PACKAGES,PACKAGE_SEALS,TELEPORT,altarActive,beastSlotsUsed,byUid,domainActive,eyeActive,matrixActive,type Domain,type PackageSpell} from './magic-myth';
 
@@ -11,7 +12,7 @@ export const KNOWLEDGE_CAP=5000;
 const W=96,HOUR=3600000;
 export const tileLabel=(tile:number)=>`(${tile%W}, ${Math.floor(tile/W)})`;
 const levelScale=(lvl:number)=>[0,1,1.6,2.4][Math.max(1,Math.min(3,lvl))];
-const OFF_NETWORK=new Set(['crystalworks','runeworks','awakeningtower','fourspirits']);
+
 export const PRIORITY_LABELS={health:'Chữa dân',defense:'Phòng thủ',input:'Đầu vào',output:'Đầu ra',other:'Còn lại'} as const;
 export type PriorityGroup=keyof typeof PRIORITY_LABELS;
 const PRIORITY_ORDER:PriorityGroup[]=['health','defense','input','output','other'];
@@ -148,9 +149,9 @@ export function magicDiagnosis(c:City,tile:number,now:number):Diagnosis|null{
  if(b.lvl<1||b.doneAt)blame('Đang xây hoặc nâng cấp.');
  else if(!operating(b))blame((c.b[tile] as Building).off?'Công trình đang tắt.':'Công trình hư hại, cần sửa.');
  // Workers
- if(d.jobs){const need=Math.ceil(d.jobs*levelScale(b.lvl)),have=f?.workers??0;needs.push({label:'Thợ',ok:have>=need,detail:`${have}/${need} thợ đã tới nơi`});if(have<=0)blame('Chưa có thợ làm việc. Giao dân rảnh vào công trình này.');}
+ if(d.jobs){const need=Math.ceil(d.jobs*levelScale(b.lvl)),have=PRODUCTION.has(b.k)?f?.workers??0:staffCounts(c).get(tile)??0;needs.push({label:'Thợ',ok:have>=need,detail:`${have}/${need} thợ đã tới nơi`});if(have<=0)blame('Chưa có thợ làm việc. Giao dân rảnh vào công trình này.');}
  // Old industry support
- const support=magicSupportError(c,tile,b);if(['crystalworks','runeworks','essenceforge','celestialforge'].includes(b.k)){needs.push({label:'Xưởng hỗ trợ',ok:!support,detail:support??'Có xưởng hỗ trợ hoạt động trong 6 ô.'});if(support)blame(support);}
+ const support=magicSupportError(c,tile,b);if(d.support?.length){needs.push({label:'Xưởng hỗ trợ',ok:!support,detail:support??'Có xưởng hỗ trợ hoạt động trong 6 ô.'});if(support)blame(support);}
  // Mana
  if(!SOURCES.has(b.k)&&!OFF_NETWORK.has(b.k)&&!d.relay){
   const bind=m.network.bindings[id];
@@ -184,6 +185,7 @@ export function magicDiagnosis(c:City,tile:number,now:number):Diagnosis|null{
  if(element){for(const s of sites)if(s.id!==id&&(m.seals?.[s.id]??[]).includes(element)&&tileDistance(s.tile,tile)<=6)serves.push({label:`Ấn ${ELEMENT_NAMES[element]} → ${siteName(c,s)}`,tile:s.tile});if(!serves.length)serves.push({label:`Chưa nhà nào trong 6 ô cần ấn ${ELEMENT_NAMES[element]}.`});}
  if(d.output&&!PRODUCTION.has(b.k))serves.push({label:`${goodsText(Object.fromEntries(Object.entries(d.output).map(([k,v])=>[k,v*levelScale(b.lvl)])) as MagicGoods)}/giờ về kho làng`});
  if(d.knowledge)serves.push({label:`${d.knowledge} tri thức ma pháp/giờ (trần ${KNOWLEDGE_CAP.toLocaleString('vi-VN')})`});
+ if(d.defense)serves.push({label:`Chống zombie: ${d.defense.damage} sát thương, tầm ${d.defense.range} ô, tối đa ${d.defense.targets} mục tiêu mỗi ${d.defense.cooldown/1000} giây; ${d.defense.mana} mana/mục tiêu.`});
  if(d.armySpace)serves.push({label:`${d.armySpace} chỗ quân ma pháp`});
  if(b.k==='spiritgarden')for(const t of m.boosted??[])serves.push({label:`Rút ngắn ca chữa tại ${buildingName(c,c.b[t]?.k??'healer')} ${tileLabel(t)}`,tile:t});
  if(b.k==='harmonizer'){for(const s of sites)if(SOURCES.has(s.b.k)&&tileDistance(s.tile,tile)<=6)serves.push({label:`+1 chỗ cấp cho ${siteName(c,s)}`,tile:s.tile});serves.push({label:'Giảm 8 ô nhiễm/giờ'});}

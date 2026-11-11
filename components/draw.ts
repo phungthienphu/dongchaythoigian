@@ -1,3 +1,4 @@
+import {MAGIC_EXPANSION,type ExpansionBuilding} from '@/lib/building-expansion';
 import {drawZombieArt} from './zombie-art';
 import {buildingIntegrity,zombieBuildingHp} from '@/lib/zombies';
 import {defenseAxis,wallMask,wallOutline,wallFootprints,wallHeight,WALL_N,WALL_E,WALL_S,WALL_W,type DefenseOrientation,type DefensePreview} from '@/lib/fortifications';
@@ -1500,7 +1501,66 @@ function treantPoint(t:{tile:number;route:number[];at:number;nextAt:number;phase
   return {x:a[0]+(b[0]-a[0])*u,y:a[1]+(b[1]-a[1])*u,walking:true,face:(b[0]-a[0])-(b[1]-a[1])>=0?1:-1};
 }
 
+/** Each role has its own silhouette; floor count, wings and equipment grow with
+ * levels. Shared primitives preserve camera rotation, depth and hit boxes. */
+function drawExpansionBuilding(r:RC,k:BKey,x:number,y:number,lvl:number,i:number){
+ const data=k in MAGIC_EXPANSION?MAGIC_EXPANSION[k as ExpansionBuilding]:null;
+ const modern=k==='recyclingworks'||k==='hydroponics';if(!data&&!modern)return false;
+ const role=data?.art??(k==='hydroponics'?'garden':'refinery'),accent=data?.tint??(k==='hydroponics'?'#90dbbf':'#e4ac66');
+ const era=data?.era??6,stone:Tri=era===9?['#ece9d9','#c9c9b9','#a1ac9e']:era===8?['#bfc6c0','#929d97','#6b7973']:['#d2c7ae','#ada084','#81795f'];
+ const roof:Tri=[accent,darken(accent,.25),darken(accent,.43)],metal:Tri=['#758990','#4e636e','#354954'];
+ const q=tp(r,x,y),c=r.c,s=r.v.s,H=16+lvl*6,lit=data?magicLit(r,k,i):1;
+ const bx=(u:number,v:number,w:number,d:number,z:number,h:number,col:Tri=stone)=>box(r,x,y,u,v,u+w,v+d,z,z+h,col[0],col[1],col[2]);
+ const cap=(u:number,v:number,w:number,d:number,z:number,h:number)=>gable(r,x,y,u,v,u+w,v+d,z,h,roof[0],roof[1],roof[2]);
+ shadow(r,x,y,.48);bx(-.46,-.46,.92,.92,0,3);
+ if(role==='source'){
+   for(let n=0;n<3;n++)bx(-.38+n*.06,-.38+n*.06,.76-n*.12,.76-n*.12,3+n*3,3,metal);
+   poly(c,[q(-.2,-.2,13),q(.2,-.2,13),q(.2,.2,13),q(-.2,.2,13)],rgba(accent,.65));
+   for(const [u,v]of [[-.32,-.32],[.32,-.32],[-.32,.32],[.32,.32]]){bx(u-.035,v-.035,.07,.07,3,14+lvl*3);crystal(r,x,y,u,v,17+lvl*3,4+lvl,accent);}
+   crystal(r,x,y,0,0,12,9+lvl*3,accent);glow(r,q(0,0,22),14,accent,.25*lit);
+ }else if(role==='bastion'){
+   bx(-.27,-.27,.54,.54,3,H+13);bx(-.35,-.35,.7,.7,H+16,4,metal);
+   for(const [u,v]of [[-.29,-.29],[.29,-.29],[-.29,.29],[.29,.29]]){bx(u-.045,v-.045,.09,.09,H+20,7+lvl);crystal(r,x,y,u,v,H+26+lvl,3,accent);}
+   crystal(r,x,y,0,0,H+20,10+lvl*2,accent);glow(r,q(0,0,H+29),13,accent,.3*lit);
+   for(let n=0;n<lvl+1;n++){const [sx,sy]=q(-.275,.08,10+n*7);c.fillStyle=accent;c.fillRect(sx-1.2*s,sy-2*s,2.4*s,4*s);}
+ }else if(role==='library'){
+   for(let n=0;n<lvl+1;n++){const w=.7-n*.09;bx(-w/2,-w/2,w,w,3+n*10,9);cap(-w/2-.06,-w/2-.06,w+.12,w+.12,12+n*10,6);}
+   for(let n=0;n<3;n++)bx(-.29+n*.2,.35,.09,.04,5,8,roof);
+   crystal(r,x,y,0,0,23+lvl*10,4,accent);
+ }else if(role==='vault'){
+   bx(-.37,-.35,.74,.7,3,H);cap(-.42,-.39,.84,.78,H+3,9);
+   bx(-.2,.351,.4,.025,4,H-2,metal);bx(-.02,.38,.04,.025,5,H-4,roof);
+   for(const u of [-.31,.29])bx(u,.34,.055,.06,4,H+1,roof);
+   for(let n=0;n<lvl;n++){bx(-.3+n*.18,-.24,.12,.18,H+4,4,metal);crystal(r,x,y,-.24+n*.18,-.15,H+8,3,accent);}
+ }else if(role==='garden'){
+   for(let n=0;n<3;n++){const v=-.34+n*.25;bx(-.37,v,.74,.19,3,4,['#7b6b4d','#5b513a','#453e30']);for(let t=0;t<3+lvl;t++){const [sx,sy]=q(-.28+t*.12,v+.08,8);c.fillStyle=t%2?accent:'#70a85a';c.beginPath();c.ellipse(sx,sy-3*s,2.5*s,4*s,-.3,0,Math.PI*2);c.fill();}}
+   for(const u of [-.41,.41])for(const v of [-.4,.4])bx(u-.015,v-.015,.03,.03,3,H,metal);
+   const top=[q(-.42,-.42,H+3),q(.42,-.42,H+3),q(.42,.42,H+3),q(-.42,.42,H+3)];poly(c,top,rgba(accent,.22));for(let n=0;n<4;n++)line(r,top[n],top[(n+1)%4],accent,1);
+   if(lvl>=2)cap(-.15,-.4,.3,.3,H+3,6);if(lvl>=3)crystal(r,x,y,0,0,H+9,5,accent);
+ }else if(role==='grove'){
+   bx(-.35,-.35,.7,.7,3,5,['#698a67','#526e50','#3b503b']);
+   const n=2+lvl;for(let j=0;j<n;j++){const a=j/n*Math.PI*2,u=Math.cos(a)*.23,v=Math.sin(a)*.23;bx(u-.025,v-.025,.05,.05,8,H-5,['#96775b','#725a42','#51422f']);const [sx,sy]=q(u,v,H+4);c.fillStyle=j%2?accent:'#52875c';c.beginPath();c.arc(sx,sy,7*s,0,Math.PI*2);c.fill();crystal(r,x,y,u,v,H+6,3,accent);}
+   cap(-.39,.24,.32,.2,9,5);
+ }else if(role==='quarry'){
+   for(let n=0;n<4+lvl;n++){const a=n*.97,u=Math.cos(a)*.26,v=Math.sin(a)*.26;bx(u-.09,v-.09,.18,.18,3,5+(n%3)*4);}
+   bx(-.37,-.32,.08,.08,3,H+8,metal);bx(-.37,-.32,.65,.06,H+8,3,metal);line(r,q(.2,-.29,H+8),q(.2,-.29,12),accent,1);crystal(r,x,y,.2,-.29,8,7,accent);
+   if(lvl>=2)bx(-.2,.28,.4,.08,3,4,roof);if(lvl>=3)crystal(r,x,y,-.15,.1,12,10,accent);
+ }else if(role==='residence'){
+   const floors=2+lvl;bx(-.32,-.32,.64,.64,3,floors*10);cap(-.38,-.38,.76,.76,3+floors*10,8);
+   for(let n=0;n<floors;n++){bx(-.37,.28,.74,.11,7+n*10,2,roof);for(let t=0;t<3;t++){const [sx,sy]=q(-.2+t*.19,.325,11+n*10);c.fillStyle='#f5d996';c.fillRect(sx-1.8*s,sy-2.5*s,3.6*s,5*s);}}
+   if(lvl>=2){bx(-.45,-.25,.16,.55,3,18,roof);cap(-.47,-.27,.2,.59,21,6);}if(lvl>=3){bx(.29,-.25,.16,.55,3,23,roof);cap(.27,-.27,.2,.59,26,6);}
+ }else{
+   bx(-.36,-.32,.72,.64,3,H);cap(-.4,-.36,.8,.72,H+3,8);
+   bx(.22,-.27,.1,.12,H+5,12+lvl*3,metal);if(i<0||magicWorking(r,i))smoke(r,x,y,.27,-.21,H+19+lvl*3,i);
+   for(let n=0;n<lvl+1;n++){const u=-.32+n*.23;bx(u,.23,.16,.16,3,7,metal);crystal(r,x,y,u+.08,.31,10,4,accent);}
+   const [sx,sy]=q(0,.33,H-3);c.strokeStyle=accent;c.lineWidth=2*s;c.beginPath();c.arc(sx,sy,4*s,0,Math.PI*2);c.stroke();
+ }
+ if(era===9){for(const u of [-.42,.42]){crystal(r,x,y,u,.4,4,5,accent);glow(r,q(u,.4,9),6,accent,.3*lit);}}
+ return true;
+}
+
 function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) {
+  if(drawExpansionBuilding(r,k,x,y,lvl,i))return;
   if(drawMagicBuilding(r,k,x,y,lvl,i))return;
   if(drawFutureBuilding(r,k,x,y,lvl,i)||drawMedieval(r,k,x,y,lvl,i))return;
   if (k === "hut" && r.city.era > 1) { drawBase(r,r.city.era === 2 ? "house" : "stonehouse",x,y,lvl,i); return; }

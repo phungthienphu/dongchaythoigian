@@ -1,9 +1,12 @@
+import {MAGIC_EXPANSION} from './building-expansion';
 import type {BKey,Building,City,Def,Derived} from './engine';
 import {active,distance,multiplier,staffCounts} from './industry';
 import {inDrought} from './medieval';
 import {recordResourceFlow} from './resource-history';
 const HOUR=3_600_000;
 export const MODERN_BUILDINGS={
+ recyclingworks:{n:'Xưởng tái chế kim loại',era:6,cost:{stone:9000,copper:3500,gold:1800},sec:14400,jobs:6,demand:18,prod:{copper:240},input:{stone:480,coal:120},emission:1,up:true,d:'6 thợ, 18 MW: 480 đá + 120 than/giờ → 240 đồng/giờ cơ bản. Tạo đồng khi mỏ xa hoặc cạn; chiếm điện và than, phát thải 1 điểm/giờ. Cấp 2/3 cần 10/15 thợ và tăng tiêu thụ theo công suất. Hàng phải chở về kho.'},
+ hydroponics:{n:'Nhà kính thủy canh',era:6,cost:{wood:4000,stone:10000,copper:3000,gold:1600},sec:14400,jobs:6,demand:22,prod:{food:900},input:{wood:120,coal:30},emission:0,up:true,d:'6 thợ, 22 MW: 120 gỗ + 30 than/giờ → 900 lương thực/giờ cơ bản, còn nhân dụng cụ thực theo đời. Không cần phù sa hay cải tạo đất; đổi lại phải giữ điện và nhiên liệu. Không được thưởng phù sa. Cấp 2/3 cần 10/15 thợ, sản lượng và điện tăng theo cấp.'},
  thermal:{n:'Nhiệt điện',era:6,cost:{stone:3000,copper:1500,gold:500,coal:500},sec:7200,jobs:4,supply:80,emission:4,up:true,d:'4 thợ phát 80 MW, tiêu hao 240 than/giờ cấp 1. Cấp 2/3 cần 7/10 thợ. Thiếu nhiên liệu tự giảm công suất; cấp 2/3 ×1,6/2,4.'},
  hydro:{n:'Thủy điện nhỏ',era:6,cost:{stone:6000,copper:2000,gold:800},sec:10800,jobs:3,supply:50,max:2,need:'river',d:'3 thợ phát 50 MW sạch, khi hạn còn 25 MW. Tối đa 2, một cấp. Không sửa dòng sông.'},
  solar:{n:'Điện mặt trời',era:6,cost:{stone:2000,copper:1000,gold:500},sec:3600,supply:15,max:6,d:'Phát trung bình 15 MW sạch, cố định mọi giờ. Không cần thợ hay nhiên liệu; tối đa 6, một cấp.'},
@@ -19,7 +22,8 @@ export const MODERN_BUILDINGS={
 export type PowerGroup='essential'|'housing'|'production';
 export type ModernState={enteredAt:number;priority:PowerGroup[];supply:number;demand:number;clean:number;allocation:Record<string,number>;generation:Record<string,number>;floodForecast?:{at:number;major:boolean};choice?:'dam'|'green';completedAt?:number;};
 export const powerGroup=(k:BKey):PowerGroup=>k==='hospital'?'essential':k==='apartment'?'housing':'production';
-export const operationJobs=(b:Building,d:Def)=>Math.ceil((d.jobs??0)*(['thermal','complex','aetherwell','manaspire','crystalworks','runeworks'].includes(b.k)?multiplier(b):1));
+const SCALED_JOBS=new Set<string>(['thermal','complex','recyclingworks','hydroponics','aetherwell','manaspire','crystalworks','runeworks',...Object.keys(MAGIC_EXPANSION)]);
+export const operationJobs=(b:Building,d:Def)=>Math.ceil((d.jobs??0)*(SCALED_JOBS.has(b.k)?multiplier(b):1));
 export const operationScale=(b:Building)=>b.k==='hospital'||b.k==='university'?1:multiplier(b);
 export const powerFraction=(c:City,tile:number)=>c.modern?.allocation[tile]??0;
 export const completedWonder=(c:City,k:'dam'|'green')=>c.modern?.choice===k&&!!c.modern.completedAt&&Object.values(c.b).some(b=>b.k===k&&active(b));

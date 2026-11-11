@@ -1,8 +1,11 @@
+import {MAGIC_EXPANSION} from './building-expansion';
 import type { Action, BKey, UKey } from './engine';
 
 // Exhaustive typed tables keep the JSON boundary in sync with engine keys,
 // without a runtime engine import (the engine itself invokes this guard).
 const BUILDINGS: Record<BKey, true> = {
+  ...Object.fromEntries(Object.keys(MAGIC_EXPANSION).map(k=>[k,true])) as Record<keyof typeof MAGIC_EXPANSION,true>,
+  recyclingworks:true,hydroponics:true,
   refuge:true,healer:true,warningbell:true,thermal:true,hydro:true,solar:true,apartment:true,complex:true,hospital:true,university:true,park:true,retention:true,dam:true,green:true,
   coalmine:true,charcoal:true,machine:true,factory:true,transport:true,tenement:true,treatment:true,nursery:true,ironbridge:true,bridgehead:true,
   grandstore:true, tilehouse:true, well:true, reservoir:true, estate:true, school:true, artisan:true, academy:true,

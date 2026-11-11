@@ -1,3 +1,4 @@
+import {MAGIC_EXPANSION} from './building-expansion';
 /** Shared data for the unreleased era 7–9 simulation. No engine imports: safe in native ESM/Workers. */
 export const MAGIC_RESOURCES=['aetherCrystal','rune','essence','celestialStone'] as const;
 export type MagicResource=typeof MAGIC_RESOURCES[number];
@@ -9,8 +10,9 @@ export type Element='fire'|'water'|'wood'|'earth';
 export type Contract='dragon'|'tortoise'|'phoenix';
 export type Research='conduction'|'warcraft'|'lifecraft'|'elements'|'pact'|'gatecraft'|'dragonPact'|'tortoisePact'|'phoenixPact';
 export const CONTRACT_RESEARCH:Record<Contract,Research>={dragon:'dragonPact',tortoise:'tortoisePact',phoenix:'phoenixPact'};
-export type MagicBuildingDef={name:string;era:7|8|9;cost:MagicGoods;seconds:number;jobs:number;max?:number;upgrade?:boolean;source?:{perHour:number;capacity:number};relay?:boolean;mana?:number;input?:MagicGoods;output?:MagicGoods;knowledge?:number;research?:Research;support?:string[];elements?:Element[];seal?:Element;armySpace?:number;wonder?:boolean;priority?:'health'|'defense'|'input'|'output'|'other'};
+export type MagicBuildingDef={purpose?:string;place?:string;art?:'refinery'|'source'|'library'|'vault'|'bastion'|'garden'|'grove'|'quarry'|'residence';tint?:string;house?:number;storage?:number;defense?:{range:number;damage:number;cooldown:number;mana:number;targets:number};name:string;era:7|8|9;cost:MagicGoods;seconds:number;jobs:number;max?:number;upgrade?:boolean;source?:{perHour:number;capacity:number};relay?:boolean;mana?:number;input?:MagicGoods;output?:MagicGoods;knowledge?:number;research?:Research;support?:string[];elements?:Element[];seal?:Element;armySpace?:number;wonder?:boolean;priority?:'health'|'defense'|'input'|'output'|'other'};
 export const MAGIC_BUILDINGS={
+ ...MAGIC_EXPANSION,
  aetherwell:{name:'Giếng linh mạch',era:7,cost:{stone:4000,copper:1500,gold:500},seconds:3600,jobs:2,max:3,upgrade:true,source:{perHour:240,capacity:1200}},
  manarelay:{name:'Cột dẫn linh',era:7,cost:{stone:1000,copper:300},seconds:1800,jobs:0,max:18,relay:true},
  crystalworks:{name:'Xưởng kết tinh',era:7,cost:{stone:5000,copper:2000,gold:800},seconds:7200,jobs:4,upgrade:true,input:{copper:120,gold:40},output:{aetherCrystal:24},support:['forge'],priority:'input'},

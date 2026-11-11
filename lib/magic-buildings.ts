@@ -1,11 +1,24 @@
+import {MAGIC_EXPANSION,type ExpansionBuilding} from './building-expansion';
 /** Era 7 engine definitions derived from magic-data. Data-only (type imports
  * from the engine are erased) so engine initialization stays acyclic in ESM. */
 import {MAGIC_BUILDINGS,MAGIC_UNITS} from './magic-data';
+import {MAGIC_BUILDING_GUIDE} from './magic-guide';
 import type {Def,Unit} from './engine';
 type Goods=Def['cost'];
 const b=MAGIC_BUILDINGS,u=MAGIC_UNITS;
-const base=(k:keyof typeof b,d:string,extra:Partial<Def>={}):Def=>{const m=b[k] as typeof b[keyof typeof b]&{jobs:number;max?:number;upgrade?:boolean};return {n:m.name,era:m.era,cost:m.cost as Goods,sec:m.seconds,...(m.jobs?{jobs:m.jobs}:{}),...(m.max?{max:m.max}:{}),...(m.upgrade?{up:true}:{}),d,...extra};};
+const base=(k:keyof typeof b,d:string,extra:Partial<Def>={}):Def=>{const m=b[k] as typeof b[keyof typeof b]&{jobs:number;max?:number;upgrade?:boolean};return {n:m.name,era:m.era,cost:m.cost as Goods,sec:m.seconds,...(m.jobs?{jobs:m.jobs}:{}),...(m.max?{max:m.max}:{}),...(m.upgrade?{up:true}:{}),d:`${MAGIC_BUILDING_GUIDE[k].purpose} ${d}`,...extra};};
+const expanded=(era:7|8|9)=>Object.fromEntries(Object.entries(MAGIC_EXPANSION).filter(([,d])=>d.era===era).map(([k])=>{
+ const d=MAGIC_BUILDINGS[k as ExpansionBuilding],extra:Partial<Def>={};
+ if('output'in d)extra.prod=d.output;
+ if('output'in d&&'input'in d)extra.input=d.input;
+ if('house'in d)extra.house=d.house;
+ if('storage'in d){extra.storage=d.storage;extra.drop=['food','wood','stone','copper','gold','diamond','coal','aetherCrystal','rune','essence','celestialStone'];}
+ const rates=[('jobs'in d&&d.jobs)?`${d.jobs} thợ`:'',('input'in d)?`Tiêu hao/giờ: ${Object.entries(d.input).map(([r,v])=>`${v} ${resourceName(r)}`).join(' + ')}`:'',('mana'in d&&d.mana)?`${d.mana} mana/giờ`:'',('output'in d)?`Sản lượng cơ bản/giờ: ${Object.entries(d.output).map(([r,v])=>`${v} ${resourceName(r)}`).join(' + ')}`:''].filter(Boolean).join('. ');
+ return [k,base(k as ExpansionBuilding,`${d.place} ${rates}. Sản lượng còn phụ thuộc cấp, thưởng làng và thời gian chở hàng.`,extra)];
+})) as Record<ExpansionBuilding,Def>;
+const resourceName=(r:string)=>({food:'lương thực',wood:'gỗ',stone:'đá',copper:'đồng',gold:'vàng',coal:'than',aetherCrystal:'tinh thạch',rune:'phù văn',essence:'tinh chất',celestialStone:'thiên thạch'}[r]??r);
 export const MAGIC_ERA7_BUILDINGS={
+ ...expanded(7),
  aetherwell:base('aetherwell','Nguồn mana: 2 thợ thu 240 mana/giờ, trữ 1.200 (cấp 2/3 ×1,6/2,4). Phủ 6 ô, cấp mana cho 4/6/8 nhà nhận. Phép Linh quang: mỗi 10 giây, zombie trong 6 ô nhận 20 sát thương và chậm 40%, tốn 2 mana. Tối đa 3.'),
  manarelay:base('manarelay','Cột dẫn linh nối nguồn mana tới nhà nhận trong 6 ô, tối đa 3 cột liên tiếp. Không phát, không trữ mana; không vượt sông thiếu cầu. Tối đa 18.'),
  crystalworks:base('crystalworks','4 thợ: 120 đồng + 40 vàng/giờ → 24 tinh thạch/giờ. Cần Xưởng dụng cụ hoạt động trong 6 ô. Không cần mana; hàng phải mang về kho.',{prod:{aetherCrystal:24},input:{copper:120,gold:40}}),
@@ -19,6 +32,7 @@ export const MAGIC_ERA7_BUILDINGS={
 } satisfies Record<string,Def>;
 const station=(k:'firealtar'|'watertemple'|'woodgrove'|'earthtemple',what:string)=>base(k,`3 thợ, duy trì 2 tinh chất + 10 mana/giờ: cấp ấn ${what} cho tối đa 3 nhà trong 6 ô. Cần Tứ nguyên; tối đa 2. Thiếu mana/tinh chất/thợ thì ấn tắt.`);
 export const MAGIC_ERA8_BUILDINGS={
+ ...expanded(8),
  essenceforge:base('essenceforge','5 thợ: 24 tinh thạch + 60 than + 30 mana/giờ → 12 tinh chất/giờ. Cần Xưởng cơ khí hoạt động trong 6 ô, có đường nối; hàng mang về kho.',{prod:{essence:12},input:{aetherCrystal:24,coal:60}}),
  firealtar:station('firealtar','Hỏa; mở Bão lửa (120 mana + 2 tinh chất, 3 phút/làng)'),
  watertemple:station('watertemple','Thủy; mở Tịnh hóa (100 mana + 2 tinh chất, 30 phút), nối Điện thờ Sông Mẹ để Thanh tẩy phủ 10 ô'),
@@ -30,6 +44,7 @@ export const MAGIC_ERA8_BUILDINGS={
  fourspirits:base('fourspirits','Kỳ quan thời 8: nguồn mana +20% sức chứa, mở thời 9. Khởi công cần Đình 8 và đủ bốn ấn trong 6 ô.'),
 } satisfies Record<string,Def>;
 export const MAGIC_ERA9_BUILDINGS={
+ ...expanded(9),
  celestialforge:base('celestialforge','8 thợ: 180 đồng + 12 tinh chất + 12 phù văn + 60 mana/giờ → 24 thiên thạch/giờ. Cần Tổ hợp sản xuất hoạt động trong 6 ô, có đường nối; hàng mang về kho.',{prod:{celestialStone:24},input:{copper:180,essence:12,rune:12}}),
  observatory:base('observatory','4 thợ, 20 mana/giờ: Thiên nhãn báo điểm trồi zombie trước 180 giây thay vì 60 giây. Cần Khai giới. Không mở làng đối thủ. Tối đa 1.'),
  spiritgate:base('spiritgate','Cần ấn Thủy + Thổ và Khai giới. Huấn luyện thần thú của khế ước đang hiệu lực (cần Đài khế ước). Mở 24 chỗ quân ma pháp. Tối đa 1.'),
