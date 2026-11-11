@@ -16,6 +16,7 @@ function fixture(era:number){
  const free=(x:number,y:number)=>{const i=y*W+x;return c.t[i]===G&&!c.b[i]&&c.seen[i];};
  const place=(k:BKey,dx:number,dy:number)=>{for(let r=0;r<6;r++)for(let oy=-r;oy<=r;oy++)for(let ox=-r;ox<=r;ox++){const x=cx+dx+ox,y=cy+dy+oy;if(free(x,y)){c.b[y*W+x]={k,lvl:1,doneAt:null,uid:m.nextUid++,builtAt:now-3600000};return y*W+x;}}return -1;};
  const staff=(tile:number,n:number)=>{const idle=c.people.filter(p=>p.task.t==='idle').slice(0,n);for(const p of idle)p.task={t:'work',at:tile};};
+ place('relocationoffice',-6,-2);place('machine',-6,1);
  const wells=[place('aetherwell',0,0),place('aetherwell',0,4)];for(const w of wells)staff(w,2);
  staff(place('mageacademy',2,1),4);place('wardcircle',-2,2);place('manarelay',4,6);place('rivershrine',8,0);
  if(era>=8){for(const [k,dx,dy] of [['firealtar',2,-2],['watertemple',4,-2],['woodgrove',2,4],['earthtemple',4,2]] as const)staff(place(k,dx,dy),3);place('harmonizer',-2,-2);place('golemworks',6,2);}

@@ -58,3 +58,12 @@ test('relocating at or above the dock limit replaces a dock and still enforces d
  for(let n=1;n<=3;n++)c.b[idx(14,12+n)]={k:'hut',lvl:0,doneAt:10000};
  expect(dockRelocationPlan(c,source,target).error).toContain('thợ đang bận');
 });
+
+test('healthy docks require the office through both actions; stranded rescue stays available',()=>{
+ for(const type of ['relocateDock','relocateBuilding'] as const){
+  const c=fixture();delete c.b[source];c.b[target]={k:'dock',lvl:1,doneAt:null};
+  expect(applyAction(c,{type,x:19,y:12,to:idx(19,14)},0)).toContain('Ty');
+  c.b[idx(10,10)]={k:'relocationoffice',lvl:1,doneAt:null};
+  expect(applyAction(c,{type,x:19,y:12,to:idx(19,14)},0)).toBeNull();
+ }
+});

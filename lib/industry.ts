@@ -17,7 +17,7 @@ export const INDUSTRIAL_BUILDINGS={
  bridgehead:{n:'Đầu cầu sắt',era:5,cost:{wood:1200,stone:3600,copper:1200,gold:300,coal:600},sec:7200,max:1,need:'river',d:'Mố cầu đối diện cho Cầu Sắt Đại Hà vượt hơn 2 ô nước. Xây thẳng hàng với đầu cầu chính qua một dải sông liên tục; hoàn tất cả hai đầu rồi mới nối nhịp.'},
 } satisfies Record<string,Def>;
 export type IndustryState={version:1;enteredAt:number;minuteAt:number;pollution:number;emission:number;cleanSince?:number;coalSpawned:boolean;coalDelivered?:number;processed?:boolean;delivered?:Partial<City['res']>;inputsSpent?:Partial<City['res']>;seedlings:Record<string,{readyAt:number;nursery:number}>;};
-export const active=(b:Building|undefined):b is Building=>!!b&&b.lvl>0&&!b.burned&&!b.flooded&&!b.off;
+export const active=(b:Building|undefined):b is Building=>!!b&&b.lvl>0&&!b.burned&&!b.flooded&&!b.off&&!b.relocation;
 export const distance=(a:number,b:number)=>Math.max(Math.abs(a%SIDE-b%SIDE),Math.abs(Math.floor(a/SIDE)-Math.floor(b/SIDE)));
 export const multiplier=(b:Building)=>[0,1,1.6,2.4][Math.min(3,b.lvl)];
 export function staffCounts(c:City){const map=new Map<number,number>();for(const p of c.people)if(!p.refuge&&!p.vital?.paused&&p.task.t==='work'&&(p.pos===p.task.at||p.haul?.phase==='work'&&(p.haul.source?.kind==='building'&&p.haul.source.key===p.task.at||p.haul.source?.kind==='tile'&&['coalmine','quarry','wood','smelter'].includes(c.b[p.task.at]?.k))))map.set(p.task.at,(map.get(p.task.at)??0)+1);return map;}

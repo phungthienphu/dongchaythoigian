@@ -21,7 +21,12 @@ export const WEEK=7*24*HOUR;
 export const zombieWeeks=(s:Pick<ZombieState,'activatedAt'>,at:number)=>Math.max(0,Math.floor((at-s.activatedAt)/WEEK));
 /** I(P,w)=max(15,60−5·floor(P/100)−5·w) minutes; N(P)=max(1,ceil(P/40)). */
 export function zombieWave(pop:number,era:number,index:number,weeks=0){const total=Math.max(1,Math.ceil(pop/40)),superCount=era<4?0:total===1?(index%3===0?1:0):Math.max(1,Math.floor(total/6)),breaker=era>=5?Math.floor(total/5):0;return {total,normal:total-superCount-breaker,super:superCount,breaker,interval:Math.max(15,60-5*Math.floor(pop/100)-5*Math.max(0,Math.floor(weeks)))*MINUTE};}
-export function activateZombies(c:City,at:number,patrol=false){if(c.zombies)return;c.zombies={activatedAt:at,last:at,nextAt:at+5*MINUTE,index:0,actors:[],guards:[],peaks:[{at,pop:c.people.length}],population:c.people.length,patrol,healthAt:at,report:{waves:0,killed:0,lost:0,infected:0,destroyed:0}};notice(c,at,'Zombie sẽ trồi sau 5 phút. Tuyển lính, đặt vị trí bảo vệ và dựng lều cứu thương. Công trình bị phá mất vĩnh viễn!');}
+export const ZOMBIE_ACTIVATION_NOTICE='Zombie sẽ trồi sau 5 phút. Tuyển lính, đặt vị trí bảo vệ và dựng lều cứu thương. Công trình bị phá mất vĩnh viễn!';
+/** Shared by new villages, explicit activation and the one-time existing-village rollout. */
+export function initialZombieState(at:number,population:number,patrol=false):ZombieState {
+ return {activatedAt:at,last:at,nextAt:at+5*MINUTE,index:0,actors:[],guards:[],peaks:[{at,pop:population}],population,patrol,healthAt:at,report:{waves:0,killed:0,lost:0,infected:0,destroyed:0}};
+}
+export function activateZombies(c:City,at:number,patrol=false){if(c.zombies)return;c.zombies=initialZombieState(at,c.people.length,patrol);notice(c,at,ZOMBIE_ACTIVATION_NOTICE);}
 export function notice(c:City,at:number,msg:string){c.log.push({at,msg,cls:'warn'});if(c.log.length>60)c.log.splice(0,c.log.length-60);}
 const tileOf=(x:number,y:number)=>Math.max(0,Math.min(H-1,Math.floor(y)))*W+Math.max(0,Math.min(W-1,Math.floor(x)));
 const point=(tile:number)=>({x:tile%W+.5,y:Math.floor(tile/W)+.5});

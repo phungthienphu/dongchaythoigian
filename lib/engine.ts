@@ -93,6 +93,7 @@ export type Def = {
 };
 
 const DEFS = {
+  relocationoffice:{n:"Ty Dời dựng",era:6,cost:{wood:2500,stone:5000,copper:1200,gold:600},sec:10800,max:1,d:"Mở quyền di dời nhà ở, kho, xưởng và tháp đã xây. Không cần thợ thường trực. Mỗi lần chuyển tốn vật liệu theo cấp, vàng và khoảng cách; dùng 1 đội xây, nhà ngừng hoạt động. Giữ cấp và vốn xây, phí chuyển không hoàn lại. Không chuyển Đình, kỳ quan, cầu, ruộng hay công trình thủy lợi. Cảng mắc cạn vẫn được cứu hộ dù chưa có Ty."},
   ...ZOMBIE_BUILDINGS,
   ...MEDIEVAL_BUILDINGS,
   ...INDUSTRIAL_BUILDINGS,
@@ -539,7 +540,7 @@ export const speedBuildCost=(b:Building,now:number)=>Math.max(0,Math.ceil(((b.do
 export function speedBuildQuote(c:City,b:Building,now:number):Partial<Res>{
   const remaining=Math.max(0,(b.doneAt??now)-now);
   if(!remaining)return {};
-  const target=b.storageUpgrade?storageLevel(b,b.storageUpgrade)+1:b.lvl+1;
+  const target=b.storageUpgrade?storageLevel(b,b.storageUpgrade)+1:b.relocation?Math.max(1,b.lvl):b.lvl+1;
   const fraction=Math.min(1,remaining/(b.relocation?.duration??buildMs(b.k,target)));
   const premium=target>=3?1:target===2?.5:.25;
   const materials=levelCost(b.k,target,c.era),cost:Partial<Res>={diamond:speedBuildCost(b,now)};
@@ -642,7 +643,7 @@ function addPerson(c: City) {
 }
 
 export type Derived = { rd: number[]; wet: boolean[]; fert: boolean[]; prot: boolean[] };
-const built = (b: Building | undefined): b is Building => !!b && b.lvl >= 1 && !b.burned && !b.off;
+const built = (b: Building | undefined): b is Building => !!b && b.lvl >= 1 && !b.burned && !b.off && !b.relocation;
 
 // Cache only the enclosure mask: harvesting and ordinary actions do not change it.
 const leveeEnclosures = new WeakMap<City,{key:string;mask:Uint8Array}>();
@@ -908,7 +909,7 @@ function computeStats(c: City, D: Derived, at: number, estimates: boolean): Stat
     const d = def(b.k);
     housing += (d.house ?? 0) * b.lvl;
     for (const r of RES) storage[r] += storageCapacity(b,r);
-    if(b.off)continue;
+    if(b.off||b.relocation)continue;
     jobs += buildingJobs(b);
     cnt[b.k] = (cnt[b.k] ?? 0) + 1;
   }
@@ -1472,9 +1473,28 @@ export function dockRelocationPlan(c:City,from:number,to:number,rules:EngineRule
   const b=c.b[from],distance=cheb(from,to),lvl=Math.max(1,b?.lvl??1);
   const cost:Partial<Res>={wood:(40+20*distance)*lvl,food:(20+10*distance)*lvl};
   const duration=(30+10*distance)*1000;
-  const error=b?.k!=="dock"||b.lvl<1?"Chọn bến cảng đã xây xong.":b.doneAt?"Cảng đang xây, nâng cấp hoặc di chuyển.":from===to?"Chọn một bờ sông khác.":
+  const error=b?.k==='dock'&&!b.doneAt&&dockOnRiver(c,from)&&!hasRelocationOffice(c)?"Cần Ty Dời dựng hoạt động; cảng mắc cạn vẫn được chuyển cứu hộ.":b?.k!=="dock"||b.lvl<1?"Chọn bến cảng đã xây xong.":b.doneAt?"Cảng đang xây, nâng cấp hoặc di chuyển.":b.burned||b.flooded?"Sửa cảng trước khi di dời.":c.battleId||c.zombies?.actors.length||civiliansInDanger(c,c.last)?"Không di dời khi làng đang giao chiến.":from===to?"Chọn một bờ sông khác.":
     canPlace(c,derive(c),"dock",to%W,Math.floor(to/W),rules,true,from)??missing(c,cost);
   return {distance,cost,duration,error};
+}
+
+/** Terrain/infrastructure and stateful ritual sites stay anchored. */
+export const relocationAllowed=(b:Building)=>!['hall','relocationoffice','farm','estate','canal','levee','reservoir','retention','well','quarry','coalmine','ironbridge','bridgehead','dam','green','awakeningtower','fourspirits','riverpalace','teleportdock','worldmatrix','covenantaltar','observatory','golemworks','spiritstable','spiritgate','mageacademy','harmonizer','firealtar','watertemple','woodgrove','earthtemple','nursery','market','envoy','embassy','builderhouse','refuge'].includes(b.k);
+export const hasRelocationOffice=(c:City)=>Object.values(c.b).some(b=>b.k==='relocationoffice'&&isBuildingActive(b)&&!b.doneAt);
+export function buildingRelocationPlan(c:City,from:number,to:number,rules:EngineRules=RELEASE_RULES){
+ const b=c.b[from],distance=cheb(from,to),cost:Partial<Res>={},duration=(120+30*distance)*Math.max(1,b?.lvl??1)*1000;
+ if(b?.k==='dock'){
+  const plan=dockRelocationPlan(c,from,to,rules);
+  return {...plan,error:!hasRelocationOffice(c)&&dockOnRiver(c,from)?'Cần Ty Dời dựng hoạt động; chỉ cảng mắc cạn được chuyển cứu hộ không cần Ty.':plan.error};
+ }
+ if(b){const base=levelCost(b.k,b.lvl,c.era),fraction=.15+Math.min(distance,96)*.01;for(const r of RES)if(base[r])cost[r]=Math.ceil(base[r]!*fraction);cost.gold=(cost.gold??0)+Math.ceil((40+distance*8)*b.lvl);}
+ let error:string|null=!b||b.lvl<1?'Chọn công trình đã xây xong.':!relocationAllowed(b)?'Công trình này gắn với địa hình hoặc chức năng cố định, không thể di dời.':!hasRelocationOffice(c)?'Cần xây Ty Dời dựng và giữ hoạt động.':b.doneAt?'Công trình đang xây, nâng cấp hoặc di dời.':b.burned||b.flooded?'Sửa công trình trước khi di dời.':c.battleId||c.zombies?.actors.length||civiliansInDanger(c,c.last)?'Không di dời khi làng đang giao chiến.':from===to?'Chọn vị trí khác.':c.queue.some(q=>q.source===from)?'Chờ hàng tuyển hoàn tất trước khi di dời.':null;
+ if(!error&&b&&c.people.some(p=>p.vital?.care?.tile===from||p.vital?.shelter===from))error='Công trình đang có người trú hoặc điều trị; chờ họ rời đi.';
+ if(!error&&b){error=demolitionQuote(c,from,c.last).error;
+  if(!error&&c.people.some(p=>p.pos===to||p.haul?.route.includes(to)||p.refuge?.route.includes(to)))error='Dân hoặc tuyến vận chuyển đang dùng ô đích. Chọn ô khác.';
+  if(!error)error=canPlace(c,derive(c),b.k,to%W,Math.floor(to/W),rules,true,from)??missing(c,cost);
+ }
+ return {distance,cost,duration,error};
 }
 
 export const SHIP_CAPACITY=10;
@@ -2571,6 +2591,7 @@ function completeBuilding(c:City,b:Building,at:number){
   if(b.relocation){
     delete b.relocation;b.doneAt=null;
     const tile=buildings(c).find(([,building])=>building===b)?.[0];
+    if(b.k!=='dock'){if(c.magic)c.magic.topology='';log(c,at,`Di dời ${buildingName(c,b.k)} hoàn tất. Giữ cấp; giao lại thợ tại vị trí mới.`,"good");return;}
     b.stranded=tile===undefined||!dockOnRiver(c,tile);
     log(c,at,b.stranded?"Đã chuyển bến nhưng sông lại rời bờ mới; cảng còn mắc cạn, cần chọn bờ khác.":"Chuyển bến hoàn tất, cảng hoạt động lại. Giữ nguyên cấp và đội thuyền.",b.stranded?"warn":"good");return;
   }
@@ -2760,7 +2781,7 @@ export function settle(c: City, now: number, budget?: SettlementBudget) {
   }
 }
 
-export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rules:EngineRules=RELEASE_RULES,skipCost=false,relocatingDockFrom?:number): string | null {
+export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rules:EngineRules=RELEASE_RULES,skipCost=false,relocatingFrom?:number): string | null {
   if(c.zombies?.warning===idx(x,y))return "Ổ zombie đang nứt đất; không thể xây đè lên ổ.";
   const d = def(k), i = idx(x, y), t = c.t[i];
   if(d.era>rules.maxEra)return "Thời đại này sắp ra mắt.";
@@ -2789,9 +2810,9 @@ export function canPlace(c: City, D: Derived, k: BKey, x: number, y: number, rul
   if (d.need === "bank" && D.rd[i] !== 1 && !near(N4,j=>c.b[j]?.k==="levee")) return "Đê phải sát bờ sông hoặc nối thẳng vào đoạn đê khác (không chéo).";
   const finalError=finalWonderError(c,k,c.last);if(finalError)return finalError;
   const limit=buildingLimit(c,k);
-  // Relocation replaces an existing dock, even on legacy villages above the cap.
-  const movingDock=k==="dock" && relocatingDockFrom!==undefined && c.b[relocatingDockFrom]?.k==="dock" && c.b[relocatingDockFrom].lvl>=1;
-  if (!movingDock && limit!==undefined && count(c, k) >= limit) return k==='watchtower'?`Đã đủ giới hạn ${count(c,k)}/${limit} trụ ở thời đại này.`:`Đã đủ số lượng tối đa (${limit}).`;
+  // Relocation replaces an existing building, including legacy villages above the cap.
+  const movingBuilding=relocatingFrom!==undefined && c.b[relocatingFrom]?.k===k && c.b[relocatingFrom].lvl>=1;
+  if (!movingBuilding && limit!==undefined && count(c, k) >= limit) return k==='watchtower'?`Đã đủ giới hạn ${count(c,k)}/${limit} trụ ở thời đại này.`:`Đã đủ số lượng tối đa (${limit}).`;
   if (busyBuilders(c) >= builders(c)) return "Tất cả thợ đang bận.";
   return skipCost?null:missing(c, buildingCost(k, c.era));
 }
@@ -2885,6 +2906,7 @@ export type Action =
   | { type: "upgrade"; x: number; y: number }
   | { type: "repair"; x: number; y: number }
   | { type: "buildShip"; x: number; y: number }
+  | { type: "relocateBuilding"; x:number; y:number; to:number }
   | { type: "relocateDock"; x: number; y: number; to: number }
   | { type: "connectBridge"; x:number; y:number; to:number }
   | { type: "speedBuild"; x: number; y: number }
@@ -2936,14 +2958,14 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     b.bridge={to:a.to,tiles:plan.tiles,ready:false};b.doneAt=now+plan.duration;
     log(c,now,`Đang nối Cầu Sắt qua ${plan.width} ô nước, đã trả ${costText(plan.cost)}. Hoàn tất sau ${Math.ceil(plan.duration/MIN)} phút; dùng 1 đội thợ xây.`,'good');return null;
   }
-  if(a.type==="relocateDock"){
-    const from=idx(a.x,a.y),plan=dockRelocationPlan(c,from,a.to,rules);
-    if(plan.error)return plan.error;
-    const b=c.b[from];pay(c,plan.cost);
-    delete c.b[from];c.b[a.to]=b;
-    b.relocation={from,startedAt:now,duration:plan.duration};b.doneAt=now+plan.duration;b.stranded=true;
-    for(const p of c.people)if(p.task.t==="work"&&p.task.at===from){p.task={t:"idle"};delete p.haul;}
-    log(c,now,`Thợ chuyển bến cảng ${plan.distance} ô, đã trả ${costText(plan.cost)}; mất ${Math.ceil(plan.duration/1000)} giây, dùng 1 đội thợ xây.`,"good");return null;
+  if(a.type==='relocateBuilding'||a.type==='relocateDock'){
+    const from=idx(a.x,a.y),plan=a.type==='relocateDock'?dockRelocationPlan(c,from,a.to,rules):buildingRelocationPlan(c,from,a.to,rules);if(plan.error)return plan.error;
+    const b=c.b[from];pay(c,plan.cost,-1,now);delete c.b[from];c.b[a.to]=b;
+    b.relocation={from,startedAt:now,duration:plan.duration};b.doneAt=now+plan.duration;
+    if(b.k==='dock')b.stranded=true;
+    for(const p of c.people)if(p.task.t==='work'&&p.task.at===from)setTask(c,p,{t:'idle'},now);
+    if(c.magic)c.magic.topology='';
+    log(c,now,`Di dời ${buildingName(c,b.k)}: đã trả ${costText(plan.cost)}. Nhà ngừng hoạt động, thợ cũ được cho nghỉ; giao lại sau khi hoàn tất.`,'good');return null;
   }
   if(a.type==="buildShip"){
     const b=c.b[idx(a.x,a.y)];if(b?.k!=="dock"||!isBuildingActive(b)||b.doneAt)return "Cần Bến cảng hoạt động, không mắc cạn, cháy/ngập hoặc đang chuyển bến.";

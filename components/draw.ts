@@ -1836,6 +1836,9 @@ function drawBase(r: RC, k: BKey, x: number, y: number, lvl: number, i: number) 
       smoke(r, x, y, 0.12, -0.08, 36, i);
       break;
     }
+    case "relocationoffice": {
+      box(r,x,y,-.4,-.35,.4,.35,0,22,"#d4b887","#a38c66","#796c51");gable(r,x,y,-.46,-.41,.46,.41,22,12,"#639c9a","#477577","#335859");box(r,x,y,-.37,.22,.37,.3,5,8,"#c9a66d","#95774d","#725c3d");line(r,tp(r,x,y)(-.25,-.2,34),tp(r,x,y)(.35,-.2,42),"#cfac64",3);crystal(r,x,y,.35,-.2,27,5,"#e2ca8c");break;
+    }
     case "builderhouse": {
       const era = r.city.era, height = (era === 1 ? 9 : era === 2 ? 14 : 19) * hs;
       shadow(r, x, y, .43);

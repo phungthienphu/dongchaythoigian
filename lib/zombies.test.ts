@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {newCity,idx,canPlace,derive,applyAction,homeSoldiers,settle,F} from './engine';
+import {newCity,idx,canPlace,derive,applyAction,homeSoldiers,settle,F,type City} from './engine';
 import {createBattle} from './battle';
 import {zombiePath,zombieWave,zombieWeeks,zombieStats,stepZombies,zombiePressure} from './zombies';
 function city(){const c=newCity(0,123);c.t.fill(0);c.seen.fill(1);c.b={};return c;}
@@ -87,4 +87,14 @@ test('wave interval shrinks five minutes per whole week since activation, floore
  const c=city();c.people=c.people.slice(0,3);c.pop=3;const s=c.zombies!;const at=s.activatedAt+15*24*3600000;s.nextAt=at;s.last=at-1000;s.peaks=[{at:at-1000,pop:3}];s.population=3;
  const reloaded=JSON.parse(JSON.stringify(c));stepZombies(c,at);stepZombies(reloaded,at);
  assert.equal(c.zombies!.nextAt,at+50*60000);assert.deepEqual(reloaded.zombies,c.zombies);
+});
+
+test('legacy rollout starts in the present without retroactive waves and never resets an active village',async()=>{
+ const {activateZombies}=await import('./zombies');
+ const c=city();delete c.zombies;const activation=20*60000;
+ activateZombies(c,activation);const original=structuredClone((c as City).zombies!);
+ activateZombies(c,activation+60000,true);assert.deepEqual(c.zombies,original);
+ settle(c,activation);assert.equal((c as City).zombies!.report.waves,0);assert.equal((c as City).zombies!.last,activation);assert.equal((c as City).zombies!.nextAt,activation+5*60000);
+ stepZombies(c,activation+4*60000);assert.equal((c as City).zombies!.actors.length,0);assert.notEqual((c as City).zombies!.warning,undefined);
+ stepZombies(c,activation+5*60000);assert.equal((c as City).zombies!.report.waves,1);
 });

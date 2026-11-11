@@ -5,7 +5,7 @@ import type { Action, BKey, UKey } from './engine';
 // without a runtime engine import (the engine itself invokes this guard).
 const BUILDINGS: Record<BKey, true> = {
   ...Object.fromEntries(Object.keys(MAGIC_EXPANSION).map(k=>[k,true])) as Record<keyof typeof MAGIC_EXPANSION,true>,
-  recyclingworks:true,hydroponics:true,
+  relocationoffice:true,recyclingworks:true,hydroponics:true,
   refuge:true,healer:true,warningbell:true,thermal:true,hydro:true,solar:true,apartment:true,complex:true,hospital:true,university:true,park:true,retention:true,dam:true,green:true,
   coalmine:true,charcoal:true,machine:true,factory:true,transport:true,tenement:true,treatment:true,nursery:true,ironbridge:true,bridgehead:true,
   grandstore:true, tilehouse:true, well:true, reservoir:true, estate:true, school:true, artisan:true, academy:true,
@@ -85,7 +85,7 @@ export function isActionInput(value: unknown): value is Action {
     case 'magicTeleport': return point(value)&&typeof value.resource==='string'&&STOCK.includes(value.resource)&&integer(value.amount,1,60);
     case 'magicDomain': return typeof value.domain==='string'&&DOMAINS.includes(value.domain);
     case 'plantTree': case 'toggleBuilding': case 'buildShip': case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'tendFarmGroup': case 'speedBuild': return point(value);
-    case 'relocateDock': case 'connectBridge': return point(value) && tile(value.to);
+    case 'relocateBuilding': case 'relocateDock': case 'connectBridge': return point(value) && tile(value.to);
     case 'moveSoldier': return soldierId(value.id) && point(value);
     case 'moveSoldiers': return Array.isArray(value.ids)&&value.ids.length>0&&value.ids.length<=360&&value.ids.every(soldierId)&&new Set(value.ids).size===value.ids.length&&point(value);
     case 'train': return known(UNITS, value.u) && integer(value.n, 1, 50);

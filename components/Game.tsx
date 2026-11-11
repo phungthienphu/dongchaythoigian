@@ -16,7 +16,7 @@ import { ReadFlights } from "@/lib/read-flights";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   B, CAP, GATHER_SPEED, resourceUnlocked, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
-  dockRelocationPlan, buildingJobs,storageCapacity, availableForQuickAssign, quickAssignBlockedReason, isScout, taskResource, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildQuote, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
+  buildingRelocationPlan, relocationAllowed, hasRelocationOffice, buildingJobs,storageCapacity, availableForQuickAssign, quickAssignBlockedReason, isScout, taskResource, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildQuote, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
   armyCap, armyUsed, barracksCapacity, buildingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   homeSoldiers, armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, farmAutoStatus, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
@@ -1178,8 +1178,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   let status: { text: string; err?: boolean } | null = msg;
   if(bridgeFrom!==null){status={text:"Chọn ô đất ở bờ đối diện, thẳng hàng với Cầu Sắt. Xem chi phí và điều kiện trước khi xác nhận."};
   } else if (dockMove!==null) {
-    const plan=hover?dockRelocationPlan(c,dockMove,idx(hover.x,hover.y),rules):null;
-    status={text:plan?`Chuyển bến: ${plan.error??`${plan.distance} ô · ${costText(plan.cost)} · ${fmtDur(plan.duration)} · 1 đội thợ xây. Bấm để chọn, xác nhận trong bảng cảng.`}`:"Chọn ô đất trống sát sông để chuyển bến. Esc để hủy.",err:!!plan?.error};
+    const plan=hover?buildingRelocationPlan(c,dockMove,idx(hover.x,hover.y),rules):null;
+    status={text:plan?`Di dời: ${plan.error??`${plan.distance} ô · ${costText(plan.cost)} · ${fmtDur(plan.duration)} · 1 đội thợ xây. Bấm để chọn, xác nhận trong bảng công trình.`}`:"Chọn vị trí mới để di dời. Esc để hủy.",err:!!plan?.error};
   } else if (hover && tool) {
     const bad = canPlace(c, D, tool, hover.x, hover.y,rules);
     status = bad ? { text: `${buildingName(c, tool)}: ${bad}`, err: true } : { text: `${buildingName(c, tool)}: bấm để xây. Ô: ${tileDesc(c, D, idx(hover.x, hover.y))}.` };
@@ -1326,7 +1326,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               </details>
               {sel.k==='wheel'&&sel.lvl>=1&&c.res.wood<=0&&<p className="err small">Cối nước hết gỗ, tạm ngừng sản xuất. Bổ sung gỗ để dân tự làm tiếp; hàng đang mang vẫn được nộp kho.</p>}
               {sel.k==='canal'&&sel.lvl>=1&&<p className={D.wet[selI]?'small':'err small'}>{D.wet[selI]?'Kênh đang có nước, tưới cho đất xung quanh.':'Kênh cạn: mất đường nối tới sông, không còn tưới đất. Nối lại kênh để có nước hoặc dùng Phá dỡ bên dưới để gỡ từng đoạn.'}</p>}
-              {sel.doneAt && <p className="small">{sel.relocation ? "Đang chuyển bến" : sel.k==='ironbridge'&&sel.bridge&&!sel.bridge.ready ? "Đang nối nhịp cầu" : sel.lvl === 0 ? "Đang xây" : sel.storageUpgrade ? `Đang nâng ngăn ${RN[sel.storageUpgrade]}` : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
+              {sel.doneAt && <p className="small">{sel.relocation ? "Đang di dời" : sel.k==='ironbridge'&&sel.bridge&&!sel.bridge.ready ? "Đang nối nhịp cầu" : sel.lvl === 0 ? "Đang xây" : sel.storageUpgrade ? `Đang nâng ngăn ${RN[sel.storageUpgrade]}` : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
               {c.cropDamage?.tile===selI && c.cropDamage.until>t && <p className="err small">Ruộng bị thú rừng giẫm: năng suất còn 50%, phục hồi sau {fmtDur(c.cropDamage.until-t)}.</p>}
 
               {(sel.flooded || sel.burned) && <p className="err small">{sel.damageCause==='earthquake'?"Hư hại do động đất, cần sửa để hoạt động lại.":sel.burned ? "Bị cháy, cần sửa để hoạt động lại." : "Bị ngập, không hoạt động."}</p>}
@@ -1377,11 +1377,12 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               {sel.k==='ironbridge'&&sel.lvl>=1&&<BridgePanel city={c} from={selI} to={bridgeFrom===selI&&bridgeTarget?idx(bridgeTarget.x,bridgeTarget.y):null} selecting={bridgeFrom===selI} busy={busy} rules={rules} act={act} onSelect={()=>{setBridgeFrom(selI);setBridgeTarget(null);setDockMove(null);setDockTarget(null);setTool(null);setPicked(new Set());setPickedSoldier(null);setGuardEditing(false);setPlanting(false);setMsg(null);}} onCancel={()=>{setBridgeFrom(null);setBridgeTarget(null);}}/>}
               {sel.k==="dock"&&sel.lvl>=1&&<>
                 <DockPanel city={c} building={sel} now={t} busy={busy} onBuild={()=>{void act({type:"buildShip",...selected});}} onRelocate={()=>{setBridgeFrom(null);setBridgeTarget(null);setDockMove(selI);setDockTarget(null);setTool(null);setPicked(new Set());setPickedSoldier(null);setGuardEditing(false);setPlanting(false);setMsg(null);}}/>
-                {dockMove===selI&&<div className="dock-move-review" role="region" aria-label="Chuyển bến cảng"><p>Chọn ô đất trống sát sông trên bản đồ. Xem phí trước khi xác nhận.</p>{dockTarget&&(()=>{
-                  const plan=dockRelocationPlan(c,selI,idx(dockTarget.x,dockTarget.y),rules);
-                  return <><p>Bờ mới ({dockTarget.x}, {dockTarget.y}) · {plan.distance} ô</p><p>{costText(plan.cost)} · {fmtDur(plan.duration)} · 1 đội thợ xây</p>{plan.error&&<p className="err" role="status">{plan.error}</p>}<button className="primary" disabled={busy||!!plan.error} onClick={async()=>{if(await act({type:"relocateDock",...selected,to:idx(dockTarget.x,dockTarget.y)})){setSelected(dockTarget);setDockMove(null);setDockTarget(null);}}}>Xác nhận chuyển bến</button></>;
-                })()}<button onClick={()=>{setDockMove(null);setDockTarget(null);}}>Hủy chuyển bến</button></div>}
               </>}
+              {sel.lvl>=1&&sel.k!=="dock"&&relocationAllowed(sel)&&<button disabled={busy||!!sel.doneAt||!hasRelocationOffice(c)} title={!hasRelocationOffice(c)?"Cần Ty Dời dựng hoạt động":undefined} onClick={()=>{setBridgeFrom(null);setBridgeTarget(null);setDockMove(selI);setDockTarget(null);setTool(null);setPicked(new Set());setPickedSoldier(null);setGuardEditing(false);setPlanting(false);}}>Di dời công trình…{!hasRelocationOffice(c)?" (cần Ty Dời dựng)":""}</button>}
+                {dockMove===selI&&<div className="dock-move-review" role="region" aria-label="Di dời công trình"><p>Chọn vị trí hợp lệ trên bản đồ. Nhà ngừng hoạt động khi chuyển; thợ cũ nghỉ và cần giao lại. Phí không hoàn khi phá nhà. Xem phí trước khi xác nhận.</p>{dockTarget&&(()=>{
+                  const plan=buildingRelocationPlan(c,selI,idx(dockTarget.x,dockTarget.y),rules);
+                  return <><p>Vị trí mới ({dockTarget.x}, {dockTarget.y}) · {plan.distance} ô</p><p>{costText(plan.cost)} · {fmtDur(plan.duration)} · 1 đội thợ xây</p>{plan.error&&<p className="err" role="status">{plan.error}</p>}<button className="primary" disabled={busy||!!plan.error} onClick={async()=>{if(await act({type:"relocateBuilding",...selected,to:idx(dockTarget.x,dockTarget.y)})){setSelected(dockTarget);setDockMove(null);setDockTarget(null);}}}>Xác nhận di dời</button></>;
+                })()}<button onClick={()=>{setDockMove(null);setDockTarget(null);}}>Hủy di dời</button></div>}
               {sel.k === "market" && sel.lvl >= 1 && <button className="primary" onClick={()=>setPanel("market")}>Giao thương bằng đoàn xe</button>}
               {sel.k === "hall" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("control")}>{control ? "Trung tâm điều khiển" : "Xem Đình làng"}</button>}
               {["storehouse","grandstore"].includes(sel.k) && sel.lvl >= 1 && <div><p className="small">Nâng riêng từng ngăn. Kho thường thêm 1.000 chỗ; Đại kho tăng 10.000 → 20.000 → 40.000.</p>{RES.filter(r=>resourceUnlocked(r,c.era)).map(r=>{

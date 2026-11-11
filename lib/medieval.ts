@@ -15,7 +15,7 @@ export const MEDIEVAL_BUILDINGS = {
 } satisfies Record<string,Def>;
 export type MedievalState = { enteredAt:number; minuteAt:number; water:Record<string,number>; drought?:{warnAt:number;start:number;end:number}; lastDroughtYear?:number };
 const notify=(c:City,at:number,msg:string,cls:'warn'|'good')=>{c.log.unshift({at,msg,cls});if(c.log.length>60)c.log.length=60;};
-const active=(b:Building|undefined):b is Building=>!!b&&b.lvl>0&&!b.burned&&!b.flooded&&!b.off;
+const active=(b:Building|undefined):b is Building=>!!b&&b.lvl>0&&!b.burned&&!b.flooded&&!b.off&&!b.relocation;
 const distance=(a:number,b:number)=>Math.max(Math.abs(a%96-b%96),Math.abs(Math.floor(a/96)-Math.floor(b/96)));
 export const isField=(k:string)=>k==='farm'||k==='estate';
 export const isStorage=(k:string)=>k==='storehouse'||k==='grandstore';
