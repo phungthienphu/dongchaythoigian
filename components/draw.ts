@@ -278,21 +278,25 @@ function drawBankEdges(r:RC,x:number,y:number,z:number,water:boolean){
   }
 }
 
-function drawGroundTile(r: RC, x: number, y: number) {
+function drawRipples(r: RC, x: number, y: number) {
+  const { c, city, v } = r, i = idx(x, y), q = tp(r, x, y), z = -4;
+  c.strokeStyle = "rgba(220,240,255,.45)"; c.lineWidth = Math.max(1, v.s * 1.2);
+  for (let k = 0; k < 2; k++) {
+    const ph = (r.anim / 2200 + hr(city.seed, i * 7 + k)) % 1;
+    const u = -0.35 + ph * 0.7, vv = -0.25 + hr(city.seed, i * 5 + k) * 0.5;
+    const a = q(u - 0.12, vv, z), b = q(u + 0.12, vv, z);
+    c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+  }
+}
+
+function drawGroundTile(r: RC, x: number, y: number, ripples = true) {
   const { c, city, v } = r, i = idx(x, y), s = v.s, q = tp(r, x, y);
   const t = city.t[i];
   if (t === R) {
     const z = -4;
     const deep = r.season === 3 ? "#5d93b8" : "#3d8bc2";
     poly(c, [q(-0.5, -0.5, z), q(0.5, -0.5, z), q(0.5, 0.5, z), q(-0.5, 0.5, z)], mix(deep, "#2f78ad", hr(city.seed, i) * 0.5));
-    // ripples
-    c.strokeStyle = "rgba(220,240,255,.45)"; c.lineWidth = Math.max(1, s * 1.2);
-    for (let k = 0; k < 2; k++) {
-      const ph = (r.anim / 2200 + hr(city.seed, i * 7 + k)) % 1;
-      const u = -0.35 + ph * 0.7, vv = -0.25 + hr(city.seed, i * 5 + k) * 0.5;
-      const a = q(u - 0.12, vv, z), b = q(u + 0.12, vv, z);
-      c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
-    }
+    if (ripples) drawRipples(r, x, y);
     // foam where the bank meets the water
     c.strokeStyle = "rgba(235,248,255,.7)"; c.lineWidth = Math.max(1, s * 1.6);
     const edges: [number, number, Pt, Pt][] = [
@@ -328,6 +332,128 @@ function drawGroundTile(r: RC, x: number, y: number) {
   }
 }
 
+/* ---------- ground layer ---------- */
+// Tile draw order depends only on the camera rotation: depth, then tile index.
+const tileOrders: Int32Array[] = [];
+function tileOrder(v: View) {
+  const rot = v.rotation ?? 0;
+  let order = tileOrders[rot];
+  if (!order) {
+    const tiles = Array.from({ length: W * H }, (_, i) => i);
+    tiles.sort((a, b) => viewDepth(v, a % W, Math.floor(a / W)) - viewDepth(v, b % W, Math.floor(b / W)) || a - b);
+    order = tileOrders[rot] = Int32Array.from(tiles);
+  }
+  return order;
+}
+
+/** Tiles near the viewport (with margin for tall objects), back to front. */
+function visibleTiles(v: View) {
+  const b = visibleTileBounds(v), out: number[] = [];
+  for (const i of tileOrder(v)) {
+    const x = i % W, y = Math.floor(i / W);
+    if (x < b.x0 || x > b.x1 || y < b.y0 || y > b.y1) continue;
+    const [sx, sy] = P(v, x + 0.5, y + 0.5);
+    if (sx > -v.TW && sx < v.width + v.TW && sy > -v.TW * 0.5 && sy < v.height + v.TW * 2) out.push(i);
+  }
+  return out;
+}
+
+/** Terrain, riverbanks and fog. `liveRipples` leaves explored water ripples to a later animated pass. */
+function drawGroundTiles(r: RC, tiles: number[], lod: boolean, liveRipples = false) {
+  const { c, city, v } = r, seen = city.seen;
+  const nearSeen = (x: number, y: number) => {
+    for (const [dx, dy] of N8) if (inb(x + dx, y + dy) && seen[idx(x + dx, y + dy)]) return true;
+    return false;
+  };
+  for (const i of tiles) {
+    const x = i % W, y = Math.floor(i / W);
+    if (seen[i]) { drawGroundTile(r, x, y, !liveRipples); continue; }
+    const q = tp(r, x, y), edge = nearSeen(x, y);
+    if (edge) drawGroundTile(r, x, y);
+    poly(c, [q(-0.5, -0.5), q(0.5, -0.5), q(0.5, 0.5), q(-0.5, 0.5)], edge ? "rgba(22,33,30,.72)" : "#18241f");
+    if (!edge) drawBankEdges(r, x, y, 0, true);
+    if (!lod) {
+      const [sx, sy] = q(hr(city.seed, i) - 0.5, hr(city.seed, i * 3) - 0.5, 0);
+      c.fillStyle = "rgba(200,215,205,.05)"; c.beginPath(); c.ellipse(sx, sy, v.TW * 0.45, v.TH * 0.45, 0, 0, Math.PI * 2); c.fill();
+    }
+  }
+}
+
+/** Animated ripples over a cached ground layer. Water sits 4 units low, so the
+ * level tiles in front of it hide a strip of its surface; clip that strip away. */
+function drawLiveRipples(r: RC, tiles: number[]) {
+  const { c, city } = r, seen = city.seen;
+  for (const i of tiles) {
+    if (!seen[i] || city.t[i] !== R) continue;
+    const x = i % W, y = Math.floor(i / W);
+    let clipped = false;
+    for (const [dx, dy] of N4) {
+      const nx = x + dx, ny = y + dy;
+      if (!inb(nx, ny)) continue;
+      const j = idx(nx, ny);
+      if (seen[j] && city.t[j] === R) continue;
+      if (!clipped) { c.save(); c.beginPath(); c.rect(-1e6, -1e6, 2e6, 2e6); clipped = true; }
+      const q = tp(r, nx, ny), pts = [q(-0.5, -0.5), q(0.5, -0.5), q(0.5, 0.5), q(-0.5, 0.5)];
+      c.moveTo(pts[0][0], pts[0][1]); for (let k = 1; k < 4; k++) c.lineTo(pts[k][0], pts[k][1]); c.closePath();
+    }
+    if (clipped) c.clip("evenodd");
+    drawRipples(r, x, y);
+    if (clipped) c.restore();
+  }
+}
+
+/** Offscreen copy of the ground layer, reused across frames. Created by the
+ * game screen; renders without one (tests, dev pages) draw ground directly. */
+export type GroundCache = {
+  canvas: HTMLCanvasElement | null;
+  sig: number; season: number; rotation: number; dpr: number;
+  TW: number; ox: number; oy: number; width: number; height: number; margin: number;
+  /** Most recent requested tile width and when it was first seen (zoom settling). */
+  wantTW: number; wantAt: number;
+};
+export const createGroundCache = (): GroundCache => ({ canvas: null, sig: -1, season: -1, rotation: -1, dpr: 0, TW: 0, ox: 0, oy: 0, width: 0, height: 0, margin: 0, wantTW: 0, wantAt: 0 });
+const ZOOM_SETTLE_MS = 150;
+
+function groundSignature(city: City, D: Derived) {
+  let h = (2166136261 ^ city.seed) >>> 0;
+  const t = city.t, seen = city.seen, fert = D.fert;
+  for (let i = 0; i < t.length; i++) h = Math.imul(h ^ (t[i] * 4 + (seen[i] ? 2 : 0) + (fert[i] ? 1 : 0)), 16777619);
+  for (const i of city.oldbed) h = Math.imul(h ^ (i + 0x9e3779b9), 16777619);
+  return h >>> 0;
+}
+
+/** Blit the cached ground, rebuilding it when terrain, fog, season, rotation or size
+ * changed, the camera left its margin, or a zoom has settled. Returns false when no
+ * canvas is available. */
+function paintGround(r: RC, g: GroundCache, dpr: number, lod: boolean) {
+  if (typeof document === "undefined") return false;
+  const { c, v } = r, rot = v.rotation ?? 0, now = performance.now(), sig = groundSignature(r.city, r.D);
+  if (v.TW !== g.wantTW) { g.wantTW = v.TW; g.wantAt = now; }
+  const k = v.TW / g.TW, sx = v.ox - k * g.ox, sy = v.oy - k * g.oy, M = g.margin;
+  const covers = sx - k * M <= 0 && sy - k * M <= 0 && sx + k * (g.width + M) >= v.width && sy + k * (g.height + M) >= v.height;
+  const zooming = v.TW !== g.TW && now - g.wantAt < ZOOM_SETTLE_MS && k >= 0.5 && k <= 2;
+  const valid = g.canvas && g.sig === sig && g.season === r.season && g.rotation === rot && g.dpr === dpr && g.width === v.width && g.height === v.height;
+  if (!valid || !covers || (v.TW !== g.TW && !zooming)) {
+    const margin = Math.round(Math.max(v.width, v.height) * 0.25);
+    const canvas = g.canvas ?? document.createElement("canvas");
+    const w = Math.ceil((v.width + 2 * margin) * dpr), h = Math.ceil((v.height + 2 * margin) * dpr);
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+    const gc = canvas.getContext("2d");
+    if (!gc) return false;
+    gc.setTransform(1, 0, 0, 1, 0, 0); gc.clearRect(0, 0, w, h); gc.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cv: View = { ...v, ox: v.ox + margin, oy: v.oy + margin, width: v.width + 2 * margin, height: v.height + 2 * margin };
+    // Zoomed out, ripples are a few pixels and stay frozen in the layer.
+    drawGroundTiles({ ...r, c: gc, v: cv, anim: 0 }, visibleTiles(cv), lod, !lod);
+    Object.assign(g, { canvas, sig, season: r.season, rotation: rot, dpr, TW: v.TW, ox: v.ox, oy: v.oy, width: v.width, height: v.height, margin });
+  }
+  const s = v.TW / g.TW;
+  let x = v.ox - s * (g.ox + g.margin), y = v.oy - s * (g.oy + g.margin);
+  if (s === 1) { x = Math.round(x * dpr) / dpr; y = Math.round(y * dpr) / dpr; }
+  c.drawImage(g.canvas!, x, y, (g.canvas!.width / dpr) * s, (g.canvas!.height / dpr) * s);
+  return true;
+}
+
 /* ---------- objects ---------- */
 function drawTree(r: RC, x: number, y: number, u: number, v: number, size: number, pine: boolean, shake = 0) {
   const q = tp(r, x, y), c = r.c, s = r.v.s * size;
@@ -353,8 +479,20 @@ function drawTree(r: RC, x: number, y: number, u: number, v: number, size: numbe
   if (snow) { c.fillStyle = "#f4f7f6"; c.beginPath(); c.ellipse(bx, by - 25 * s, 6 * s, 2.4 * s, 0, 0, Math.PI * 2); c.fill(); }
 }
 
-function drawRock(r: RC, x: number, y: number, low: boolean) {
+function drawRock(r: RC, x: number, y: number, low: boolean, lod = false) {
   const i = idx(x, y), h = low ? 6 : 10 + hr(r.city.seed, i * 19) * 9, snow = r.season === 3;
+  if (lod) {
+    // Zoomed out a rock is a few pixels: one block and peak, one ore mark.
+    box(r, x, y, -0.46, -0.46, 0.46, 0.46, 0, 5 + h * 0.5, snow ? "#eef1f0" : "#c2b294", snow ? "#d5dcda" : "#a99979", snow ? "#bcc5c3" : "#8c7c60");
+    pyramid(r, x, y, -0.36, -0.36, 0.36, 0.36, 5 + h * 0.5, h * 0.6, snow ? "#e8ecea" : "#b8a789", snow ? "#c9d1cf" : "#94846a");
+    const t = r.city.t[i];
+    if (t === O || t === GOLD || t === DIAMOND || t === COAL) {
+      const [sx, sy] = tp(r, x, y)(0.1, 0.2, 10);
+      r.c.fillStyle = t === COAL ? "#313b41" : t === GOLD ? "#edc238" : t === DIAMOND ? "#6ce3ed" : "#d9813a";
+      r.c.beginPath(); r.c.arc(sx, sy, Math.max(1.5, 3 * r.v.s), 0, Math.PI * 2); r.c.fill();
+    }
+    return;
+  }
   shadow(r, x, y, 0.44);
   box(r, x, y, -0.46, -0.46, 0.46, 0.46, 0, 5, "#b8a888", "#a39373", "#867659");
   box(r, x, y, -0.36, -0.36, 0.36, 0.36, 5, 5 + h * 0.5, snow ? "#eef1f0" : "#c2b294", snow ? "#d5dcda" : "#a99979", snow ? "#bcc5c3" : "#8c7c60");
@@ -2051,8 +2189,8 @@ export function pickHomeSoldier(v:View,city:City,now:number,sx:number,sy:number)
   const deck=bridgeDeck(city);
   return homeSoldiers(city,now).map(s=>{const [x,y]=P(v,s.x,s.y,deck.has(idx(Math.floor(s.x),Math.floor(s.y)))?5*v.s:0);return {s,d:Math.hypot((sx-x)/Math.max(10,10*v.s),(sy-y+10*v.s)/Math.max(14,18*v.s))};}).filter(p=>p.d<=1).sort((a,b)=>a.d-b.d)[0]?.s ?? null;
 }
-export function pickVillageTarget(v:View,city:City,list:Villager[],anim:number,sx:number,sy:number,preferPerson=false) {
-  const building=pickBuilding(v,city,sx,sy);
+/** `building` may pass an earlier pickBuilding result for the same point. */
+export function pickVillageTarget(v:View,city:City,list:Villager[],anim:number,sx:number,sy:number,preferPerson=false,building=pickBuilding(v,city,sx,sy)) {
   const person=(!building || preferPerson)?pickVillager(v,list,sx,sy,bridgeDeck(city)):null;
   if(person)return {type:"person" as const,person};
   if(building)return {type:"building" as const,cell:building};
@@ -2078,6 +2216,10 @@ export type DrawOpts = {
   pickedSoldiers?: ReadonlySet<string>;
   fx: Fx[];
   chopping: Set<number>;
+  /** Reused offscreen ground layer; omit to draw ground directly every frame. */
+  ground?: GroundCache;
+  /** Device pixel ratio of the target canvas (used by the ground layer). */
+  dpr?: number;
 };
 
 const stagingCache=new WeakMap<City,{at:number;tiles:number[]}>();
@@ -2094,31 +2236,13 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     const [sx, sy] = P(v, x + 0.5, y + 0.5);
     return sx > -v.TW && sx < v.width + v.TW && sy > -v.TW * 0.5 && sy < v.height + v.TW * 2;
   };
-  const vis = new Uint8Array(W * H);
-  const bounds = visibleTileBounds(v), visible: number[] = [];
-  for (let y = bounds.y0; y <= bounds.y1; y++) for (let x = bounds.x0; x <= bounds.x1; x++) if (onScreen(x, y)) {
-    const i = idx(x, y); vis[i] = 1; visible.push(i);
-  }
+  const visible = visibleTiles(v), vis = new Uint8Array(W * H);
+  for (const i of visible) vis[i] = 1;
   const seen = city.seen;
-  const nearSeen = (x: number, y: number) => {
-    for (const [dx, dy] of N8) if (inb(x + dx, y + dy) && seen[idx(x + dx, y + dy)]) return true;
-    return false;
-  };
 
   // 1. ground, back to front
-  visible.sort((a,b)=>viewDepth(v,a%W,Math.floor(a/W))-viewDepth(v,b%W,Math.floor(b/W)) || a-b);
-  for (const i of visible) {
-    const x=i%W,y=Math.floor(i/W);
-    if (seen[i]) { drawGroundTile(r, x, y); continue; }
-    const q = tp(r, x, y), edge = nearSeen(x, y);
-    if (edge) drawGroundTile(r, x, y);
-    poly(c, [q(-0.5, -0.5), q(0.5, -0.5), q(0.5, 0.5), q(-0.5, 0.5)], edge ? "rgba(22,33,30,.72)" : "#18241f");
-    if(!edge)drawBankEdges(r,x,y,0,true);
-    if (!lod) {
-      const [sx, sy] = q(hr(city.seed, i) - 0.5, hr(city.seed, i * 3) - 0.5, 0);
-      c.fillStyle = "rgba(200,215,205,.05)"; c.beginPath(); c.ellipse(sx, sy, v.TW * 0.45, v.TH * 0.45, 0, 0, Math.PI * 2); c.fill();
-    }
-  }
+  if (o.ground && paintGround(r, o.ground, o.dpr ?? 1, lod)) { if (!lod) drawLiveRipples(r, visible); }
+  else drawGroundTiles(r, visible, lod);
 
   // 2. flat overlays
   const diamond = (x: number, y: number, inset = 0) => {
@@ -2304,7 +2428,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       });
     } else if (isRock(t)) {
       const worn = used / depositCapacity(t);
-      items.push({ d, f: () => drawRock(r, x, y, worn > 0.55) });
+      items.push({ d, f: () => drawRock(r, x, y, worn > 0.55, lod) });
     }
   }
   const zombieState=city.zombies;

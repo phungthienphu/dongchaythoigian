@@ -20,7 +20,7 @@ import {
 } from "@/lib/engine";
 import {mapRotationShortcut} from "./map-shortcuts";
 import {captureMapTurn,paintMapTurn,type MapTurn} from "./map-transition";
-import { projectWorld, rotateCam, screenToWorld, MAX_ZOOM, camView, clampCam, drawCity, fitView, focusOn, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
+import { createGroundCache, projectWorld, rotateCam, screenToWorld, MAX_ZOOM, camView, clampCam, drawCity, fitView, focusOn, pickBuilding, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import {drawSelectionBox,inSelection,selectionMoved,type SelectionDrag} from './map-selection';
 import { Crowd } from "./villagers";
 import { erasUpTo, RELEASED_ERA } from "@/lib/eras";
@@ -390,7 +390,9 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [dockMove, setDockMove] = useState<number | null>(null);
   const [dockTarget, setDockTarget] = useState<Cell | null>(null);
   const [herdSel, setHerdSel] = useState<number | null>(null);
-  const [hover, setHover] = useState<Cell | null>(null);
+  const [hover, setHoverState] = useState<Cell | null>(null);
+  // Live hover for the canvas; React state (status text) follows once the pointer rests.
+  const hoverRef = useRef<Cell | null>(null), hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [assignN, setAssignN] = useState(1);
   const [send, setSend] = useState<Troops>({});
@@ -454,7 +456,13 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   renderPausedRef.current=worldOpen || !!battleOpen || helpOpen;
   const bridgePreview=bridgeFrom!==null?{from:bridgeFrom,to:bridgeTarget?idx(bridgeTarget.x,bridgeTarget.y):null}:undefined;
   const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation });
-  viewRef.current = { hover, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation };
+  viewRef.current = { hover: hoverRef.current, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation };
+  const setHover = (cell: Cell | null, lazy = false) => {
+    hoverRef.current = cell; viewRef.current.hover = cell;
+    clearTimeout(hoverTimer.current);
+    const commit = () => setHoverState((old) => old?.x === cell?.x && old?.y === cell?.y ? old : cell);
+    if (lazy) hoverTimer.current = setTimeout(commit, 80); else commit();
+  };
 
   useEffect(()=>{if(tool||picked.size||pickedSoldier||guardEditing||planting||visiting){setBridgeFrom(null);setBridgeTarget(null);}},[tool,picked,pickedSoldier,guardEditing,planting,visiting]);
   useEffect(()=>{if(visiting||worldOpen||battleOpen||guardEditing||planting||tool){selectionDrag.current=null;setRegionMode(null);setPickedSoldiers(new Set());}},[visiting,worldOpen,battleOpen,guardEditing,planting,tool]);
@@ -755,8 +763,16 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     };
     cv.addEventListener("wheel", onWheel, { passive: false });
     let raf = 0, last = 0;
+    const ground = createGroundCache();
+    // Full frame rate while the player moves the camera or pointer; ~30 fps when idle.
+    let activeAt = 0, cx = NaN, cy = NaN, cz = NaN, cr = NaN, ch: unknown = null, cd: unknown = null;
     const loop = (t: number) => {
       if(document.hidden || renderPausedRef.current){last=t;raf=requestAnimationFrame(loop);return;}
+      const cam = camRef.current, drag = selectionDrag.current, hov = viewRef.current.hover;
+      if (cam.px !== cx || cam.py !== cy || cam.zoom !== cz || (cam.rotation ?? 0) !== cr || hov !== ch || drag?.end !== cd) {
+        cx = cam.px; cy = cam.py; cz = cam.zoom; cr = cam.rotation ?? 0; ch = hov; cd = drag?.end; activeAt = t;
+      }
+      if (t - activeAt > 1000 && t - last < 30) { raf = requestAnimationFrame(loop); return; }
       const vis = visitRef.current;
       const c = vis ? vis.city : cityRef.current, D = vis ? vis.D : dRef.current, crowd = vis ? vis.crowd : crowdRef.current;
       const dt = last ? Math.min(0.1, (t - last) / 1000) : 0;
@@ -770,7 +786,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         if (!rm) crowd.update(c, dt, now());
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const view = vis ? VISIT_VIEW : viewRef.current;
-        drawCity(ctx, c, D, { v: camView(fitRef.current, camRef.current), now: now(), anim: rm ? 0 : t, villagers: crowd.list, fx: crowd.fx, chopping: crowd.chopping, ...view, rules });
+        drawCity(ctx, c, D, { v: camView(fitRef.current, camRef.current), now: now(), anim: rm ? 0 : t, villagers: crowd.list, fx: crowd.fx, chopping: crowd.chopping, ...view, rules, ground, dpr });
         const turn=rotationFadeRef.current;
         if(turn&&!paintMapTurn(ctx,turn,t,fitRef.current.width,fitRef.current.height))rotationFadeRef.current=null;
         if(!vis)drawSelectionBox(ctx,selectionDrag.current);
@@ -861,8 +877,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const onPointerMove = (e: React.PointerEvent) => {
     const prev = ptrs.current.get(e.pointerId);
     if (!prev) {
-      const cell = cellAt(e); viewRef.current.hover = cell;
-      setHover((old) => old?.x === cell?.x && old?.y === cell?.y ? old : cell);
+      const cell = cellAt(e), old = hoverRef.current;
+      if (old?.x !== cell?.x || old?.y !== cell?.y) setHover(cell, true);
       return;
     }
     const p = local(e), cam = camRef.current, f = fitRef.current, d = dragRef.current;
@@ -882,7 +898,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       if (!d.moved) { d.moved = true; prev.x = d.sx; prev.y = d.sy; }
       cam.px += p.x - prev.x; cam.py += p.y - prev.y;
       clampCam(f, cam);
-      setHover(null);
+      if (hoverRef.current) setHover(null);
     }
   };
   const onPointerUp = (e: React.PointerEvent) => {
@@ -913,7 +929,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     rotateCam(fitRef.current,camRef.current,delta);
     const rotation=camRef.current.rotation??0;setMapRotation(rotation);
     try{localStorage.setItem('map-rotation',String(rotation));}catch{}
-    viewRef.current.hover=null;setHover(null);
+    setHover(null);
   };
   const zoomBy = (k: number) => {
     rotationFadeRef.current=null;
@@ -989,12 +1005,13 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       return;
     }
     const soldier = pickHomeSoldier(view(),c,now(),p.x,p.y);
-    const buildingTarget=pickVillageTarget(view(),c,[],performance.now(),p.x,p.y);
+    const hit = pickBuilding(view(),c,p.x,p.y);
+    const buildingTarget=pickVillageTarget(view(),c,[],performance.now(),p.x,p.y,false,hit);
     if(soldier && (buildingTarget?.type!=="building" || e.shiftKey || e.ctrlKey || e.metaKey)) {
       setPickedSoldier(soldier.id);setPicked(new Set());setSelected(null);setPanel(null);
       setMsg({text:`Đã chọn ${UNITS[soldier.u].n}. Bấm ô đất để điều quân. Esc để bỏ chọn.`});return;
     }
-    const target = pickVillageTarget(view(),c,crowdRef.current.list,performance.now(),p.x,p.y,e.shiftKey||e.ctrlKey||e.metaKey);
+    const target = pickVillageTarget(view(),c,crowdRef.current.list,performance.now(),p.x,p.y,e.shiftKey||e.ctrlKey||e.metaKey,hit);
     const vl = target?.type==="person" ? target.person : null;
     if (vl && vl.id !== null) {
       togglePick(vl.id, e.shiftKey || e.ctrlKey || e.metaKey);
