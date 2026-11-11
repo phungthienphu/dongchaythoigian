@@ -1,3 +1,4 @@
+import {buildingDefense} from './economy-balance';
 /** Era 7–8 (Thức tỉnh Ma pháp, Vương triều Nguyên tố) engine adapter. Wires the pure mana-network,
  * magic-production and magic-research modules into settle(), placement,
  * training and zombie combat. All timing uses absolute timestamps so online,
@@ -240,10 +241,16 @@ export function magicStructureDefense(c:City,at:number,actors:Zombie[],guards:Zo
  elementSpells(c,at,zombies);
  if(c.era>=9)mythDefense(c,at,zombies,guards);
  for(const [tile,b]of magicEntries(c)){if(!operating(b))continue;const id=magicSiteId(b),origin=point(tile);
-  const extraDefense=magicDef(b.k as MagicBuilding).defense;
-  if(extraDefense&&due(at,extraDefense.cooldown))for(const z of nearest(zombies.filter(z=>z.hp>0&&distance(z,origin)<=extraDefense.range),origin,z=>z.id).slice(0,extraDefense.targets)){
+  const extraDefense=buildingDefense(c,b.k,magicDef(b.k as MagicBuilding).defense,at);
+  if(extraDefense&&due(at,extraDefense.cooldown)){
+   const targets=nearest(zombies.filter(z=>z.hp>0&&distance(z,origin)<=extraDefense.range),origin,z=>z.id);
+   if(at>=(c.expansionBalanceStartsAt??Infinity)&&(b.k==='wardbastion'||b.k==='celestialbastion')){
+    const priority={breaker:0,super:1,normal:2};targets.sort((a,b)=>priority[a.kind]-priority[b.kind]||distance(a,origin)-distance(b,origin)||a.id-b.id);
+   }
+   for(const z of targets.slice(0,extraDefense.targets)){
     if('error'in spendMana(m.network,m.mana,id,extraDefense.mana))break;
     z.hp-=extraDefense.damage;z.hitAt=at;
+   }
   }
   if(b.k==='aetherwell'&&due(at,MAGIC_SPELLS.lightpulse.cooldown)){const s=MAGIC_SPELLS.lightpulse,hit=zombies.filter(z=>z.hp>0&&distance(z,origin)<=s.radius);
    if(hit.length&&(m.mana[id]??0)>=s.mana){m.mana[id]-=s.mana;for(const z of hit.slice(0,s.targets)){z.hp-=s.damage;z.hitAt=at;applySlow(z,'lightpulse',s.slow,at,at+s.duration);}}}

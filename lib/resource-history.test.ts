@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {newCity,G,idx,settle,applyAction,MIN,HOUR,type City} from './engine';
+import {newCity,G,idx,settle,applyAction,MIN,HOUR,RES,type City} from './engine';
 import {recentResourceFlow,recordResourceFlow} from './resource-history';
 function fixture():City{
  const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.camp=idx(20,20);c.b={[idx(19,20)]:{k:'storehouse',lvl:3,doneAt:null},[idx(22,20)]:{k:'gather',lvl:1,doneAt:null}};c.people=c.people.slice(0,2);c.herds=[];c.camps=[];c.res.food=500;c.res.wood=200;
@@ -26,4 +26,9 @@ test('a day of events retains at most thirty buckets and excludes stale data fro
  const c=fixture();for(let at=0;at<=24*HOUR;at+=10000)recordResourceFlow(c,at,'received','wood',1);
  assert.equal(c.resourceHistory!.buckets.length,30);assert.ok(JSON.stringify(c.resourceHistory).length<5000);
  assert.equal(recentResourceFlow(c,24*HOUR).received.wood,30);assert.equal(recentResourceFlow(c,25*HOUR).received.wood,0);
+});
+
+test('every resource, including magic goods, starts at zero and accumulates finite receipts and costs',()=>{
+ const c=fixture();for(const r of RES){const empty=recentResourceFlow(c,0);assert.equal(empty.received[r],0);assert.equal(empty.spent[r],0);recordResourceFlow(c,1000,'received',r,7);recordResourceFlow(c,2000,'spent',r,3);}
+ const flow=recentResourceFlow(c,3000);for(const r of RES){assert.equal(flow.received[r],7);assert.equal(flow.spent[r],3);}
 });

@@ -74,3 +74,11 @@ test('food basket multiplier does not multiply the advertised mana price per hou
  const before=magicCargoLimit(c,c.b[tile],MIN);chargeMagicCargo(c,c.b[tile],24000,MIN);
  assert.equal(c.magic!.mana[id],70);assert.equal(before,80000);
 });
+test('expensive long-range bastion prioritizes building breakers outside the old defensive circle',()=>{
+ const c=eraFixture(7);initializeMagic(c,0);const tile=idx(23,20),source=idx(22,22);
+ c.b[tile]={k:'wardbastion',lvl:1,doneAt:null,uid:c.magic!.nextUid++};c.b[source]={k:'aetherwell',lvl:3,doneAt:null,uid:c.magic!.nextUid++};eraStaff(c,source,5);stepMagic(c,MIN);
+ const base={hp:1000,maxHp:1000,y:20.5,era:7,until:1e9,nextHit:1e9,repath:1e9};
+ const normal:Zombie={...base,id:1,kind:'normal',x:32},breaker:Zombie={...base,id:2,kind:'breaker',x:33};
+ const id=magicSiteId(c.b[source]);c.magic!.mana[id]=100;magicStructureDefense(c,180000,[normal,breaker],[]);
+ assert.equal(normal.hp,1000);assert.equal(breaker.hp,820);assert.equal(c.magic!.mana[id],88);
+});

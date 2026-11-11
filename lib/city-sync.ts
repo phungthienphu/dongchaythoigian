@@ -30,7 +30,7 @@ export function validBatch(value:unknown): value is BatchRequest {
 export function applyCommandBatch(c:City, commands:SyncCommand[], now:number):SyncResult[] {
   // A pre-update offline queue must not activate new rules at an old command's
   // timestamp. First activation uses the actual server checkpoint time.
-  if(!c.battleId){c.frontierResourcesStartsAt??=now;c.farmAutoStartsAt??=now;c.hungerStartsAt??=now;c.economyBalanceStartsAt??=now;}
+  if(!c.battleId){c.frontierResourcesStartsAt??=now;c.expansionBalanceStartsAt??=now;c.farmAutoStartsAt??=now;c.hungerStartsAt??=now;c.economyBalanceStartsAt??=now;}
   const results:SyncResult[]=[];
   for(const command of commands) {
     const at=Math.max(c.last,Math.min(now,command.at));

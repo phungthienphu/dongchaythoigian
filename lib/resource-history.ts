@@ -1,4 +1,4 @@
-import type {City,Res,ResKey} from './engine';
+import {RES,type City,type Res,type ResKey} from './engine';
 
 const BUCKET_MS=10_000;
 export const RESOURCE_HISTORY_MS=300_000;
@@ -20,7 +20,7 @@ export function recordResourceFlow(c:City,at:number,kind:'received'|'spent',reso
  bucket[kind][resource]=(bucket[kind][resource]??0)+amount;
 }
 export function recentResourceFlow(c:City,now:number){
- const empty=()=>({food:0,wood:0,stone:0,copper:0,gold:0,diamond:0,coal:0}) as Res;
+ const empty=()=>Object.fromEntries(RES.map(r=>[r,0])) as Res;
  const received=empty(),spent=empty(),history=c.resourceHistory;
  const from=Math.max(history?.since??now,Math.floor(now/BUCKET_MS)*BUCKET_MS-RESOURCE_HISTORY_MS+BUCKET_MS);
  for(const bucket of history?.buckets??[])if(bucket.at>=from-from%BUCKET_MS&&bucket.at<=now){

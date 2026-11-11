@@ -15,7 +15,7 @@ import { eraNames, RELEASE_RULES, type EngineRules } from "./eras";
 import { MEDIEVAL_BUILDINGS, initializeMedieval, stepMedieval, scheduleDrought, medievalBonus, droughtFactor, hasWaterSource, isField, isStorage, type MedievalState } from "./medieval";
 import { BoundedCache } from "./bounded-cache";
 import { isActionInput } from "./action-input";
-import {buildingOutput} from './economy-balance';
+import {buildingOutput,buildingInput} from './economy-balance';
 import {recordResourceFlow,type ResourceHistory} from './resource-history';
 import {bridgeDeck,bridgeGeometry,bridgeHeadSite,bridgeExitReserved,bridgeReady,type BridgeSpan} from './bridges';
 
@@ -279,6 +279,7 @@ export type City = {
   gatherFoodStartsAt?: number;
   farmAutoStartsAt?: number;
   frontierResourcesStartsAt?: number;
+  expansionBalanceStartsAt?: number;
   hungerStartsAt?: number;
   economyBalanceStartsAt?: number;
   resourceHistory?:ResourceHistory;
@@ -621,7 +622,7 @@ export function newCity(now: number, seed = (Math.random() * 1e9) | 0): City {
     ver: ENGINE_VER, seed, t, seen: new Array(W * H).fill(0), oldbed: [], xs, camp, b: {}, dep: {}, herds,
     people: [], nextId: 1,
     res: { food: 100, wood: 120, stone: 30, copper: 0, gold: 0, diamond: 0, coal:0, aetherCrystal:0, rune:0,essence:0,celestialStone:0 }, pop: 0, popAcc: 0, era: 1,
-    t0: now, last: now, economyBalanceStartsAt:now, upkeepStartsAt:now, wheelFuelStartsAt:now, gatherFoodStartsAt:now, farmAutoStartsAt:now, frontierResourcesStartsAt:now, hungerStartsAt:now, hunger:{stressMs:0,lossMs:0,warned:0}, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
+    t0: now, last: now, economyBalanceStartsAt:now, upkeepStartsAt:now, wheelFuelStartsAt:now, gatherFoodStartsAt:now, farmAutoStartsAt:now, frontierResourcesStartsAt:now, expansionBalanceStartsAt:now, hungerStartsAt:now, hunger:{stressMs:0,lossMs:0,warned:0}, seasonIdx: 0, boostUntil: 0, shift: null, templeAt: null, log: [],
   };
   activateZombies(c,now,true);
   enrichCopperDeposits(c);
@@ -932,9 +933,9 @@ function computeStats(c: City, D: Derived, at: number, estimates: boolean): Stat
     if (!estimates) continue;
     if(b.k==='thermal')rate.coal-=(c.modern?.generation[i]??0)/80*240;
     if (!d.prod || (isField(b.k) && (b.tendUntil || farmRemaining(b)<=0))) continue;
-    const production=buildingOutput(c,b.k,d.prod,at),output=Object.values(production)[0]??1;
-    if(d.input&&RES.some(r=>d.input?.[r]&&c.res[r]<d.input[r]!/output))continue;
-    for(const r of RES)if(d.input?.[r])rate[r]-=d.input[r]!*LVL_MULT[b.lvl]*eff*mult*(d.demand?powerFraction(c,i):1);
+    const production=buildingOutput(c,b.k,d.prod,at),input=buildingInput(c,b.k,d.input,at),output=Object.values(production)[0]??1;
+    if(input&&RES.some(r=>input[r]&&c.res[r]<input[r]!/output))continue;
+    for(const r of RES)if(input?.[r])rate[r]-=input[r]!*LVL_MULT[b.lvl]*eff*mult*(d.demand?powerFraction(c,i):1);
     for (const r of RES) {
       let v = production[r];
       if (!v) continue;
@@ -1680,7 +1681,8 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   if(d.era>=7&&magicSupportError(c,tk.at,b))return null;
   if(d.era>=7&&magicCargoLimit(c,b,at)<1e-9)return null;
   if(b.k==='artisan'&&(c.res.wood<20||c.res.stone<10))return null;
-  if(d.input&&Object.entries(d.input).some(([r,n])=>c.res[r as ResKey]<(n??0)/production[resource]!))return null;
+  const input=buildingInput(c,b.k,d.input,at);
+  if(input&&Object.entries(input).some(([r,n])=>c.res[r as ResKey]<(n??0)/production[resource]!))return null;
   let rate = healthRate * production[resource]! * LVL_MULT[b.lvl] / buildingJobs(b) * ctx.mult * (b.k==='artisan'||def(b.k).era>=5?1:GATHER_SPEED);
   rate *= droughtFactor(c,tk.at,b.k,at)*(d.demand?powerFraction(c,tk.at):1);
   const crop = isField(b.k) || b.k === "gather";
@@ -1824,11 +1826,11 @@ function takeCargo(c: City, h: Haul, at: number): number {
   if (!h.source) return 0;
   if (h.source.kind === "building") {
     const b=c.b[h.source.key];if(!isBuildingActive(b))return 0;
-    const d=def(b.k);if(d.input&&d.prod){
+    const d=def(b.k),input=buildingInput(c,b.k,d.input,at);if(input&&d.prod){
       const output=(buildingOutput(c,b.k,d.prod,at)[h.resource!]??1)*(h.resource==='food'?foodEraScale(c,at):1);let amount=h.capacity;
-      for(const r of RES)if(d.input[r])amount=Math.min(amount,c.res[r]*output/d.input[r]!);
+      for(const r of RES)if(input[r])amount=Math.min(amount,c.res[r]*output/input[r]!);
       amount=Math.max(0,Math.min(amount,magicCargoLimit(c,b,at)));chargeMagicCargo(c,b,amount,at);
-      for(const r of RES)if(d.input[r]){const spent=amount*d.input[r]!/output;c.res[r]=Math.max(0,c.res[r]-spent);recordResourceFlow(c,at,'spent',r,spent);if(c.industry){const ledger=c.industry.inputsSpent??={};ledger[r]=(ledger[r]??0)+spent;}}
+      for(const r of RES)if(input[r]){const spent=amount*input[r]!/output;c.res[r]=Math.max(0,c.res[r]-spent);recordResourceFlow(c,at,'spent',r,spent);if(c.industry){const ledger=c.industry.inputsSpent??={};ledger[r]=(ledger[r]??0)+spent;}}
       if(c.industry&&d.era>=5&&amount>0)c.industry.processed=true;
       return amount;
     }
@@ -2607,6 +2609,7 @@ export function settle(c: City, now: number, budget?: SettlementBudget) {
   c.gatherFoodStartsAt??=now;
   c.farmAutoStartsAt??=now;
   c.frontierResourcesStartsAt??=now;
+  c.expansionBalanceStartsAt??=now;
   c.hungerStartsAt??=now;
   c.economyBalanceStartsAt??=now;
   if (now <= c.last) return;
@@ -2652,7 +2655,7 @@ export function settle(c: City, now: number, budget?: SettlementBudget) {
     if(t<c.upkeepStartsAt&&c.upkeepStartsAt<=nt)dirty=true;
     if(t<c.wheelFuelStartsAt&&c.wheelFuelStartsAt<=nt)dirty=true;
     if(t<c.gatherFoodStartsAt&&c.gatherFoodStartsAt<=nt)dirty=true;
-    if(t<c.economyBalanceStartsAt&&c.economyBalanceStartsAt<=nt)dirty=true;
+    if(t<c.economyBalanceStartsAt&&c.economyBalanceStartsAt<=nt||t<c.expansionBalanceStartsAt&&c.expansionBalanceStartsAt<=nt)dirty=true;
     const si = seasonIndexAt(c, nt);
     while (c.seasonIdx < si) { c.seasonIdx++; onSeason(c, c.seasonIdx); dirty = true; }
     const services=c.medieval?staffCounts(c):undefined;

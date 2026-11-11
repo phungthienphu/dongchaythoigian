@@ -3,6 +3,7 @@
  * hardening. Called from magic.ts at absolute seconds/minutes, so online,
  * offline and chunked settlement agree. Functions only (imported in a cycle). */
 import {B,UNITS,hallLevel,foodEraScale,type City,type Building,type BKey,type UKey,type ResKey} from './engine';
+import {buildingOutput} from './economy-balance';
 import {spendMana} from './mana-network';
 import type {MagicFactory} from './magic-production';
 import {MAGIC_SPELLS,magicDef,type Element,type MagicBuilding} from './magic-data';
@@ -257,7 +258,7 @@ export function magicEscort(guards:ZombieGuard[],target:ZombieGuard){
  return 1;
 }
 /** Essence forge mana: 30 per 12 essence, paid per carried load from its bound source. */
-const cargoRate=(c:City,k:string,at:number)=>{const d=k in B&&magicDef(k as MagicBuilding);return d&&d.mana&&d.output?d.mana/(Object.values(d.output)[0]!*(d.output.food?foodEraScale(c,at):1)):0;};
+const cargoRate=(c:City,k:string,at:number)=>{const d=k in B&&magicDef(k as MagicBuilding);return d&&d.mana&&d.output?d.mana/(Object.values(buildingOutput(c,k as BKey,d.output,at))[0]!*(d.output.food?foodEraScale(c,at):1)):0;};
 export function magicCargoLimit(c:City,b:Building,at=c.last){
  const rate=cargoRate(c,b.k,at),m=c.magic;if(!rate)return Infinity;if(!m)return 0;
  const binding=m.network.bindings[magicSiteId(b)];if(!binding?.primary)return 0;
