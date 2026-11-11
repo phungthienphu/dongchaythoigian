@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: "Yêu cầu không hợp lệ." }, { status: 400 });
     metrics.command = 'battle.launch';
-    try { return NextResponse.json({ battle: await launchAttack(pid, body.target, body.troops, body.manaSource) }); }
+    try { return NextResponse.json({ battle: await launchAttack(pid, body.target, body.troops, body.manaSource, body.spells) }); }
     catch (e) { return NextResponse.json({ error: (e as Error).message }, { status: 409 }); }
   });
 }

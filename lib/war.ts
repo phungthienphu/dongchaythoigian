@@ -6,6 +6,7 @@ import { battles, cities, mongoClient, type CityDoc } from "./db";
 import { normalizeResources, shipsFree, shipsNeeded, pruneHomeOrders, RES, UKEYS, W, MARCH_TILES_PER_MIN, MIN, canVisit, derive, stats, score, settle, updateRefuges, troopPower, troopCount, type City, type Troops, type Res } from "./engine";
 import { createBattle, type BattleState, type BattleResult } from "./battle";
 import { pourFlask, pourDefenseFlask, returnFlask, flaskMages, type ManaFlask } from "./magic";
+import { reservePackages, releasePackages, parsePackageSpells, type PackageSpell } from "./magic-myth";
 import { knowsNation } from "./world-discovery";
 import { reserveMarchFood, marchLogistics } from "./march-supplies";
 import { worldDist } from "./world";
@@ -21,7 +22,8 @@ export type BattleDoc = {
   transportShips?: number; suppliesFood?: number; troops: Troops; depart: number; arrive: number; duration: number; back?: number;
   status: "marching" | "fighting" | "returning" | "completed" | "cancelled";
   createdAt: Date; updatedRecoveryAt?: Date; snapshot?: BattleState;
-  /** Mage flasks: attacker poured before marching, defender at the battle start. */ flask?: ManaFlask; defenderFlask?: ManaFlask; result?: BattleResult; endedAt?: number;
+  /** Mage flasks: attacker poured before marching, defender at the battle start. */ flask?: ManaFlask; defenderFlask?: ManaFlask;
+  /** Era 9 spell packages each side carried into the battle (one per type). */ packages?: PackageSpell[]; defenderPackages?: PackageSpell[]; result?: BattleResult; endedAt?: number;
 };
 export const SHIELD_MS = 6 * 60 * MIN;
 export function warConfigured() { return !!process.env.BATTLE_WORKER_URL && (process.env.BATTLE_SERVER_SECRET?.length ?? 0) >= 32; }
@@ -100,7 +102,8 @@ export function parseFlaskSource(input: unknown): number | undefined {
   if (typeof p !== "object" || !Number.isInteger(p.x) || !Number.isInteger(p.y) || (p.x as number) < 0 || (p.y as number) < 0 || (p.x as number) >= W || (p.y as number) >= W) throw new Error("Nguồn mana không hợp lệ.");
   return (p.y as number) * W + (p.x as number);
 }
-export async function launchAttack(pid: string, target: unknown, input: unknown, flaskSource?: unknown) {
+/** `spells` optionally lists prepared packages ('thunder', 'sanctuary') the army takes along. */
+export async function launchAttack(pid: string, target: unknown, input: unknown, flaskSource?: unknown, spells?: unknown) {
   if (!warConfigured()) throw new Error("Chưa cấu hình máy chủ trận đánh.");
   if (typeof target !== "string" || target === pid || target.length > 100) throw new Error("Nước không hợp lệ.");
   const col = await cities(), wars = await battles();
@@ -119,13 +122,14 @@ export async function launchAttack(pid: string, target: unknown, input: unknown,
     const sourceTile = parseFlaskSource(flaskSource);
     const flask = sourceTile !== undefined && flaskMages(troops) ? pourFlask(a.state, troops, sourceTile) : undefined;
     if (typeof flask === "string") throw new Error(flask);
+    const id = crypto.randomUUID(), packages = reservePackages(a.state, id, now, parsePackageSpells(spells));
     const requiredShips=shipsNeeded(troops),transportShips=shipsFree(a.state,now)>=requiredShips?requiredShips:0;
     a.state.deployedShips=(a.state.deployedShips??0)+transportShips;
     const duration = Math.max(MIN, worldDist(a.world, d.world) / MARCH_TILES_PER_MIN * MIN);
     const suppliesFood = reserveMarchFood(a.state,troops,duration);
     a.state.provisionedSoldiers=(a.state.provisionedSoldiers??0)+troopCount(troops);
-    const w: BattleDoc = { _id: crypto.randomUUID(), attackerId: pid, defenderId: target, attackerName: a.name, defenderName: d.name,
-      from: a.world, to: d.world, troops, transportShips, suppliesFood, logisticsVersion:1, ...(flask ? { flask } : {}), depart: now, arrive: now + duration, duration, status: "marching", createdAt: new Date(now) };
+    const w: BattleDoc = { _id: id, attackerId: pid, defenderId: target, attackerName: a.name, defenderName: d.name,
+      from: a.world, to: d.world, troops, transportShips, suppliesFood, logisticsVersion:1, ...(flask ? { flask } : {}), ...(packages.length ? { packages } : {}), depart: now, arrive: now + duration, duration, status: "marching", createdAt: new Date(now) };
     addArmy(a.state.army, troops, -1); pruneHomeOrders(a.state); a.state.deployedArmy ??= {}; addArmy(a.state.deployedArmy, troops);
     a.state.log.unshift({at:now,msg:`Xuất ${troopCount(troops)} lính tới ${d.name}, mang ${suppliesFood} lương thực đủ cho đi và về. Mang theo ${transportShips} thuyền vận tải${transportShips?"":"; không thể qua sông trong trận"}.`,cls:"good"});
     // Attacking gives up your own protection.
@@ -153,7 +157,7 @@ async function cancelMarch(id: string) {
       a.state.log.unshift({at:Date.now(),msg:`Hủy xuất quân vì máy chủ trận chưa sẵn sàng; quân đã về, hoàn ${refund} lương thực vào kho.`,cls:"warn"});
     }
     a.state.deployedShips=Math.max(0,(a.state.deployedShips??0)-(w.transportShips??0));
-    returnFlask(a.state, w.flask, w.flask?.mana ?? 0);
+    returnFlask(a.state, w.flask, w.flask?.mana ?? 0); releasePackages(a.state, id, []);
     addArmy(a.state.army, w.troops); addArmy(a.state.deployedArmy ??= {}, w.troops, -1);
     await col.updateOne({ _id: a._id }, { $set: cityUpdate(a.state, Date.now()), $unset: { outboundBattleId: "" }, $inc: { ver: 1 } }, { session });
     await col.updateOne({ _id: w.defenderId, incomingBattleId: id }, { $unset: { incomingBattleId: "" }, $inc: { ver: 1 } }, { session });
@@ -189,10 +193,12 @@ export async function startBattle(id: string) {
     updateRefuges(d.state,now);
     const defenderFlask = pourDefenseFlask(d.state);
     if (defenderFlask) w.defenderFlask = defenderFlask;
-    const snapshot = createBattle({ id, attackerId: a._id, defenderId: d._id, attacker: a.state, defender: d.state, troops: w.marchSurvivors??w.troops, now, attackerShips:w.transportShips??0, defenderOnline: false, attackerFlask: w.flask?.mana, defenderFlask: defenderFlask?.mana });
+    const defenderPackages = reservePackages(d.state, id, now);
+    if (defenderPackages.length) w.defenderPackages = defenderPackages;
+    const snapshot = createBattle({ attackerPackages: w.packages, defenderPackages, id, attackerId: a._id, defenderId: d._id, attacker: a.state, defender: d.state, troops: w.marchSurvivors??w.troops, now, attackerShips:w.transportShips??0, defenderOnline: false, attackerFlask: w.flask?.mana, defenderFlask: defenderFlask?.mana });
     d.state.battleId = id;
     await col.updateOne({ _id: d._id }, { $set: cityUpdate(d.state, now), $inc: { ver: 1 } }, { session });
-    await wars.updateOne({ _id: id }, { $set: { status: "fighting", snapshot, ...(defenderFlask ? { defenderFlask } : {}), ...(march?{marchSurvivors:march.survivors,marchLosses:march.losses}:{}) } }, { session });
+    await wars.updateOne({ _id: id }, { $set: { status: "fighting", snapshot, ...(defenderFlask ? { defenderFlask } : {}), ...(defenderPackages.length ? { defenderPackages } : {}), ...(march?{marchSurvivors:march.survivors,marchLosses:march.losses}:{}) } }, { session });
     return { ...w, status: "fighting" as const, snapshot };
   });
   if (w?.status === "fighting" && w.snapshot) await workerRequest(`/rooms/${id}`, { battle: w.snapshot });
@@ -214,7 +220,7 @@ export async function finishBattle(id: string, result: BattleResult) {
     const lost = Math.min(Math.floor(c.people.length / 2), Math.max(0, Math.floor(result.populationLoss)));
     c.people.splice(Math.max(0, c.people.length - lost), lost); c.pop = c.people.length;
     for (const r of RES) c.res[r] = Math.max(0, c.res[r] - (result.loot[r] ?? 0));
-    returnFlask(c, w.defenderFlask, result.flask?.defender ?? 0);
+    returnFlask(c, w.defenderFlask, result.flask?.defender ?? 0); releasePackages(c, id, result.spells?.defender ?? []);
     delete c.battleId; c.shieldUntil = now + SHIELD_MS;
     // Pause hauling clocks during the combat freeze, preserving carried cargo.
     const frozenFor = Math.max(0, now - c.last);
@@ -249,6 +255,7 @@ function validateResult(w: BattleDoc, defender: City, r: BattleResult) {
   if (!Number.isInteger(r.populationLoss) || r.populationLoss < 0 || r.populationLoss > Math.floor(defender.people.length / 2) || !r.loot) throw new Error("Thiệt hại không hợp lệ.");
   for (const k of RES) if (!Number.isFinite(r.loot[k] ?? 0) || (r.loot[k] ?? 0) < 0 || (r.loot[k] ?? 0) > defender.res[k] * 0.25 + 0.001) throw new Error("Chiến lợi phẩm vượt giới hạn.");
   if (r.flask && (![r.flask.attacker, r.flask.defender].every((n) => Number.isFinite(n) && n >= 0) || r.flask.attacker > (w.flask?.mana ?? 0) + 1e-6 || r.flask.defender > (w.defenderFlask?.mana ?? 0) + 1e-6)) throw new Error("Bình mana không hợp lệ.");
+  if (r.spells && (["attacker", "defender"] as const).some((side) => !Array.isArray(r.spells![side]) || r.spells![side].some((k) => !(side === "attacker" ? w.packages : w.defenderPackages)?.includes(k)))) throw new Error("Gói đại phép không hợp lệ.");
   if (r.burnedTiles.some((tile) => !Number.isInteger(tile) || tile < 0 || tile >= W * W || !defender.b[tile])) throw new Error("Công trình không hợp lệ.");
 }
 export async function returnArmy(id: string) {
@@ -264,6 +271,7 @@ export async function returnArmy(id: string) {
     addArmy(c.army, w.result?.attackerSurvivors ?? w.marchSurvivors ?? w.troops); addArmy(c.deployedArmy ??= {}, w.troops, -1);
     // A battle spends flask mana; a march turned back by a shield returns it whole.
     returnFlask(c, w.flask, w.result ? (w.result.flask?.attacker ?? 0) : (w.flask?.mana ?? 0));
+    releasePackages(c, id, w.result?.spells?.attacker ?? []);
     const cap = stats(c, derive(c), now).storage;
     for (const k of RES) c.res[k] = Math.min(cap[k], c.res[k] + (w.result?.loot[k] ?? 0));
     c.log.unshift({ at: now, msg: `Đoàn quân từ ${w.defenderName} đã trở về.`, cls: "good" });
