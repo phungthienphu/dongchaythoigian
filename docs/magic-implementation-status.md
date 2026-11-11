@@ -1,8 +1,15 @@
 # Ba thời ma pháp — trạng thái triển khai
 
-11/11/2026. **Chưa mở gameplay thời 7–9 trên production.** `RELEASED_ERA` và `LOCAL_ERA` vẫn là 6. Không dùng bảng dữ liệu mới để tuyên bố đã làm xong ba đời.
+11/11/2026. **Chưa mở gameplay thời 7–9 trên production.** `RELEASED_ERA` và `LOCAL_ERA` vẫn là 6; thời 7 chạy được trong engine khi truyền `{maxEra:7}`. Không dùng bảng dữ liệu mới để tuyên bố đã làm xong ba đời.
 
-## Đã có mô-đun riêng, chưa nối engine/UI
+## Thời 7 đã nối engine (chỉ bật khi `EngineRules.maxEra>=7`)
+
+- `lib/magic-buildings.ts` đưa 10 công trình và 2 pháp sư thời 7 vào `DEFS`/`UNITS`; `lib/magic.ts` là adapter: `initializeMagic` (vào thời 7), `stepMagic` trong `settle()` mỗi phút tuyệt đối (mạng mana lưu trong save, chỉ dựng lại khi topology đổi), hành động `magicResearch`/`cancelMagicResearch`, kiểm tra đặt nhà/hỗ trợ xưởng cũ, phí mana tuyển quân, phép trong combat zombie.
+- Tinh thạch/phù văn nằm trong `RES`: xưởng kết tinh/phù văn dùng luồng hàng mang về kho như xưởng cũ; ngăn kho cấp 1; ẩn và không chứa được trước thời 7; chợ chỉ khi cả hai làng ≥7.
+- Phép: Linh quang, Hỏa trận (chốt 11/11), Trói rễ, Thanh tẩy, Thủy hồi (đền và pháp sư), Hỏa cầu. PvP dùng chỉ số đánh thường của pháp sư; chưa có bình mana/phép trong trận PvP.
+- Còn hoãn: actor mang hàng vào bộ đệm học viện/tháp (đang chuyển thẳng từ kho mỗi phút), bình mana khi xuất quân, UI/art riêng, hiệu ứng mở thời 8 của Tháp Khai Nguyên.
+
+## Đã có mô-đun riêng (thời 8–9 chưa nối engine/UI)
 
 - `lib/magic-data.ts`: 26 công trình, bốn hàng mới, sáu nghiên cứu, giá lên đời/Đình, bảy đơn vị và mười phép theo spec.
 - `lib/mana-network.ts`: đường nối phải được bộ chỉ mục dân sự cho phép; tối đa ba relay; nguồn 4/6/8 chỗ, ưu tiên y tế/phòng thủ, nguồn dự phòng trừ đúng một lần và chuyển đúng một slot. Relay không phát mana.
