@@ -31,11 +31,11 @@ test('era 8 needs Tháp Khai Nguyên, hall 7, 650 people and the spec goods; hal
  assert.equal(applyAction(c,{type:'advance'},c.last,RULES),null);assert.equal(c.era,8);
  assert.deepEqual([c.res.aetherCrystal,c.res.rune],[0,0]);assert.ok(stats(c,derive(c),c.last).storage.essence>=10000);
  assert.deepEqual(levelCost('hall',8),{stone:40000,copper:15000,gold:6000,rune:200});assert.equal(buildMs('hall',8),12*HOUR);assert.equal(buildMs('hall',7),8*HOUR);
- // Era 9 entry is defined (Đại Trận Tứ Linh) but the engine stops at era 8.
- assert.equal(ENGINE_MAX_ERA,8);assert.deepEqual(ERA_REQ[9].wonders,['fourspirits']);
+ // Era 9 entry needs Đại Trận Tứ Linh; the engine now runs era 9 behind maxEra 9.
+ assert.equal(ENGINE_MAX_ERA,9);assert.deepEqual(ERA_REQ[9].wonders,['fourspirits']);
  const late=era8();eraStaff(late,late.camp,850);for(let n=0;n<14;n++)late.b[idx(30+n,32)]={k:'grandstore',lvl:3,doneAt:null};for(const r of RES)late.res[r]=ERA_REQ[9].cost[r]??0;
  assert.equal(eraConditionsMet(late,9),false);late.b[idx(40,40)]={k:'fourspirits',lvl:1,doneAt:null,uid:98};
- assert.equal(eraConditionsMet(late,9),true);assert.equal(reqMet(late,RULES),false);assert.match(applyAction(late,{type:'advance'},0,RULES)!,/sắp ra mắt/);
+ assert.equal(eraConditionsMet(late,9),true);assert.equal(reqMet(late,{maxEra:8}),false);assert.match(applyAction(late,{type:'advance'},0,{maxEra:8})!,/sắp ra mắt/);
  const young=era8();young.era=7;assert.equal(stats(young,derive(young),0).storage.essence,0);
 });
 
@@ -247,7 +247,7 @@ test('Tứ nguyên and Khế ước research: prerequisites, 360/300 knowledge, 
  settle(c,4*HOUR);assert.ok(c.magic!.researched.includes('elements'));assert.equal(canPlace(c,derive(c),'firealtar',34,34,RULES),null);
  assert.match(canPlace(c,derive(c),'golemworks',34,34,RULES)!,/Khế ước/);
  assert.equal(applyAction(c,{type:'magicResearch',key:'pact'},4*HOUR,RULES),null);assert.equal(c.magic!.knowledge,340);
- assert.match(applyAction(c,{type:'magicResearch',key:'gatecraft'},4*HOUR,RULES)!,/sắp ra mắt|đang thực hiện/);
+ assert.match(applyAction(c,{type:'magicResearch',key:'gatecraft'},4*HOUR,{maxEra:8})!,/sắp ra mắt/);
 });
 
 test('harmonizer: explicit pair of seals, −8 pollution/h, +1 slot for each source in six tiles, never stacked',()=>{

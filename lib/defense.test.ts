@@ -7,7 +7,7 @@ function fixture() {
   const c = newCity(now, 123);
   c.t.fill(G);
   c.seen.fill(1);
-  c.res = { food: 10_000, wood: 10_000, stone: 10_000, copper: 10_000 , gold: 0, diamond:0,coal:0,aetherCrystal:0,rune:0,essence:0};
+  c.res = { food: 10_000, wood: 10_000, stone: 10_000, copper: 10_000 , gold: 0, diamond:0,coal:0,aetherCrystal:0,rune:0,essence:0,celestialStone:0};
   return c;
 }
 

@@ -3,7 +3,7 @@
  * training and zombie combat. All timing uses absolute timestamps so online,
  * offline and chunked settlement give the same result. Functions only: this
  * module is imported by the engine, so it must not touch engine values at load. */
-import {UNITS,isBuildingActive,hallLevel,stats,derive,type City,type Building,type BKey,type UKey,type ResKey,type Troops} from './engine';
+import {UNITS,ENGINE_MAX_ERA,isBuildingActive,hallLevel,stats,derive,type City,type Building,type BKey,type UKey,type ResKey,type Troops} from './engine';
 import type {EngineRules} from './eras';
 import {staffCounts} from './industry';
 import {zombiePath,zombiePersonPosition,type Zombie,type ZombieGuard} from './zombies';
@@ -11,20 +11,24 @@ import {bridgeDeck} from './bridges';
 import {manaNetwork,spendMana,type ManaNetwork,type ManaSite} from './mana-network';
 import {reconcileMagicFactories,deliverMagicInput,stepMagicProduction,type MagicProduction} from './magic-production';
 import {beginMagicResearch,finishMagicResearch,cancelMagicResearch,type MagicResearchState} from './magic-research';
-import {MAGIC_BUILDINGS,MAGIC_RESEARCH,MAGIC_SPELLS,magicDef,type MagicBuilding,type MagicGoods,type Research,type Element} from './magic-data';
+import {MAGIC_BUILDINGS,MAGIC_RESEARCH,MAGIC_SPELLS,CONTRACT_RESEARCH,magicDef,type MagicBuilding,type MagicGoods,type Research,type Element,type Contract} from './magic-data';
+import {MYTH_ACTIONS,mythAction,mythBuildError,mythConditions,mythDefense,mythTrainingError,stepMythMinute,stepMythSecond,craftActive,recordCraftMana,settleCraft,type MythState,type MythAction} from './magic-myth';
 import {recordResourceFlow} from './resource-history';
 import {computeSeals,sealConditions,regulatedSources,stepElements,stepTreants,elementSpells,elementBuildError,elementTrainingError,elementAction,treantsInTransit,clampHardened,type ElementState,type ElementAction} from './magic-elements';
 const SECOND=1000,MINUTE=60*SECOND;
-export type MagicState=MagicProduction&MagicResearchState&ElementState&{version:1;enteredAt:number;nextUid:number;network:ManaNetwork;topology:string;cooldowns:Record<string,number>;boosted:number[];
+export type MagicState=MagicProduction&MagicResearchState&ElementState&MythState&{version:1;enteredAt:number;nextUid:number;network:ManaNetwork;topology:string;cooldowns:Record<string,number>;boosted:number[];
  /** Era 8 chuyên tu: one active element; a switch removes it until `pending` completes. */
  specialization?:{element?:Element;pending?:{element:Element;doneAt:number}}};
-export type MagicAction={type:'magicResearch';key:Research}|{type:'cancelMagicResearch'}|ElementAction;
-export const RESEARCH_NAMES:Record<Research,string>={conduction:'Dẫn linh',warcraft:'Chiến pháp',lifecraft:'Hộ sinh',elements:'Tứ nguyên',pact:'Khế ước',gatecraft:'Khai giới'};
-/** Era 7–8 kinds that the engine registers. Era 9 data stays dormant. */
-const KINDS=new Set<string>(Object.entries(MAGIC_BUILDINGS).filter(([,d])=>d.era<=8).map(([k])=>k));
+export type MagicAction={type:'magicResearch';key:Research}|{type:'cancelMagicResearch'}|ElementAction|MythAction;
+const ELEMENT_ACTIONS=new Set(['magicSpecialize','magicHarmonize','magicTreant']);
+export const isMagicActionType=<A extends {type:string}>(a:A):a is A&MagicAction=>a.type==='magicResearch'||a.type==='cancelMagicResearch'||ELEMENT_ACTIONS.has(a.type)||MYTH_ACTIONS.has(a.type);
+export const RESEARCH_NAMES:Record<Research,string>={conduction:'Dẫn linh',warcraft:'Chiến pháp',lifecraft:'Hộ sinh',elements:'Tứ nguyên',pact:'Khế ước',gatecraft:'Khai giới',dragonPact:'Khế ước Long',tortoisePact:'Khế ước Quy',phoenixPact:'Khế ước Phượng'};
+const CONTRACT_OF=Object.fromEntries(Object.entries(CONTRACT_RESEARCH).map(([k,v])=>[v,k])) as Partial<Record<Research,Contract>>;
+/** Era 7–9 kinds that the engine registers (each gated by its era and EngineRules.maxEra). */
+const KINDS=new Set<string>(Object.keys(MAGIC_BUILDINGS));
 /** Buildings whose mana, inputs and outputs run in magic-production. Crystal,
  * rune and essence workshops use the ordinary carried-goods pipeline instead. */
-export const PRODUCTION=new Set<string>(['aetherwell','manaspire','mageacademy','spiritgarden','rivershrine','wardcircle','firealtar','watertemple','woodgrove','earthtemple','harmonizer']);
+export const PRODUCTION=new Set<string>(['aetherwell','manaspire','mageacademy','spiritgarden','rivershrine','wardcircle','firealtar','watertemple','woodgrove','earthtemple','harmonizer','observatory','riverpalace']);
 export const SOURCES=new Set<string>(['aetherwell','manaspire']);
 /** Not mana receivers: carried workshops (except the essence forge, which pays mana per load) and wonders. */
 const OFF_NETWORK=new Set<string>(['crystalworks','runeworks','awakeningtower','fourspirits']);
@@ -74,14 +78,20 @@ function refreshNetwork(c:City,entries:[number,Building][]){
 /** Research completion every second; mana, knowledge and receivers at absolute minutes. */
 export function stepMagic(c:City,nt:number){
  const m=c.magic;if(!m)return false;let changed=false;
- if(m.research&&finishMagicResearch(m,nt)){log(c,nt,`Hoàn thành nghiên cứu ${RESEARCH_NAMES[m.researched.at(-1)!]}.`);changed=true;}
+ if(m.research&&finishMagicResearch(m,nt)){const key=m.researched.at(-1)!,contract=CONTRACT_OF[key];log(c,nt,`Hoàn thành nghiên cứu ${RESEARCH_NAMES[key]}.`);changed=true;
+  // The first contract research makes that contract active; later switches use magicContract.
+  if(contract&&!m.contract?.active&&!m.contract?.pending)m.contract={active:contract};}
+ if((m.packages?.length||m.shipments?.length||m.mythEffects?.length)&&stepMythSecond(c,nt))changed=true;
  if(stepTreants(c,nt))changed=true;
  if(nt<m.minuteAt+MINUTE)return changed;
  const to=Math.floor(nt/MINUTE)*MINUTE,entries=magicEntries(c),staff=staffCounts(c);
  refreshNetwork(c,entries);
  const tiles=new Map<string,number>();
  reconcileMagicFactories(m,entries.filter(([,b])=>PRODUCTION.has(b.k)).map(([tile,b])=>{tiles.set(magicSiteId(b),tile);return {id:magicSiteId(b),kind:b.k as MagicBuilding,level:b.lvl,workers:staff.get(tile)??0,enabled:operating(b),activeSince:b.builtAt??m.enteredAt};}));
- stepMagicProduction(m,m.network,to,f=>sealConditions(c,f));
+ const crafts=craftActive(c);
+ // Bách Nghệ counts ordinary production mana only: not Thiên nhãn or the domain upkeep itself.
+ stepMagicProduction(m,m.network,to,f=>sealConditions(c,f)??mythConditions(c,f),crafts?(f,source,amount)=>{if(f.kind!=='observatory'&&f.kind!=='riverpalace')recordCraftMana(c,source,amount);}:undefined);
+ settleCraft(c,to,crafts);
  m.seals=computeSeals(c,entries);clampHardened(c);
  // Gardens that actually paid mana this minute shorten nearby care.
  const boosted=new Set<number>();
@@ -92,6 +102,7 @@ export function stepMagic(c:City,nt:number){
  m.boosted=[...boosted].sort((a,b)=>a-b);
  if(purify(c,to,entries))changed=true;
  if(stepElements(c,to,entries,staff))changed=true;
+ if(c.era>=9&&stepMythMinute(c,to,entries))changed=true;
  return changed;
 }
 /** Two-hour input buffers are filled only by carriers (see engine stepSupply).
@@ -108,7 +119,7 @@ export function magicSupplyNeed(c:City,tile:number,load:number):{resource:ResKey
  return null;
 }
 export function deliverMagicSupply(c:City,tile:number,r:ResKey,amount:number){const b=c.b[tile];return c.magic&&operating(b)&&PRODUCTION.has(b.k)?deliverMagicInput(c.magic,magicSiteId(b),r as keyof MagicGoods,amount):0;}
-export const isStock=(r:keyof MagicGoods):r is keyof MagicGoods&ResKey=>r==='food'||r==='wood'||r==='stone'||r==='copper'||r==='gold'||r==='coal'||r==='aetherCrystal'||r==='rune'||r==='essence';
+export const isStock=(r:keyof MagicGoods):r is keyof MagicGoods&ResKey=>r==='food'||r==='wood'||r==='stone'||r==='copper'||r==='gold'||r==='coal'||r==='aetherCrystal'||r==='rune'||r==='essence'||r==='celestialStone';
 
 /** Thanh tẩy: one village cooldown, scheduled when at least two sick villagers are in range. */
 function purify(c:City,at:number,entries:[number,Building][]){
@@ -134,6 +145,7 @@ export function magicBuildError(c:City,k:BKey,tile:number):string|null{
   if(!river&&!lake)return 'Điện thờ Sông Mẹ phải sát sông (không chéo) hoặc trong 4 ô hồ chứa đang có nước.';
  }
  const era8=elementBuildError(c,k,tile);if(era8)return era8;
+ const era9=mythBuildError(c,k);if(era9)return era9;
  if(k==='awakeningtower'){
   const sources=Object.values(c.b).filter(b=>SOURCES.has(b.k)&&operating(b)).length,academy=Object.values(c.b).some(b=>b.k==='mageacademy'&&operating(b));
   if(hallLevel(c)<7)return 'Cần Đình làng cấp 7 đang hoạt động.';
@@ -145,10 +157,10 @@ export function magicBuildError(c:City,k:BKey,tile:number):string|null{
 }
 /** Old industry must keep running: no mana bypass for the crystal/rune chains. */
 export function magicSupportError(c:City,tile:number,b:Building):string|null{
- const support=b.k==='crystalworks'?['forge']:b.k==='runeworks'?['artisan','machine']:b.k==='essenceforge'?['machine']:null;if(!support)return null;
+ const support=b.k==='crystalworks'?['forge']:b.k==='runeworks'?['artisan','machine']:b.k==='essenceforge'?['machine']:b.k==='celestialforge'?['complex']:null;if(!support)return null;
  const deck=bridgeDeck(c);
  for(const [i,o]of Object.entries(c.b))if(support.includes(o.k)&&operating(o)&&routeConnected(c,tile,+i,deck))return null;
- return b.k==='crystalworks'?'Cần Xưởng dụng cụ hoạt động trong 6 ô, có đường nối.':b.k==='essenceforge'?'Cần Xưởng cơ khí hoạt động trong 6 ô, có đường nối.':'Cần Xưởng thủ công hoặc Xưởng cơ khí hoạt động trong 6 ô, có đường nối.';
+ return b.k==='celestialforge'?'Cần Tổ hợp sản xuất hoạt động trong 6 ô, có đường nối.':b.k==='crystalworks'?'Cần Xưởng dụng cụ hoạt động trong 6 ô, có đường nối.':b.k==='essenceforge'?'Cần Xưởng cơ khí hoạt động trong 6 ô, có đường nối.':'Cần Xưởng thủ công hoặc Xưởng cơ khí hoạt động trong 6 ô, có đường nối.';
 }
 /** Academies, golem works and spirit stables each open their own magic army space. */
 export const magicArmySpace=(c:City)=>c.magic?Object.values(c.b).reduce((n,b)=>n+(isMagicBuilding(b.k)&&operating(b)?magicDef(b.k as MagicBuilding).armySpace??0:0),0):0;
@@ -165,6 +177,7 @@ export function magicTrainingError(c:City,u:UKey,n:number):string|null{
  const m=c.magic,unit=UNITS[u];if(!m)return 'Cần vào thời Thức tỉnh Ma pháp.';
  if(unit.research&&!m.researched.includes(unit.research))return `Cần hoàn thành nghiên cứu ${RESEARCH_NAMES[unit.research]} để tuyển ${unit.n}.`;
  const seals=elementTrainingError(c,u);if(seals)return seals;
+ const beasts=mythTrainingError(c,u,n);if(beasts)return beasts;
  // Uses the persisted graph: previews must not rebuild it between minute steps.
  return unit.mana?chargeTraining(c,u,n,false):null;
 }
@@ -173,7 +186,8 @@ export function payMagicTraining(c:City,u:UKey,n:number){const error=magicTraini
 export function magicAction(c:City,a:MagicAction,now:number,rules:EngineRules):string|null{
  if(rules.maxEra<7)return 'Thời đại này sắp ra mắt.';
  const m=c.magic;if(!m)return 'Cần vào thời Thức tỉnh Ma pháp.';
- if(a.type!=='magicResearch'&&a.type!=='cancelMagicResearch')return rules.maxEra<8?'Thời đại này sắp ra mắt.':elementAction(c,a,now);
+ if(MYTH_ACTIONS.has(a.type))return rules.maxEra<9?'Thời đại này sắp ra mắt.':mythAction(c,a as MythAction,now);
+ if(a.type!=='magicResearch'&&a.type!=='cancelMagicResearch')return rules.maxEra<8?'Thời đại này sắp ra mắt.':elementAction(c,a as ElementAction,now);
  if(a.type==='cancelMagicResearch'){
   const refund=cancelMagicResearch(m);if(!refund)return 'Không có nghiên cứu đang chạy.';
   const storage=stats(c,derive(c),now).storage;
@@ -181,10 +195,11 @@ export function magicAction(c:City,a:MagicAction,now:number,rules:EngineRules):s
   log(c,now,'Đã hủy nghiên cứu, hoàn 50% phí; thời gian không được hoàn.','warn');return null;
  }
  const def=Object.hasOwn(MAGIC_RESEARCH,a.key)?MAGIC_RESEARCH[a.key]:undefined;if(!def)return 'Nghiên cứu không hợp lệ.';
- if(def.era>Math.min(rules.maxEra,8))return 'Nghiên cứu này sắp ra mắt.';
- const stock:MagicGoods={};for(const r of ['food','wood','stone','copper','gold','coal','aetherCrystal','rune','essence'] as const)stock[r]=c.res[r];
+ if(def.era>Math.min(rules.maxEra,ENGINE_MAX_ERA))return 'Nghiên cứu này sắp ra mắt.';
+ if(CONTRACT_OF[a.key]&&(m.contract?.active||m.contract?.pending||m.researched.some(k=>CONTRACT_OF[k])||m.research&&CONTRACT_OF[m.research.key]))return 'Mỗi làng chỉ một khế ước chủ đạo; đổi khế ước bằng lệnh đổi (thu hồi thần thú, 12 giờ, 200 thiên thạch + 100 tinh chất).';
+ const stock:MagicGoods={};for(const r of ['food','wood','stone','copper','gold','coal','aetherCrystal','rune','essence','celestialStone'] as const)stock[r]=c.res[r];
  const before={...stock};
- const error=beginMagicResearch(m,stock,a.key,now,{era:c.era,academy:Object.values(c.b).some(b=>b.k==='mageacademy'&&operating(b)),university:Object.values(c.b).some(b=>b.k==='university'&&operating(b)),fourSpirits:Object.values(c.b).some(b=>b.k==='fourspirits'&&operating(b))});
+ const error=beginMagicResearch(m,stock,a.key,now,{era:c.era,academy:Object.values(c.b).some(b=>b.k==='mageacademy'&&operating(b)),university:Object.values(c.b).some(b=>b.k==='university'&&operating(b)),fourSpirits:Object.values(c.b).some(b=>b.k==='fourspirits'&&operating(b)),covenant:Object.values(c.b).some(b=>b.k==='covenantaltar'&&operating(b))});
  if(error)return error;
  for(const r of Object.keys(stock) as (keyof MagicGoods)[])if(isStock(r)){const spent=(before[r]??0)-(stock[r]??0);c.res[r]=stock[r]??0;recordResourceFlow(c,now,'spent',r,spent);}
  log(c,now,`Bắt đầu nghiên cứu ${RESEARCH_NAMES[a.key]}, xong sau ${def.seconds/3600} giờ.`);return null;
@@ -219,6 +234,7 @@ function heal(c:City,guards:ZombieGuard[],origin:{x:number;y:number},radius:numb
 export function magicStructureDefense(c:City,at:number,actors:Zombie[],guards:ZombieGuard[]){
  const m=c.magic;if(!m)return;const zombies=actors.filter(z=>live(z,at));
  elementSpells(c,at,zombies);
+ if(c.era>=9)mythDefense(c,at,zombies,guards);
  for(const [tile,b]of magicEntries(c)){if(!operating(b))continue;const id=magicSiteId(b),origin=point(tile);
   if(b.k==='aetherwell'&&due(at,MAGIC_SPELLS.lightpulse.cooldown)){const s=MAGIC_SPELLS.lightpulse,hit=zombies.filter(z=>z.hp>0&&distance(z,origin)<=s.radius);
    if(hit.length&&(m.mana[id]??0)>=s.mana){m.mana[id]-=s.mana;for(const z of hit.slice(0,s.targets)){z.hp-=s.damage;z.hitAt=at;applySlow(z,'lightpulse',s.slow,at,at+s.duration);}}}

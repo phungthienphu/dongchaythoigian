@@ -29,11 +29,20 @@ export const MAGIC_ERA8_BUILDINGS={
  harmonizer:base('harmonizer','4 thợ, 2 tinh chất + 20 mana/giờ, cần hai ấn khác loại đã chọn: giảm 8 ô nhiễm/giờ và thêm 1 chỗ cấp cho mỗi nguồn mana trong 6 ô (không cộng nhiều đài trên một nguồn).'),
  fourspirits:base('fourspirits','Kỳ quan thời 8: nguồn mana +20% sức chứa, mở thời 9. Khởi công cần Đình 8 và đủ bốn ấn trong 6 ô.'),
 } satisfies Record<string,Def>;
+export const MAGIC_ERA9_BUILDINGS={
+ celestialforge:base('celestialforge','8 thợ: 180 đồng + 12 tinh chất + 12 phù văn + 60 mana/giờ → 24 thiên thạch/giờ. Cần Tổ hợp sản xuất hoạt động trong 6 ô, có đường nối; hàng mang về kho.',{prod:{celestialStone:24},input:{copper:180,essence:12,rune:12}}),
+ observatory:base('observatory','4 thợ, 20 mana/giờ: Thiên nhãn báo điểm trồi zombie trước 180 giây thay vì 60 giây. Cần Khai giới. Không mở làng đối thủ. Tối đa 1.'),
+ spiritgate:base('spiritgate','Cần ấn Thủy + Thổ và Khai giới. Huấn luyện thần thú của khế ước đang hiệu lực (cần Đài khế ước). Mở 24 chỗ quân ma pháp. Tối đa 1.'),
+ covenantaltar:base('covenantaltar','Nghiên cứu khế ước Long/Quy/Phượng, cấp 4 chỗ thần thú (tối đa 2 con). Đổi khế ước: thu hồi thần thú trước, 12 giờ, 200 thiên thạch + 100 tinh chất. Tối đa 1.'),
+ worldmatrix:base('worldmatrix','Cần hai ấn khác loại và nguồn mana. Chuẩn bị tối đa 2 gói đại phép (giữ 24 giờ): Thiên lôi cần ấn Hỏa + Thủy (300 mana + 10 thiên thạch), Hộ giới cần ấn Mộc + Thổ (250 mana + 8 thiên thạch). Nhà bị phá thì mất gói. Tối đa 1.'),
+ teleportdock:base('teleportdock','Ghép từng cặp. Dịch chuyển tối đa 60 hàng trong 30 giây tới bộ đệm phép quanh bến đích (phần dư về kho), 20 mana + 1 phù văn/chuyến, hồi 2 phút/cặp. Không chuyển quân hay giao dịch giữa làng. Tối đa 4.'),
+ riverpalace:base('riverpalace','Kỳ quan thời 9: chọn một lãnh địa (Sông Thiêng, Thành Trì Linh Giới, Bách Nghệ), duy trì 40 mana/giờ. Khởi công cần Đình 9, 950 dân, một khế ước, Cổng Linh giới và Trận đồ thiên địa đang hoạt động. Không miễn dịch zombie.'),
+} satisfies Record<string,Def>;
 export type MagicEra7Building=keyof typeof MAGIC_ERA7_BUILDINGS;
 export const MAGIC_ERA7_KINDS=Object.keys(MAGIC_ERA7_BUILDINGS) as MagicEra7Building[];
 /** Unit `atk` is damage per second, as everywhere in the engine: per-hit damage
  * from the spec divided by its attack interval (12 per 2 s → 6). */
-const mage=(k:'firemage'|'watermage'|'golem'|'spiritdeer',d:string,extra:Partial<Unit>={}):Unit=>{const m=u[k];return {n:m.name,era:m.era,cost:m.cost as Goods,sec:m.seconds,atk:m.damage*1000/m.attackMs,hp:m.hp,space:m.space,range:m.range,attackMs:m.attackMs,speed:m.speed,shot:'arrow',building:m.building,mana:m.mana,research:m.research,d,...extra};};
+const mage=(k:keyof typeof u,d:string,extra:Partial<Unit>={}):Unit=>{const m=u[k] as typeof u[keyof typeof u]&{research?:Unit['research'];contract?:Unit['contract'];flying?:boolean};return {n:m.name,era:m.era,cost:m.cost as Goods,sec:m.seconds,atk:m.damage*1000/m.attackMs,hp:m.hp,space:m.space,range:m.range,attackMs:m.attackMs,speed:m.speed,shot:'arrow',building:m.building,mana:m.mana,...(m.research?{research:m.research}:{}),...(m.contract?{contract:m.contract,beastSlots:m.beastSlots}:{}),...(m.flying?{flying:true}:{}),d,...extra};};
 export const MAGIC_ERA7_UNITS={
  firemage:mage('firemage','Bắn phép 12 sát thương/2 giây, tầm 6. Hỏa cầu (30 mana, 20 giây): 60 sát thương mục tiêu, 30 trong 1,5 ô, tối đa 5. Yếu khi bị áp sát. Cần Chiến pháp; 40 mana khi tuyển.'),
  watermage:mage('watermage','Bắn phép 6 sát thương/2 giây, tầm 5. Thủy hồi (25 mana, 25 giây): hồi 50 HP tối đa 3 quân trong 2 ô. Cần lính che chắn và Hộ sinh; 40 mana khi tuyển.'),
@@ -41,4 +50,9 @@ export const MAGIC_ERA7_UNITS={
 export const MAGIC_ERA8_UNITS={
  golem:mage('golem','Đánh 50/2,5 giây, cận chiến, chậm. Chặn đường, sát thương nhà ×1,5; không đánh quân bay. Cần ấn Thổ và Khế ước; 120 mana khi tuyển. Chuyên tu Thổ: +10% HP cho golem tuyển sau khi chọn.',{shot:'melee',buildingAtk:1.5}),
  spiritdeer:mage('spiritdeer','Đánh 18/1,8 giây, tầm 2, nhanh. Hộ tống: tối đa 4 quân đồng minh trong 3 ô giảm 10% sát thương (không cộng nhiều linh lộc). Cần ấn Mộc + Thủy và Khế ước; 80 mana khi tuyển.',{shot:'melee'}),
+} satisfies Record<string,Unit>;
+export const MAGIC_ERA9_UNITS={
+ dragon:mage('dragon','Thần thú bay: đòn 45/2 giây, tầm 5, đánh tối đa 3 mục tiêu (mục tiêu phụ 50%), nhà ×0,5. Bay qua vật cản; chỉ quân chống bay đánh được trong PvP, zombie vẫn cắn khi áp sát. Cần khế ước Long; 12 chỗ + 2 chỗ thần thú; 300 mana.',{buildingAtk:.5,shot:'shell'}),
+ tortoise:mage('tortoise','Thần thú mặt đất: đòn 35/3 giây, cận chiến, rất chậm. Che tối đa 4 quân gần trong 2 ô giảm 15% sát thương. Cần khế ước Quy; 12 chỗ + 2 chỗ thần thú; 300 mana.',{shot:'melee'}),
+ phoenix:mage('phoenix','Thần thú bay: đòn 25/2 giây, tầm 5. Mỗi 10 giây hồi 30 HP cho tối đa 4 quân sống trong 3 ô, không hồi sinh. Cần khế ước Phượng; 12 chỗ + 2 chỗ thần thú; 300 mana.'),
 } satisfies Record<string,Unit>;

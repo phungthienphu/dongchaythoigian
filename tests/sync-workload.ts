@@ -12,7 +12,7 @@ export function syncFixture(pop = 50, blocked = false): City {
   for (let n=0;n<25;n++) c.b[idx(42+n%5,25+Math.floor(n/5))] = { k:'storehouse', lvl:3, doneAt:null };
   c.people = Array.from({length:pop},(_,n)=>({ id:n+1, name:'Fixture', task:{t:'work' as const,at:idx(25+Math.floor(n/2)%12,25+Math.floor(Math.floor(n/2)/12))}, pos:c.camp }));
   c.pop = pop; c.nextId = pop+1;
-  c.res = { food:blocked?75000:5000, wood:5000, stone:1000, copper:1000, gold:0, diamond:0, coal:0,aetherCrystal:0,rune:0,essence:0 };
+  c.res = { food:blocked?75000:5000, wood:5000, stone:1000, copper:1000, gold:0, diamond:0, coal:0,aetherCrystal:0,rune:0,essence:0,celestialStone:0 };
   if (blocked) c.res.food = stats(c, derive(c), 0).storage.food;
   return c;
 }

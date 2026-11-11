@@ -9,6 +9,7 @@ const ICON = {
   aetherCrystal: <svg viewBox="0 0 24 24"><path d="M12 2l6 8-6 12-6-12z" fill="#7fd0ff"/><path d="M12 2l2 8-2 12-2-12z" fill="#d9f3ff"/></svg>,
   rune: <svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="3" fill="#6a5a8e"/><path d="M12 6v12M8 9l8 6M16 9l-8 6" stroke="#e9d98a" strokeWidth="1.6" fill="none"/></svg>,
   essence: <svg viewBox="0 0 24 24"><path d="M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z" fill="#c76bd6"/><circle cx="10" cy="14" r="2" fill="#f3d4ff"/></svg>,
+  celestialStone: <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#3d4a8a"/><path d="M12 5l1.6 4.4L18 11l-4.4 1.6L12 17l-1.6-4.4L6 11l4.4-1.6z" fill="#ffe08a"/></svg>,
   pop: <svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="3.5" fill="#f1c9a0" /><path d="M5 21c0-5 3-8 7-8s7 3 7 8z" fill="#c9503e" /></svg>,
   build: <svg viewBox="0 0 24 24"><path d="M4 20l8-8" stroke="#8a5a2b" strokeWidth="2.5" strokeLinecap="round" /><rect x="10" y="4" width="10" height="6" rx="1" fill="#d6a03f" transform="rotate(45 15 7)" /></svg>,
   army: <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z" fill="#b04130" /><path d="M12 6l4 1.7V11c0 3-1.7 5-4 6.3z" fill="#e2b240" /></svg>,

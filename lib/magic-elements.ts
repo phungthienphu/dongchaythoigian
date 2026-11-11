@@ -8,6 +8,7 @@ import type {MagicFactory} from './magic-production';
 import {MAGIC_SPELLS,magicDef,type Element,type MagicBuilding} from './magic-data';
 import {isField} from './medieval';
 import {recordResourceFlow} from './resource-history';
+import {mythSealNeeds,craftActive,recordCraftMana} from './magic-myth';
 import {zombiePath,zombiePersonPosition,type Zombie,type ZombieGuard} from './zombies';
 import {PRODUCTION,SOURCES,distance,log,magicEntries,magicSiteId,magicSupplyNeed,deliverMagicSupply,magicSpecialization,nearest,operating,point,tileDistance} from './magic';
 const SECOND=1000,MINUTE=60*SECOND,HOUR=60*MINUTE,W=96;
@@ -38,6 +39,7 @@ const hallTile=(c:City)=>Number(Object.keys(c.b).find(i=>c.b[i].k==='hall')??c.c
 /* ---------- seals ---------- */
 function sealNeeds(c:City,b:Building):Element[]{
  if(b.k==='golemworks'||b.k==='spiritstable')return [...(magicDef(b.k).elements??[])];
+ const myth=mythSealNeeds(b);if(myth)return myth;
  if(b.k==='harmonizer')return [...(c.magic?.harmony?.[magicSiteId(b)]??[])];
  if(b.k==='rivershrine')return ['water'];// optional link: Thanh tẩy reach 8→10
  return [];
@@ -76,7 +78,7 @@ export function elementBuildError(c:City,k:BKey,tile:number):string|null{
 }
 /** Golems need the Thổ seal at the works; deer need Mộc and Thủy at the stable. */
 export function elementTrainingError(c:City,u:UKey):string|null{
- const unit=UNITS[u],building=unit.building,need=building==='golemworks'||building==='spiritstable'?magicDef(building).elements??[]:[];
+ const unit=UNITS[u],building=unit.building,need=building==='golemworks'||building==='spiritstable'||building==='spiritgate'?magicDef(building).elements??[]:[];
  if(!need.length)return null;
  return magicEntries(c).some(([,b])=>b.k===building&&operating(b)&&hasSeals(c,b,need))?null:`Thiếu ấn ${need.map(e=>ELEMENT_NAMES[e]).join(' + ')} cấp cho ${B[building as BKey].n}; không bắt đầu lượt tuyển mới.`;
 }
@@ -260,4 +262,4 @@ export function magicCargoLimit(c:City,b:Building){
  const backup=binding.backup&&m.network.sources[binding.backup]&&m.network.sources[binding.backup].used<m.network.sources[binding.backup].slots?m.mana[binding.backup]??0:0;
  return Math.max(m.mana[binding.primary]??0,backup)/rate;
 }
-export function chargeMagicCargo(c:City,b:Building,amount:number){const rate=cargoRate(b.k);if(rate&&amount>0&&c.magic)spendMana(c.magic.network,c.magic.mana,magicSiteId(b),amount*rate);}
+export function chargeMagicCargo(c:City,b:Building,amount:number){const rate=cargoRate(b.k);if(!rate||!(amount>0)||!c.magic)return;const debit=spendMana(c.magic.network,c.magic.mana,magicSiteId(b),amount*rate);if(!('error'in debit)&&c.magic.craft&&craftActive(c))recordCraftMana(c,debit.source,amount*rate);}

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {applyAction, B, ERA_REQ, G, buildingCost, derive, canPlace, idx, newCity, levelCost, trainingCost, repairCost, farmTendCost} from './engine';
 const now=1_000_000;
-function city(era=3){const c=newCity(now,123);c.era=era;c.t.fill(G);c.seen.fill(1);c.b={};c.res={food:10000,wood:10000,stone:10000,copper:10000, gold: 0, diamond:0,coal:0,aetherCrystal:0,rune:0,essence:0};return c;}
+function city(era=3){const c=newCity(now,123);c.era=era;c.t.fill(G);c.seen.fill(1);c.b={};c.res={food:10000,wood:10000,stone:10000,copper:10000, gold: 0, diamond:0,coal:0,aetherCrystal:0,rune:0,essence:0,celestialStone:0};return c;}
 test('early-era prices stay unchanged and iron costs apply to old buildings and units too',()=>{
  for(const era of [1,2]){assert.deepEqual(buildingCost('storehouse',era),B.storehouse.cost);assert.deepEqual(trainingCost('bow',era),{food:40,wood:30});assert.deepEqual(levelCost('hall',3,era),{wood:1200,stone:800,copper:80});}
  assert.deepEqual(buildingCost('stonehouse',3),{stone:750,copper:90});

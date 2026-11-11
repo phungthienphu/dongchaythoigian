@@ -10,7 +10,7 @@ function fixture(){
  c.b[idx(48,48)]={k:'hall',lvl:3,doneAt:null};c.b[idx(47,46)]={k:'storehouse',lvl:3,doneAt:null};c.b[idx(50,50)]={k:'farm',lvl:1,doneAt:null};c.t[idx(53,50)]=F;c.era=3;
  c.people=Array.from({length:6},(_,n)=>({id:n+1,name:`Dân thử ${n+1}`,assignment:'manual' as const,pos:idx(49+n%3,45+Math.floor(n/3)),task:{t:'idle' as const,at:idx(49+n%3,45+Math.floor(n/3))}}));c.pop=6;c.nextId=7;
  c.homeOrders=Object.fromEntries(['sword:0','sword:1','sword:2','sword:3','sword:4','bow:0','bow:1','bow:2','bow:3'].map((id,n)=>[id,{x:45.5+n%3,y:49.5+Math.floor(n/3),route:[idx(45+n%3,49+Math.floor(n/3))],at:c.last}]));
- c.wildernessAt=c.last+1e9;c.disaster={kind:'earthquake',at:c.last+1e9,level:0,center:c.camp};c.res={food:10000,wood:10000,stone:10000,copper:10000,gold:1000,diamond:100,coal:0,aetherCrystal:0,rune:0,essence:0};return c;
+ c.wildernessAt=c.last+1e9;c.disaster={kind:'earthquake',at:c.last+1e9,level:0,center:c.camp};c.res={food:10000,wood:10000,stone:10000,copper:10000,gold:1000,diamond:100,coal:0,aetherCrystal:0,rune:0,essence:0,celestialStone:0};return c;
 }
 function combat(side:BattleSide){
  const c=fixture();c.b={};c.people=[];c.army={sword:30,bow:30};delete c.homeOrders;const now=Date.now();

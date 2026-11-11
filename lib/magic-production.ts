@@ -27,7 +27,7 @@ export function collectMagicOutput(state:MagicProduction,id:string,resource:keyo
 /** Absolute minute boundaries make arbitrary request/checkpoint chunking
  * equivalent. Sources run before receivers; paid production cannot borrow from
  * a remote village stockpile or from another building's buffer. */
-export function stepMagicProduction(state:MagicProduction,network:ManaNetwork,to:number,conditions:(factory:MagicFactory)=>string|undefined=()=>undefined){
+export function stepMagicProduction(state:MagicProduction,network:ManaNetwork,to:number,conditions:(factory:MagicFactory)=>string|undefined=()=>undefined,onSpend?:(factory:MagicFactory,source:string,amount:number)=>void){
  if(!Number.isFinite(to)||to<state.minuteAt)return;
  const priorities={health:0,defense:1,input:2,output:3,other:4};
  const factories=Object.values(state.factories).sort((a,b)=>Number(!!magicDef(b.kind).source)-Number(!!magicDef(a.kind).source)||priorities[magicDef(a.kind).priority??'other']-priorities[magicDef(b.kind).priority??'other']||a.id.localeCompare(b.id));
@@ -46,7 +46,7 @@ export function stepMagicProduction(state:MagicProduction,network:ManaNetwork,to
    fraction=Math.max(0,Math.min(1,fraction));
    if(fraction<=1e-12){factory.blocked='Thiếu vật liệu hoặc bộ đệm đã đầy.';continue;}
    const amount=maximum*fraction;
-   if(d.mana!==undefined){const debit=spendMana(network,state.mana,factory.id,d.mana*amount);if('error'in debit){factory.blocked=debit.error;continue;}}
+   if(d.mana!==undefined){const debit=spendMana(network,state.mana,factory.id,d.mana*amount);if('error'in debit){factory.blocked=debit.error;continue;}onSpend?.(factory,debit.source,d.mana*amount);}
    for(const [resource,rate]of entries(d.input??{}))factory.input[resource]=Math.max(0,(factory.input[resource]??0)-rate*amount);
    for(const [resource,rate]of entries(d.output??{}))factory.output[resource]=(factory.output[resource]??0)+rate*amount;
    if(d.knowledge)state.knowledge=Math.min(5000,state.knowledge+d.knowledge*amount);

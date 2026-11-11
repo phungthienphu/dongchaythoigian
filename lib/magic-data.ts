@@ -7,7 +7,8 @@ export const magicResourceEra=(r:MagicResource)=>r==='essence'?8:r==='celestialS
 export type MagicGoods=Partial<Record<MagicResource|'food'|'wood'|'stone'|'copper'|'gold'|'coal',number>>;
 export type Element='fire'|'water'|'wood'|'earth';
 export type Contract='dragon'|'tortoise'|'phoenix';
-export type Research='conduction'|'warcraft'|'lifecraft'|'elements'|'pact'|'gatecraft';
+export type Research='conduction'|'warcraft'|'lifecraft'|'elements'|'pact'|'gatecraft'|'dragonPact'|'tortoisePact'|'phoenixPact';
+export const CONTRACT_RESEARCH:Record<Contract,Research>={dragon:'dragonPact',tortoise:'tortoisePact',phoenix:'phoenixPact'};
 export type MagicBuildingDef={name:string;era:7|8|9;cost:MagicGoods;seconds:number;jobs:number;max?:number;upgrade?:boolean;source?:{perHour:number;capacity:number};relay?:boolean;mana?:number;input?:MagicGoods;output?:MagicGoods;knowledge?:number;research?:Research;support?:string[];elements?:Element[];seal?:Element;armySpace?:number;wonder?:boolean;priority?:'health'|'defense'|'input'|'output'|'other'};
 export const MAGIC_BUILDINGS={
  aetherwell:{name:'Giếng linh mạch',era:7,cost:{stone:4000,copper:1500,gold:500},seconds:3600,jobs:2,max:3,upgrade:true,source:{perHour:240,capacity:1200}},
@@ -30,12 +31,12 @@ export const MAGIC_BUILDINGS={
  harmonizer:{name:'Đài điều hòa',era:8,cost:{stone:8000,copper:3000,rune:120,essence:60},seconds:14400,jobs:4,mana:20,input:{essence:2},research:'elements',priority:'other'},
  fourspirits:{name:'Đại Trận Tứ Linh',era:8,cost:{stone:60000,copper:20000,gold:12000,rune:600,essence:400},seconds:86400,jobs:0,max:1,wonder:true,elements:['fire','water','wood','earth']},
  celestialforge:{name:'Lò thiên luyện',era:9,cost:{stone:15000,copper:7000,rune:200,essence:100},seconds:21600,jobs:8,upgrade:true,input:{copper:180,essence:12,rune:12},output:{celestialStone:24},mana:60,support:['complex'],priority:'input'},
- observatory:{name:'Đài thiên văn',era:9,cost:{stone:12000,copper:5000,rune:150,celestialStone:100},seconds:18000,jobs:4,max:1,mana:0,priority:'defense'},
+ observatory:{name:'Đài thiên văn',era:9,cost:{stone:12000,copper:5000,rune:150,celestialStone:100},seconds:18000,jobs:4,max:1,mana:20,priority:'defense'},
  spiritgate:{name:'Cổng Linh giới',era:9,cost:{stone:18000,copper:8000,rune:200,celestialStone:200},seconds:28800,jobs:6,max:1,mana:0,research:'gatecraft',elements:['water','earth'],armySpace:24,priority:'defense'},
  covenantaltar:{name:'Đài khế ước',era:9,cost:{stone:10000,copper:4000,rune:120,celestialStone:100},seconds:18000,jobs:4,max:1,mana:0,research:'gatecraft',priority:'defense'},
  worldmatrix:{name:'Trận đồ thiên địa',era:9,cost:{stone:15000,copper:5000,rune:150,celestialStone:150},seconds:21600,jobs:4,max:1,mana:0,research:'gatecraft',priority:'defense'},
  teleportdock:{name:'Bến dịch chuyển',era:9,cost:{stone:10000,copper:3000,rune:100,celestialStone:80},seconds:14400,jobs:3,max:4,mana:0,research:'gatecraft',priority:'output'},
- riverpalace:{name:'Thiên Cung Sông Mẹ',era:9,cost:{stone:100000,copper:35000,gold:25000,rune:1000,essence:800,celestialStone:1000},seconds:129600,jobs:0,max:1,wonder:true},
+ riverpalace:{name:'Thiên Cung Sông Mẹ',era:9,cost:{stone:100000,copper:35000,gold:25000,rune:1000,essence:800,celestialStone:1000},seconds:129600,jobs:0,max:1,wonder:true,mana:40,priority:'other'},
 } satisfies Record<string,MagicBuildingDef>;
 export type MagicBuilding=keyof typeof MAGIC_BUILDINGS;
 export const magicDef=(kind:MagicBuilding):MagicBuildingDef=>MAGIC_BUILDINGS[kind];
@@ -46,6 +47,9 @@ export const MAGIC_RESEARCH:Record<Research,{era:number;requires:Research[];good
  elements:{era:8,requires:['conduction','warcraft','lifecraft'],goods:{essence:100,rune:100},knowledge:360,seconds:14400},
  pact:{era:8,requires:['elements'],goods:{essence:80},knowledge:300,seconds:10800},
  gatecraft:{era:9,requires:['pact'],goods:{celestialStone:100},knowledge:600,seconds:21600},
+ dragonPact:{era:9,requires:['gatecraft'],goods:{celestialStone:100,essence:60},knowledge:400,seconds:14400},
+ tortoisePact:{era:9,requires:['gatecraft'],goods:{celestialStone:100,essence:60},knowledge:400,seconds:14400},
+ phoenixPact:{era:9,requires:['gatecraft'],goods:{celestialStone:100,essence:60},knowledge:400,seconds:14400},
 };
 export const MAGIC_ERA_REQUIREMENTS={
  7:{population:450,hall:6,wonders:['dam','green'],goods:{food:120000,wood:35000,stone:60000,copper:18000,gold:8000,coal:8000}},

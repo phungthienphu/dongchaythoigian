@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {newCity,G,F,R,HL,GOLD,DIAMOND,W,H,MIN,HOUR,idx,settle,derive,applyAction,renewWilderness,wildernessKeep,expansionRisk,WILDERNESS_MS,FRONTIER_WARNING_MS,type City} from './engine';
 function fixture():City{
- const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.people=[];c.herds=[];c.camps=[];c.b={};c.camp=idx(15,15);c.era=2;c.army={};c.res={wood:500,stone:500,food:500,copper:400,gold:200,diamond:20,coal:0,aetherCrystal:0,rune:0,essence:0};return c;
+ const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.people=[];c.herds=[];c.camps=[];c.b={};c.camp=idx(15,15);c.era=2;c.army={};c.res={wood:500,stone:500,food:500,copper:400,gold:200,diamond:20,coal:0,aetherCrystal:0,rune:0,essence:0,celestialStone:0};return c;
 }
 test('30-minute renewal hides and regenerates wilderness while structures, starter land, rivers and deposits at home survive',()=>{
  const c=fixture(),building=idx(40,40),safe=idx(42,42),wild=idx(80,80),water=idx(85,85);

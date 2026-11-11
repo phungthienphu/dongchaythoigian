@@ -10,7 +10,7 @@ function fixture(width=2):City{
  c.disaster={kind:'earthquake',at:1e10,center:idx(90,90),level:1,warned:false};
  for(let y=0;y<H;y++)for(let x=15;x<15+width;x++)c.t[idx(x,y)]=R;
  c.b[from]={k:'ironbridge',lvl:1,doneAt:null};c.b[idx(10,10)]={k:'barracks',lvl:1,doneAt:null};
- c.res={food:100000,wood:100000,stone:100000,copper:100000,gold:100000,diamond:100000,coal:100000,aetherCrystal:0,rune:0,essence:0};return c;
+ c.res={food:100000,wood:100000,stone:100000,copper:100000,gold:100000,diamond:100000,coal:100000,aetherCrystal:0,rune:0,essence:0,celestialStone:0};return c;
 }
 const end=(width:number)=>idx(15+width,10);
 function completed(c:City,width:number){c.b[from].bridge={to:end(width),tiles:Array.from({length:width},(_,n)=>idx(15+n,10)),ready:true};if(width>2)c.b[end(width)]={k:'bridgehead',lvl:1,doneAt:null};return c;}

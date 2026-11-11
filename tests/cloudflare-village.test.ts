@@ -43,7 +43,7 @@ async function create(h: Harness) {
   return response.json() as Promise<BatchResponse>;
 }
 const command = (base: BatchResponse, seq = 1): SyncCommand => ({ seq, id: `command-${seq}`, at: base.serverNow + 10,
-  anchor: base.sync.anchor, action: { type: 'auto', on: false, mix: { food: 40, wood: 30, stone: 20, copper: 10, gold: 0, diamond: 0, coal: 0,aetherCrystal:0,rune:0,essence:0 } } });
+  anchor: base.sync.anchor, action: { type: 'auto', on: false, mix: { food: 40, wood: 30, stone: 20, copper: 10, gold: 0, diamond: 0, coal: 0,aetherCrystal:0,rune:0,essence:0,celestialStone:0 } } });
 const batch = (commands: SyncCommand[], session = 1) => ({ engine: ENGINE_VER, session, commands });
 
 describe('Durable QA village authority', () => {

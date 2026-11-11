@@ -26,7 +26,7 @@ test('legacy civilian conversion is rejected without expelling troops or produci
  assert.deepEqual(c,before);
 });
 test('JSON rejects malformed counts and mode, empty selection is refused, expulsion works without housing',()=>{
- for(const units of [{club:-1},{club:.5},{club:Infinity},{club:301},{dragon:1}])assert.equal(isActionInput({type:'releaseTroops',mode:'expel',units}),false);
+ for(const units of [{club:-1},{club:.5},{club:Infinity},{club:301},{kraken:1}])assert.equal(isActionInput({type:'releaseTroops',mode:'expel',units}),false);
  assert.equal(isActionInput({type:'releaseTroops',mode:'lend',units:{club:1}}),false);
  const c=fixture();c.b={};assert.match(applyAction(c,{type:'releaseTroops',mode:'expel',units:{}},0)!,/Chọn/);assert.equal(armyReleaseQuote(c,{club:2},'expel').foodSavedPerMinute,8);assert.equal(applyAction(c,{type:'releaseTroops',mode:'expel',units:{club:2}},0),null);
 });

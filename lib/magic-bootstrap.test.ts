@@ -16,7 +16,7 @@ test('all three eras can bootstrap their new goods and research from the precedi
   }
   for(const resource of MAGIC_RESOURCES.slice(0,era===7?2:era===8?3:4))assert.ok(goods.has(resource),`era ${era}: cannot bootstrap ${resource}`);
  }
- assert.equal(research.size,6);assert.ok(built.has('riverpalace'));assert.ok(built.has('spiritgate'));
+ assert.equal(research.size,9);assert.ok(built.has('riverpalace'));assert.ok(built.has('spiritgate'));
 });
 test('bootstrap crystal and rune workshops consume no mana or new research; relays never generate',()=>{
  for(const kind of ['crystalworks','runeworks']as const){assert.equal(magicDef(kind).mana,undefined);assert.equal(magicDef(kind).research,undefined);}
