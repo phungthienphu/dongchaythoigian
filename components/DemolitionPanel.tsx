@@ -4,9 +4,10 @@ import {buildingName,costText,demolitionQuote,HOUR,workersAt,type City} from '@/
 
 export default function DemolitionPanel({city,tile,now,disabled,onConfirm}:{city:City;tile:number;now:number;disabled:boolean;onConfirm:()=>Promise<boolean>}){
  const [review,setReview]=useState(false);
- const quote=demolitionQuote(city,tile,now),b=city.b[tile];
+ const b=city.b[tile];
  if(!b)return null;
  if(!review)return <button disabled={disabled} onClick={()=>setReview(true)}>Bán / phá dỡ</button>;
+ const quote=demolitionQuote(city,tile,now);
  const people=workersAt(city,tile);
  return <div className="demolition-review" role="region" aria-label="Xác nhận phá dỡ">
   <p><b>Phá {buildingName(city,b.k)} · hoàn {quote.percent}%</b></p>

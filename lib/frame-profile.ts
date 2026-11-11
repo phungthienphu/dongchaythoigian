@@ -1,4 +1,4 @@
-export type FrameMetric = 'frame' | 'activeFrame' | 'draw' | 'crowd' | 'tick' | 'cache' | 'input' | 'longTask';
+export type FrameMetric = 'frame' | 'activeFrame' | 'draw' | 'crowd' | 'tick' | 'hud' | 'cache' | 'input' | 'longTask';
 /** Opt-in, bounded numeric samples only. No city, account, commands or network data. */
 export class FrameProfile {
   private samples = new Map<FrameMetric, number[]>();

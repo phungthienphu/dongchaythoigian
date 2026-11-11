@@ -1,5 +1,5 @@
 'use client';
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {B,BKEYS,ERA_NAMES,RES,RN,W,buildMs,buildingCost,buildingName,type BKey,type City,type Derived} from '@/lib/engine';
 import {erasUpTo,type EngineRules} from '@/lib/eras';
 import {buildAvailability} from '@/lib/build-availability';
@@ -18,8 +18,11 @@ export default function BuildingCatalog({city,D,rules,initialEra,initialKind=nul
   const [query,setQuery]=useViewPreference('build-search','',(v):v is string=>typeof v==='string'),[group,setGroup]=useViewPreference<BuildGroup>('build-group','Tất cả',(v):v is BuildGroup=>BUILD_GROUPS.includes(v as BuildGroup)),[era,setEra]=useState(initialEra),[selected,setSelected]=useState<BKey|null>(initialKind),[page,setPage]=useState(0);
   const detailBack=useRef<HTMLButtonElement>(null);
   useEffect(()=>{if(selected){detailBack.current?.scrollIntoView({block:'start'});detailBack.current?.focus({preventScroll:true});}},[selected]);
-  const search=searchText(query),rank=(k:BKey)=>search&&searchText(`${buildingName(city,k)} ${B[k].n}`).includes(search)?0:1;
-  const rows=BKEYS.filter(k=>(era?B[k].era===era:B[k].era<=city.era)&&(group==='Tất cả'||buildingGroup(k)===group)&&searchText(`${buildingName(city,k)} ${B[k].n} ${B[k].d}`).includes(search)).sort((a,b)=>rank(a)-rank(b)||B[a].era-B[b].era||buildingName(city,a).localeCompare(buildingName(city,b),'vi'));
+  // Catalog text/order changes with filters and era, not live stock/timers.
+  const rows=useMemo(()=>{
+    const search=searchText(query),rank=(k:BKey)=>search&&searchText(`${buildingName(city,k)} ${B[k].n}`).includes(search)?0:1;
+    return BKEYS.filter(k=>(era?B[k].era===era:B[k].era<=city.era)&&(group==='Tất cả'||buildingGroup(k)===group)&&searchText(`${buildingName(city,k)} ${B[k].n} ${B[k].d}`).includes(search)).sort((a,b)=>rank(a)-rank(b)||B[a].era-B[b].era||buildingName(city,a).localeCompare(buildingName(city,b),'vi'));
+  },[query,era,group,city.era]);
   const pages=Math.max(1,Math.ceil(rows.length/12)),current=Math.min(page,pages-1);
   const building=selected?B[selected]:null,availability=selected?buildAvailability(city,selected,rules):null,cost=selected?buildingCost(selected,Math.max(building!.era,city.era)):null;
   const missing=cost?RES.filter(r=>(cost[r]??0)>city.res[r]):[];

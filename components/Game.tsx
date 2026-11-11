@@ -1,6 +1,7 @@
 "use client";
 import {zombiePresence,locateNextZombie,zombieName} from '@/lib/zombie-view';
 import ZombiePanel from './ZombiePanel';
+import DeferredDetails from './DeferredDetails';
 import {RenderQuality,mapDetailLow} from '@/lib/render-quality';
 import {FrameProfile} from '@/lib/frame-profile';
 import FrameProfilePanel from './FrameProfilePanel';
@@ -14,7 +15,7 @@ import {RELEASE_RULES,type EngineRules} from '@/lib/eras';
 
 import EraCivicPanel,{EraCivicBuilding} from './EraCivicPanel';
 import { ReadFlights } from "@/lib/read-flights";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   B, CAP, GATHER_SPEED, resourceUnlocked, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
   buildingRelocationPlan, relocationAllowed, hasRelocationOffice, buildingJobs,storageCapacity, availableForQuickAssign, quickAssignBlockedReason, isScout, taskResource, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildQuote, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
@@ -170,6 +171,14 @@ function sameTarget(p: Person, tk: TaskInput) {
   if (a.t === "hunt" && tk.t === "hunt") return a.herd === tk.herd;
   if ((a.t === "work" || a.t === "chop" || a.t === "mine") && "at" in tk) return a.at === tk.at;
   return false;
+}
+
+function AssignedWorkers({people,city,at,storage,busy,onFocus,act}:{people:Person[];city:City;at:number;storage:City['res'];busy:boolean;onFocus:(p:Person)=>void;act:(a:Action)=>Promise<boolean>}){
+  const [page,setPage]=useState(0);
+  const pages=Math.max(1,Math.ceil(people.length/30)),current=Math.min(page,pages-1);
+  return <><ul className="people compact">{people.slice(current*30,current*30+30).map(p=>
+    <li key={p.id}><span>{p.name}<HungryVillager city={city} person={p}/><small className="haul-detail">{haulDetail(p,at,storage,city.res,city)}</small></span><button className="link" onClick={()=>onFocus(p)}>Tìm người</button><button className="link" disabled={busy} onClick={()=>void act({type:'assign',ids:[p.id],task:{t:'idle'}})}>Cho nghỉ</button></li>
+  )}</ul>{pages>1&&<div className="directory-pages"><button disabled={current===0} onClick={()=>setPage(current-1)}>← Trước</button><span>{current+1}/{pages}</span><button disabled={current===pages-1} onClick={()=>setPage(current+1)}>Sau →</button></div>}</>;
 }
 
 /* ---------- icons ---------- */
@@ -394,7 +403,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [needsName, setNeedsName] = useState(false);
   const [name, setName] = useState("");
   const [nameInput, setNameInput] = useState("");
-  const [, setVersion] = useState(0);
+  const [version, setVersion] = useState(0);
   const [planting,setPlanting]=useState(false);
   const [finalReview,setFinalReview]=useState<'dam'|'green'|null>(null);
   const finalConfirmed=useRef<BKey|null>(null);
@@ -469,6 +478,12 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
   const dragRef = useRef<{ sx: number; sy: number; moved: boolean; pinch: number } | null>(null);
   const renderPausedRef = useRef(false);
+  const mapOverlayRef = useRef(false);
+  mapOverlayRef.current = !!panel || !!selected || herdSel !== null || economyOpen || armyManagement || !!finalReview;
+  const overlayInputUntil = useRef(0);
+  const yieldToOverlayInput = useCallback((event: React.SyntheticEvent) => {
+    if (event.target !== canvasRef.current) overlayInputUntil.current = performance.now() + 150;
+  }, []);
   renderPausedRef.current=worldOpen || !!battleOpen || helpOpen;
   const bridgePreview=bridgeFrom!==null?{from:bridgeFrom,to:bridgeTarget?idx(bridgeTarget.x,bridgeTarget.y):null}:undefined;
   const [focusedZombie,setFocusedZombie]=useState<number|null>(null);
@@ -794,7 +809,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     let activeAt = 0, cx = NaN, cy = NaN, cz = NaN, cr = NaN, ch: unknown = null, cd: unknown = null;
     let lowDetail:boolean|undefined;
     let inputAt:number|null=null;
-    const input=(event:Event)=>{inputAt??=event.timeStamp;activeAt=performance.now();};
+    const input=(event:Event)=>{inputAt??=event.timeStamp;activeAt=performance.now();overlayInputUntil.current=0;};
     for(const type of ['pointerdown','pointermove','pointerup','wheel'])cv.addEventListener(type,input,{passive:true});
     const resume=()=>{last=0;inputAt=null;quality.sample(performance.now(),0,false,window.devicePixelRatio||1);};
     document.addEventListener('visibilitychange',resume);
@@ -804,14 +819,20 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       if (cam.px !== cx || cam.py !== cy || cam.zoom !== cz || (cam.rotation ?? 0) !== cr || hov !== ch || drag?.end !== cd) {
         cx = cam.px; cy = cam.py; cz = cam.zoom; cr = cam.rotation ?? 0; ch = hov; cd = drag?.end; activeAt = t;
       }
-      if (t - activeAt > 1000 && t - last < 30) { raf = requestAnimationFrame(loop); return; }
+      // Keep simulation running, but leave the main thread to drawer input and
+      // momentum scrolling. Direct map interaction restores full frame rate.
+      const panelBackground = mapOverlayRef.current && t - activeAt > 150;
+      if ((mapOverlayRef.current && t < overlayInputUntil.current) ||
+          (panelBackground ? t - last < 1000 / 15 : t - activeAt > 1000 && t - last < 30)) {
+        raf = requestAnimationFrame(loop); return;
+      }
       const vis = visitRef.current;
       const c = vis ? vis.city : cityRef.current, D = vis ? vis.D : dRef.current, crowd = vis ? vis.crowd : crowdRef.current;
       const frameMs=last?t-last:0;
       const dt = Math.min(0.1, frameMs / 1000);
       last = t;
       const active=t-activeAt<=1000;
-      if(quality.sample(t,frameMs,active,window.devicePixelRatio||1))resize();
+      if(quality.sample(t,frameMs,active&&!panelBackground,window.devicePixelRatio||1))resize();
       const profile=profileRef.current;
       if(frameMs>0){profile?.add('frame',frameMs);if(active)profile?.add('activeFrame',frameMs);}
       if (c && D) {
@@ -1165,6 +1186,20 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     try{localStorage.setItem(noticeKey,String(latestNoticeAt));}catch{}
   },[panel,noticeKey,latestNoticeAt]);
   const c = cityRef.current, D = dRef.current;
+  // Cities mutate in place: revision advances on every simulation tick and
+  // authoritative/action snapshot. UI selection and hover must not invalidate it.
+  const hud = useMemo(() => {
+    if (!c || !D) return null;
+    const at = Date.now() + offsetRef.current;
+    const started = profileRef.current ? performance.now() : 0;
+    const st = stats(c, D, at);
+    const result = { st, idle: c.people.filter(availableForQuickAssign),
+      birthRate: POP_GROWTH_PER_HOUR*(1+(c.res.wood>0?st.fires:0))*pollutionBirth(c)*serviceBonus(c).birth,
+      cap: armyCap(c), used: armyUsed(c), homePower: troopPower(c.army),
+      hallLv: hallLevel(c), control: hasControl(c) };
+    profileRef.current?.add('hud', performance.now() - started);
+    return result;
+  }, [c, D, version]);
   const t = now();
   const archivedDisasters=(c?.disasterNotices??[]).filter(n=>!c?.log.some(l=>l.at===n.at&&l.msg===n.msg)).map(n=>({caravanId:undefined as string|undefined,at:n.at,msg:n.msg,cls:n.phase==='protected'?'good' as const:'warn' as const}));
   const notices=[...(c?.log??[]),...archivedDisasters,...diplomaticNotices].sort((a,b)=>b.at-a.at);
@@ -1175,15 +1210,13 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     return <WelcomeScreen user={me.user} name={nameInput} onName={setNameInput} onCreate={createCity} busy={busy} message={msg} maxEra={rules.maxEra}/>;
   }
 
-  if (!c || !D) return <MapLoadingScreen progress={recoveryProgress} error={loadError ?? 'Chưa tải được dữ liệu làng. Hãy thử lại.'} onRetry={() => void loadCity()}/>;
+  if (!c || !D || !hud) return <MapLoadingScreen progress={recoveryProgress} error={loadError ?? 'Chưa tải được dữ liệu làng. Hãy thử lại.'} onRetry={() => void loadCity()}/>;
 
-  const st = stats(c, D, t), upkeep=upkeepRates(c.era);
+  const {st,idle,birthRate,cap,used,homePower,hallLv,control} = hud;
+  const upkeep=upkeepRates(c.era);
   const si = seasonIndexAt(c, t), season = si % 4;
   const nextSeasonIn = c.t0 + (si + 1) * SEASON_MS - t;
-  const idle = c.people.filter(availableForQuickAssign);
-  const birthRate=POP_GROWTH_PER_HOUR*(1+(c.res.wood>0?st.fires:0))*pollutionBirth(c)*serviceBonus(c).birth;
   const populationStatus = c.battleId ? "Tạm dừng do trận đánh" : c.res.food <= 0 ? "Dân đang đói" : (c.hunger?.stressMs??0)>0 ? "Đang hồi phục sau đói · chưa tăng dân" : c.people.length >= st.housing ? "Cần thêm nhà" : birthRate<=0?"Ô nhiễm ngăn sinh dân": `+1 dân sau ${fmtDur((1-c.popAcc) / birthRate * HOUR)}`;
-  const cap = armyCap(c), used = armyUsed(c), homePower = troopPower(c.army);
 
   let status: { text: string; err?: boolean } | null = msg;
   if(bridgeFrom!==null){status={text:"Chọn ô đất ở bờ đối diện, thẳng hàng với Cầu Sắt. Xem chi phí và điều kiện trước khi xác nhận."};
@@ -1218,7 +1251,6 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const onTarget = selTask ? c.people.filter((p) => sameTarget(p, selTask.task)) : [];
   const next = c.era+1<=rules.maxEra?ERA_REQ[c.era + 1]:undefined;
   const sendPower = troopPower(send);
-  const hallLv = hallLevel(c), control = hasControl(c);
   const groups = new Map<string, Person[]>();
   if(panel==='control')for (const p of c.people) { const k = taskLabel(c, p); const group=groups.get(k);if(group)group.push(p);else groups.set(k,[p]); }
 
@@ -1239,7 +1271,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   };
 
   return (
-    <main className={"game ui-game" + (visiting ? " visiting" : "") + (largeText?" large-text":"")} data-panel={panel??undefined} data-overlay={worldOpen||!!battleOpen?true:undefined}>
+    <main onPointerDownCapture={yieldToOverlayInput} onKeyDownCapture={yieldToOverlayInput} onScrollCapture={yieldToOverlayInput} onWheelCapture={yieldToOverlayInput} onTouchMoveCapture={yieldToOverlayInput} className={"game ui-game" + (visiting ? " visiting" : "") + (largeText?" large-text":"")} data-panel={panel??undefined} data-overlay={worldOpen||!!battleOpen?true:undefined}>
       <FrameProfilePanel profile={profileRef}/>
       <div className="mapframe" ref={frameRef}>
         <canvas
@@ -1369,11 +1401,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
             </div>
           )}
           {onTarget.length > 0 && (
-            <details className="ui-details"><summary>{onTarget.length} người đã giao · xem trạng thái</summary><ul className="people compact">
-              {onTarget.map((p) => (
-                <li key={p.id}><span>{p.name}<HungryVillager city={c} person={p}/><small className="haul-detail">{haulDetail(p,t,st.storage,c.res,c)}</small></span><button className="link" onClick={()=>focusPerson(p)}>Tìm người</button><button className="link" disabled={busy} onClick={() => act({ type: "assign", ids: [p.id], task: { t: "idle" } })}>Cho nghỉ</button></li>
-              ))}
-            </ul></details>
+            <DeferredDetails key={`workers:${selI}`} summary={`${onTarget.length} người đã giao · xem trạng thái`}>{()=><AssignedWorkers people={onTarget} city={c} at={t} storage={st.storage} busy={busy} onFocus={focusPerson} act={act}/>}</DeferredDetails>
           )}
           {sel && selected && (
             <div className="actions">
@@ -1413,11 +1441,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                   Lên cấp {sel.lvl + 1} ({costText(levelCost(sel.k, sel.lvl + 1, c.era))}, {fmtDur(buildMs(sel.k, sel.lvl + 1))})
                 </button>
               )}
-              <details className="ui-details"><summary>Phá dỡ & hoàn vật liệu</summary><DemolitionPanel key={selI} city={c} tile={selI} now={t} disabled={busy} onConfirm={async()=>{
+              <DeferredDetails key={`demolition:${selI}`} summary="Phá dỡ & hoàn vật liệu">{()=> <DemolitionPanel key={selI} city={c} tile={selI} now={t} disabled={busy} onConfirm={async()=>{
                 const ok=await act({type:"demolish",...selected});
                 if(ok){setSelected(null);setMsg({text:"Đã phá dỡ và hoàn vật liệu vào kho. Chi tiết trong Thông báo."});}
                 return ok;
-              }}/></details>
+              }}/>}</DeferredDetails>
 
             </div>
           )}

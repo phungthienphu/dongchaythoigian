@@ -7,7 +7,8 @@ import {useViewPreference} from './useViewPreference';
 type Filter='all'|'idle'|'carrying'|'scouts'|'sheltering';
 export default function PeopleDirectory({city,picked,label,detail,onPick,onLocate}:{city:City;picked:Set<number>;label:(person:Person)=>string;detail:(person:Person)=>string;onPick:(id:number,add:boolean)=>void;onLocate:(person:Person)=>void}){
   const [filter,setFilter]=useViewPreference<Filter>('people-filter','all',(v):v is Filter=>['all','idle','carrying','scouts','sheltering'].includes(String(v))),[query,setQuery]=useViewPreference('people-search','',(v):v is string=>typeof v==='string'),[page,setPage]=useState(0);
-  const rows=city.people.filter(p=>(filter==='all'||filter==='idle'&&availableForQuickAssign(p)||filter==='carrying'&&(p.haul?.carried??0)>0||filter==='scouts'&&isScout(p)||filter==='sheltering'&&p.refuge)&&searchText(`${p.name} ${label(p)}`).includes(searchText(query)));
+  const search=searchText(query);
+  const rows=city.people.filter(p=>(filter==='all'||filter==='idle'&&availableForQuickAssign(p)||filter==='carrying'&&(p.haul?.carried??0)>0||filter==='scouts'&&isScout(p)||filter==='sheltering'&&p.refuge)&&(!search||searchText(`${p.name} ${label(p)}`).includes(search)));
   const pages=Math.max(1,Math.ceil(rows.length/30)),current=Math.min(page,pages-1);
   return <section className="people-directory"><label className="search-field">Tìm người hoặc công việc<input type="search" value={query} onChange={e=>{setQuery(e.target.value);setPage(0);}} placeholder="Tên, chặt cây, làm ruộng…"/></label>
     <div className="filter-chips" role="group" aria-label="Lọc dân làng">{([['all','Tất cả'],['idle','Nhận việc được'],['carrying','Mang hàng'],['scouts','Khám phá'],['sheltering','Trú ẩn']] as const).map(([key,title])=><button key={key} aria-pressed={filter===key} onClick={()=>{setFilter(key);setPage(0);}}>{title}</button>)}</div>

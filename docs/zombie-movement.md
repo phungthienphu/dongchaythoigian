@@ -25,7 +25,9 @@ Kiểm tra: 562 test game, 9 test API, 18 test Worker, TypeScript, render regres
 
 Phạm vi điều quân hiện có: di chuyển đơn/nhóm, đặt chốt và tự chọn zombie trong tầm. Chưa có lệnh chọn một zombie làm mục tiêu tập trung. Lỗi tái đánh số lính sau khi đồng đội chết làm thay vị trí gác đã được tái hiện, chưa sửa trong bản này. Kiểm tra API production không thay cho nghiệm thu điều quân tương tác trên tài khoản thật.
 
-## Zombie locator and committed pursuit (local, not released)
+## Zombie locator and committed pursuit
+
+Released together with catch-up routing optimization in `c9ec755`: Web/API release `catchup-zombie-c9ec755`, Cloudflare version `30417b97-a65d-4059-a553-87c0a0e450c4`. Combat Worker unchanged. Public health and eight homepage asset hashes verified; no private-account smoke performed for this release.
 
 - The village threat banner locates the next emerged, living zombie. A red ring and label identify the selected actor; the map toolbar can recenter or cycle targets. The zombie panel lists coordinates and individual location buttons. Pending actors are counted separately and have a pending marker when selected.
 - Dead and expired actors are excluded. Once the selected actor disappears, recenter is disabled and the player can select the next actor.

@@ -22,6 +22,11 @@ function fixture(era:number){
  if(era>=8){for(const [k,dx,dy] of [['firealtar',2,-2],['watertemple',4,-2],['woodgrove',2,4],['earthtemple',4,2]] as const)staff(place(k,dx,dy),3);place('harmonizer',-2,-2);place('golemworks',6,2);}
  if(era>=9){place('spiritgate',3,0);place('worldmatrix',3,3);place('covenantaltar',5,0);place('observatory',-3,0);place('teleportdock',-4,4);place('teleportdock',-4,7);}
  stepMagic(c,now+60000);for(const s of Object.values(c.b))if(s.k==='aetherwell'&&s.uid!==undefined)m.mana[magicSiteId(s)]=900;
+ // Synthetic large-village UI load; this harness never reads a real account.
+ if(new URLSearchParams(location.search).get('stress')==='1'){
+  while(c.people.length<1200){const id=c.nextId++;c.people.push({id,name:`Dân thử ${id}`,task:{t:'idle'},pos:c.camp});}
+  c.pop=c.people.length;
+ }
  settle(c,now);return c;
 }
 export default function MagicUIHarness(){
