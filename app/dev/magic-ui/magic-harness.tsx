@@ -45,6 +45,6 @@ export default function MagicUIHarness(){
   setReady(true);return()=>{window.fetch=original;};
  },[]);
  return <>{ready&&<Game key={epoch} rules={RULES}/>}
-  <details className="ui-preview-tools"><summary>Thử ma pháp</summary><p>Local · không dùng tài khoản hoặc dữ liệu thật.</p><label>Thời đại<select value={era} onChange={e=>{city.current=fixture(+e.target.value);setEra(+e.target.value);setEpoch(n=>n+1);}}>{[7,8,9].map(e=><option key={e} value={e}>Thời {e}</option>)}</select></label></details>
+  <details className="ui-preview-tools"><summary>Thử ma pháp</summary><p>Local · không dùng tài khoản hoặc dữ liệu thật.</p><button onClick={()=>{const c=city.current!,at=Date.now();c.army={};c.zombies!.nextAt=at+3600000;c.zombies!.actors=[];for(let i=0;i<c.t.length&&c.zombies!.actors.length<3;i++){if(c.t[i]!==G||c.b[i]||!c.seen[i]||Math.abs(i%W-c.camp%W)>12||Math.abs(Math.floor(i/W)-Math.floor(c.camp/W))>12)continue;const id=c.zombies!.actors.length+1;c.zombies!.actors.push({id,kind:'normal',hp:90,maxHp:90,x:i%W+.5,y:Math.floor(i/W)+.5,era:6,until:at+3600000,emergesAt:id===3?at+120000:at,nextHit:at,repath:0});}setEpoch(n=>n+1);}}>Thử định vị zombie</button><label>Thời đại<select value={era} onChange={e=>{city.current=fixture(+e.target.value);setEra(+e.target.value);setEpoch(n=>n+1);}}>{[7,8,9].map(e=><option key={e} value={e}>Thời {e}</option>)}</select></label></details>
  </>;
 }

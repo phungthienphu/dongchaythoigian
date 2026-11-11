@@ -1290,7 +1290,7 @@ const HAUL_UNLOAD_MS = 1000;
 type HaulJob = { tile: number; resource: ResKey; rate: number; source: NonNullable<Haul["source"]> };
 type DropRoute = { route: number[]; drop: number; length: number };
 type RouteTree = { prev: Int32Array; rank: Uint16Array; queue: Int32Array; head: number; size: number };
-type HaulContext = { sight:Set<number>; bridges:ReadonlySet<number>; civic:ReturnType<typeof civicContext>; transport:ReturnType<typeof transportNetwork>; pass?: Uint8Array; sources: Map<ResKey,number[]>; gatherTargets: BoundedCache<string,number|null>; trees: BoundedCache<string, RouteTree>; drops: BoundedCache<string, DropRoute | null>; paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number; medievalBonus:number };
+type HaulContext = { sight:Set<number>; bridges:ReadonlySet<number>; civic:ReturnType<typeof civicContext>; transport:ReturnType<typeof transportNetwork>; pass?: Uint8Array; regions?:Partial<Record<1|2,Uint16Array>>; sources: Map<ResKey,number[]>; gatherTargets: BoundedCache<string,number|null>; trees: BoundedCache<string, RouteTree>; drops: BoundedCache<string, DropRoute | null>; paths: BoundedCache<string, number[] | null>; D: Derived; tools: number; mult: number; medievalBonus:number };
 const taskKey = (p: Person) => JSON.stringify(p.task);
 
 /** Record the ore before any worker can exhaust it. Old in-flight loads keep
@@ -1394,8 +1394,16 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredL
         goals.push(next);
       }
     }
+    // No valid arrival neighbour means no search can succeed (e.g. a sealed
+    // mining tile). Do not flood the whole map with an empty goal set.
+    if(!goals.length)return null;
     const pass = ctx.pass ??= Uint8Array.from(c.t, (_,i) => (passable(i,-1,true) ? 1 : 0) | (passable(i,-1,false) ? 2 : 0));
     const mode = water ? 1 : 2;
+    // A completed failed BFS proves the entire connected region. Reuse that
+    // proof for other workers there instead of flooding the same map again.
+    // Explored-only searches have a changing visibility boundary and opt out.
+    const region=ctx.regions&&!exploredLand&&(pass[from]&mode)?ctx.regions[mode]?.[from]:0;
+    if(region&&!goals.some(tile=>ctx.regions![mode]![tile]===region))return null;
     const treeKey = `${from}:${water}:${exploredLand}`;
     let tree = ctx.trees.get(treeKey);
     if (!tree) {
@@ -1422,7 +1430,15 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredL
         if (goal < 0 && targets.has(next)) goal = next;
       }
     }
-    if (goal < 0) return null;
+    if (goal < 0) {
+      // Small failed searches are cheaper to repeat than allocating a grid.
+      if(!exploredLand&&(pass[from]&mode)&&tree.size>=256){
+        const labels=(ctx.regions??={})[mode]??=new Uint16Array(W*H);
+        const region=from+1;
+        for(let i=0;i<tree.size;i++)labels[queue[i]]=region;
+      }
+      return null;
+    }
     // Opening an endpoint building cannot change its first predecessor: any
     // extra diagonal it enables starts from a cardinal neighbor which already
     // has a legal direct edge to that endpoint. Mining uses the earliest
@@ -1954,7 +1970,7 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: Res, smelt:
       const sourceTile = h.source?.kind === "tile" ? h.source.key : undefined;
       const beforeTerrain = sourceTile === undefined ? undefined : c.t[sourceTile];
       h.carried = takeCargo(c, h, at);
-      if (sourceTile !== undefined && beforeTerrain !== undefined && isRock(beforeTerrain) && beforeTerrain !== c.t[sourceTile]) { ctx.pass = undefined; ctx.trees.clear(); ctx.drops.clear(); ctx.paths.clear(); ctx.gatherTargets.clear(); }
+      if (sourceTile !== undefined && beforeTerrain !== undefined && isRock(beforeTerrain) && beforeTerrain !== c.t[sourceTile]) { ctx.pass = undefined; ctx.regions=undefined; ctx.trees.clear(); ctx.drops.clear(); ctx.paths.clear(); ctx.gatherTargets.clear(); }
       if (h.carried > 0) returnCargo(c, p, at, ctx);
       else { delete p.haul; beginHaul(c, p, at, ctx); }
     } else if (h.phase === "return") {
@@ -2006,6 +2022,7 @@ export function wildernessKeep(c:City,at:number,openLand=false){
   for(const e of c.trips??[])if(e.back>at)route(e.villageRoute);
   for(const e of c.merchantJourneys??[])if(e.back>at)route(e.villageRoute);
   for(const e of c.ferryBookings??[])if(e.back>at)route(e.route);
+  for(const z of c.zombies?.actors??[])if(z.hp>0&&z.until>at){around(idx(Math.floor(z.x),Math.floor(z.y)));route(z.path);}
   for(const p of c.guardPosts??[])around(idx(p.x,p.y));
   if(c.wildlife&&c.wildlife.end>at)route(c.wildlife.route);
   return keep;

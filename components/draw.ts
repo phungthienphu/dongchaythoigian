@@ -1,3 +1,4 @@
+import {zombieDrawPosition} from '@/lib/zombie-view';
 import {MAGIC_EXPANSION,type ExpansionBuilding} from '@/lib/building-expansion';
 import {drawZombieArt} from './zombie-art';
 import {buildingIntegrity,zombieBuildingHp} from '@/lib/zombies';
@@ -2344,6 +2345,7 @@ export function pickVillageTarget(v:View,city:City,list:Villager[],anim:number,s
 }
 
 export type DrawOpts = {
+  focusedZombie?:number|null;
   bridgePreview?:{from:number;to:number|null};
   rules?: EngineRules;
   v: View;
@@ -2591,7 +2593,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   }
   const zombieState=city.zombies;
   if(!staticOnly&&zombieState?.warning!==undefined){const tile=zombieState.warning,fx=tile%W+.5,fy=Math.floor(tile/W)+.5;if(onScreen(fx-.5,fy-.5))items.push({d:viewDepth(v,fx,fy)-.1,f:()=>{const [sx,sy]=P(v,fx,fy);c.strokeStyle='#d79468';c.lineWidth=2*v.s;c.beginPath();c.moveTo(sx-12*v.s,sy);c.lineTo(sx-3*v.s,sy-3*v.s);c.lineTo(sx+2*v.s,sy+2*v.s);c.lineTo(sx+12*v.s,sy-2*v.s);c.stroke();c.fillStyle='#efb77d';c.font=`bold ${12*v.s}px sans-serif`;c.fillText('!',sx,sy-12*v.s);}});}
-  for(const z of staticOnly?[]:zombieState?.actors??[]){if((z.emergesAt??0)>o.now)continue;if(!seen[idx(Math.floor(z.x),Math.floor(z.y))]||!onScreen(z.x-.5,z.y-.5))continue;items.push({d:viewDepth(v,z.x,z.y),f:()=>{const [sx,sy]=P(v,z.x,z.y);drawZombieArt(c,z.kind,sx,sy,Math.max(.55,v.s),{time:o.anim+(z.id%997)*73,walking:z.walking,attacking:!!z.hitAt&&o.now-z.hitAt<500,face:travelFace(v,z.headingX??0,z.headingY??0,cameraFace(v,1)),hurt:!!z.hitAt&&o.now-z.hitAt<150});if(z.hp<z.maxHp){c.fillStyle='#342b26';c.fillRect(sx-10*v.s,sy-49*v.s,20*v.s,3*v.s);c.fillStyle='#ca6b58';c.fillRect(sx-10*v.s,sy-49*v.s,20*v.s*Math.max(0,z.hp/z.maxHp),3*v.s);}}});}
+  for(const z of staticOnly?[]:zombieState?.actors??[]){if((z.emergesAt??0)>o.now){if(o.focusedZombie===z.id){const [sx,sy]=P(v,z.x,z.y);items.push({d:viewDepth(v,z.x,z.y),f:()=>{c.strokeStyle='#ff765f';c.lineWidth=3;c.beginPath();c.ellipse(sx,sy,17*v.s,8*v.s,0,0,Math.PI*2);c.stroke();c.fillStyle='#ffceba';c.font='bold 13px sans-serif';c.textAlign='center';c.fillText('▼ Sắp trồi',sx,sy-16*v.s);}});}continue;}const visual=zombieDrawPosition(z,zombieState!.last,o.now);if((!seen[idx(Math.floor(z.x),Math.floor(z.y))]&&o.focusedZombie!==z.id)||!onScreen(z.x-.5,z.y-.5))continue;items.push({d:viewDepth(v,z.x,z.y),f:()=>{const [sx,sy]=P(v,visual.x,visual.y);if(o.focusedZombie===z.id){c.strokeStyle='#ff765f';c.lineWidth=3;c.beginPath();c.ellipse(sx,sy,17*v.s,8*v.s,0,0,Math.PI*2);c.stroke();c.fillStyle='#ffceba';c.font=`bold ${Math.max(12,12*v.s)}px sans-serif`;c.textAlign='center';c.fillText('▼ Zombie',sx,sy-58*v.s);}drawZombieArt(c,z.kind,sx,sy,Math.max(.55,v.s),{time:o.anim+(z.id%997)*73,walking:z.walking,attacking:!!z.hitAt&&o.now-z.hitAt<500,face:travelFace(v,z.headingX??0,z.headingY??0,cameraFace(v,1)),hurt:!!z.hitAt&&o.now-z.hitAt<150});if(z.hp<z.maxHp){c.fillStyle='#342b26';c.fillRect(sx-10*v.s,sy-49*v.s,20*v.s,3*v.s);c.fillStyle='#ca6b58';c.fillRect(sx-10*v.s,sy-49*v.s,20*v.s*Math.max(0,z.hp/z.maxHp),3*v.s);}}});}
   for (const k of cachedItems ? [] : city.camps) {
     if (!seen[k.at] || !vis[k.at] || city.b[k.at]) continue;
     items.push({ d: viewDepth(v,k.at%W+.5,Math.floor(k.at/W)+.5), f: () => drawCampSite(r, k) });

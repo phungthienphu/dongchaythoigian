@@ -1,4 +1,5 @@
 "use client";
+import {zombiePresence,locateNextZombie,zombieName} from '@/lib/zombie-view';
 import ZombiePanel from './ZombiePanel';
 import {RenderQuality,mapDetailLow} from '@/lib/render-quality';
 import {FrameProfile} from '@/lib/frame-profile';
@@ -470,8 +471,9 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const renderPausedRef = useRef(false);
   renderPausedRef.current=worldOpen || !!battleOpen || helpOpen;
   const bridgePreview=bridgeFrom!==null?{from:bridgeFrom,to:bridgeTarget?idx(bridgeTarget.x,bridgeTarget.y):null}:undefined;
-  const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation });
-  viewRef.current = { hover: hoverRef.current, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation };
+  const [focusedZombie,setFocusedZombie]=useState<number|null>(null);
+  const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation, focusedZombie });
+  viewRef.current = { hover: hoverRef.current, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation, focusedZombie };
   const setHover = (cell: Cell | null, lazy = false) => {
     hoverRef.current = cell; viewRef.current.hover = cell;
     clearTimeout(hoverTimer.current);
@@ -1000,6 +1002,14 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
   const trackCaravan = (id:string) => { setMarketTarget(id);setPanel("market");setWorldOpen(false); };
   const openPanel = (p: Panel | null) => setPanel((cur) => (cur === p ? null : p));
+  const locateZombie=(id?:number)=>{
+    const c=cityRef.current;if(!c)return;
+    const {active,pending}=zombiePresence(c,now()),actor=id===undefined?locateNextZombie(c,now(),focusedZombie):[...active,...pending].find(z=>z.id===id);
+    if(!actor){if(c.zombies?.warning!==undefined)locateTile(c.zombies.warning);else setMsg({text:'Không còn zombie trong đợt này.'});return;}
+    setWorldOpen(false);setPanel(null);setSelected(null);setFocusedZombie(actor.id);
+    focusOn(fitRef.current,camRef.current,actor.x,actor.y,Math.min(MAX_ZOOM,72/fitRef.current.TW));
+    setMsg({text:`${zombieName(actor.kind)} tại (${Math.floor(actor.x)}, ${Math.floor(actor.y)})${(actor.emergesAt??0)>now()?' · sắp trồi':' · vòng đỏ trên bản đồ'}.`});
+  };
   const locateTile=(tile:number)=>{setWorldOpen(false);setSelected({x:tile%W,y:Math.floor(tile/W)});setPanel(null);focusOn(fitRef.current,camRef.current,tile%W+.5,Math.floor(tile/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));};
 
   const onClick = async (e: React.MouseEvent) => {
@@ -1217,6 +1227,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const activeWars=war.wars.filter(w=>w.status!=='completed'&&w.status!=='cancelled');
   const attention=villageAttention(c,st.storage,effectiveSaveStatus,war.wars,unreadCount,t);
   const handleAttention=(target:AttentionTarget)=>{
+    if(target.kind==='zombie-location'){locateZombie();return;}
     if(target.kind==='tile'){locateTile(target.tile);return;}
     if(target.kind==='resource'){setResourceFocus(target.resource);setPanel('resources');return;}
     if(target.kind==='shop'){setShopFocus('gather');setShopEra(1);setPanel('shop');return;}
@@ -1247,6 +1258,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
       <GameHUD city={c} stats={st} name={name} season={season} year={Math.floor(si/4)+1} unread={unreadCount} ref={hudRef} onPanel={p=>openPanel(p)} onResource={r=>{setResourceFocus(r??null);setPanel("resources");}} onHelp={()=>setHelpOpen(true)}/>
       {!visiting&&!worldOpen&&!battleOpen&&<VillageAttention items={attention} onOpen={()=>setPanel('attention')} onAction={handleAttention}/>}
+
+      {!visiting&&!worldOpen&&!battleOpen&&focusedZombie!==null&&<div className="zombie-locator" role="region" aria-label="Định vị zombie"><span>{zombiePresence(c,t).active.some(z=>z.id===focusedZombie)?'Vòng đỏ: zombie đang chọn':zombiePresence(c,t).pending.some(z=>z.id===focusedZombie)?'Zombie đang chọn chưa trồi':'Zombie đã bị hạ hoặc rời đi'}</span><button disabled={!Object.values(zombiePresence(c,t)).some(list=>list.some(z=>z.id===focusedZombie))} onClick={()=>locateZombie(focusedZombie)}>Định vị lại</button><button onClick={()=>locateZombie()}>Con tiếp theo →</button><button aria-label="Đóng định vị zombie" onClick={()=>setFocusedZombie(null)}>×</button></div>}
 
       <details className="camera-tools"><summary aria-label="Mở điều khiển bản đồ">⌖ <span>Bản đồ</span></summary><div className="zoom" role="group" aria-label="Điều khiển bản đồ">
         {!visiting&&!c.battleId&&<><button className="region-toggle" aria-pressed={regionMode==='soldiers'} onClick={()=>{pickTool(null);setPicked(new Set());setPickedSoldier(null);setSelected(null);setGuardEditing(false);setPanel(null);setSoldierType(null);setRegionMode(regionMode==='soldiers'?null:'soldiers');}}>Chọn lính</button><button className="region-toggle" aria-pressed={regionMode==='people'} onClick={()=>{pickTool(null);setPicked(new Set());setPickedSoldier(null);setSelected(null);setGuardEditing(false);setPanel(null);setRegionMode(regionMode==='people'?null:'people');}}>Chọn dân</button></>}
@@ -1502,7 +1515,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       {panel && (
         <GamePanel feedback={msg?.err?msg.text:undefined} onDismissFeedback={()=>setMsg(null)} title={PANEL_LABELS[panel]} onClose={()=>setPanel(null)} onBack={panelGroup(panel)!==panel?()=>setPanel(panelGroup(panel) as Panel):undefined}>
             {panel==='magic'&&<MagicPanel key={magicTab} city={c} now={t} busy={busy} act={act} maxEra={Math.min(rules.maxEra,9)} initialTab={magicTab} onLocate={locateTile}/>}
-            {panel==='zombies'&&<ZombiePanel city={c} now={t} busy={busy} act={act} onLocate={locateTile}/>}
+            {panel==='zombies'&&<ZombiePanel city={c} now={t} busy={busy} act={act} onLocate={locateTile} onLocateZombie={locateZombie}/>}
             {panel==='manage'&&<>
               <p className="panel-intro">{name}<span>{ERA_NAMES[c.era]} · {populationStatus}</span></p>
               <div className="menu-links"><button onClick={()=>setPanel('zombies')}><Icon k="army"/><span>Zombie & cứu hộ<small>{c.zombies?`${c.zombies.actors.length} zombie · bảo vệ, bệnh và thiệt hại`:'Đọc luật mới · 5 phút chuẩn bị sau khi bật'}</small></span><b>›</b></button>

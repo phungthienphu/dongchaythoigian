@@ -1,13 +1,16 @@
 'use client';
 import {zombiePressure,zombieWave,zombieStats} from '@/lib/zombies';
 import {type City,type Action} from '@/lib/engine';
+import {zombiePresence,zombieName} from '@/lib/zombie-view';
 import {magicDefenseView} from '@/lib/magic-view';
-export default function ZombiePanel({city,now,act,busy=false,onLocate}:{city:City;now:number;act:(a:Action)=>unknown;busy?:boolean;onLocate?:(tile:number)=>void}){
+export default function ZombiePanel({city,now,act,busy=false,onLocate,onLocateZombie}:{city:City;now:number;act:(a:Action)=>unknown;busy?:boolean;onLocate?:(tile:number)=>void;onLocateZombie?:(id:number)=>void}){
  const z=city.zombies;
  if(!z)return <section className="zombie-panel"><h3>Zombie từ thời Đồ đá</h3><p>Đợt đầu sau 5 phút kể từ khi bật. Zombie cắn lây bệnh và phá nhà vĩnh viễn, phải xây mới. Dân đông thì đợt đông và thường xuyên hơn.</p><p>Chuẩn bị lính, điểm bảo vệ và lều cứu thương. Cơ chế chạy cả khi offline.</p><button className="primary" disabled={busy} onClick={()=>act({type:'activateZombies'})}>Đã đọc · bắt đầu 5 phút chuẩn bị</button></section>;
+ const {active,pending}=zombiePresence(city,now);
  const p=zombiePressure(city,now),wave=zombieWave(p,city.era,z.index+1),remaining=Math.max(0,Math.ceil((z.nextAt-now)/1000)),sick=city.people.filter(p=>p.vital?.infectedAt).length,down=city.people.filter(p=>p.vital?.downAt).length;
  return <section className="zombie-panel"><div className="metric-pair"><div><span>Đợt tiếp theo</span><b>{Math.floor(remaining/60)}:{String(remaining%60).padStart(2,'0')}</b></div><div><span>Áp lực 6 giờ</span><b>{p} dân · {wave.total} con</b></div></div>
- <p>{z.actors.length} zombie còn sống · {sick} dân nhiễm · {down} dân chờ cứu.</p>{z.warning!==undefined&&<button onClick={()=>onLocate?.(z.warning!)}>⚠ Đất nứt · xem ổ sắp trồi</button>}
+ <p>{active.length} zombie đang xuất hiện · {pending.length} sắp trồi · {sick} dân nhiễm · {down} dân chờ cứu.</p>
+ {onLocateZombie&&<div className="zombie-positions" role="group" aria-label="Vị trí zombie">{[...active,...pending].map(actor=><button key={actor.id} onClick={()=>onLocateZombie(actor.id)}>⌖ {zombieName(actor.kind)} · ({Math.floor(actor.x)}, {Math.floor(actor.y)}) · {active.includes(actor)?`${Math.ceil(actor.hp)} HP`:'chưa trồi'}</button>)}</div>}{z.warning!==undefined&&<button onClick={()=>onLocate?.(z.warning!)}>⚠ Đất nứt · xem ổ sắp trồi</button>}
  <label className="setting-row"><input type="checkbox" checked={z.patrol} disabled={busy} onChange={e=>act({type:'zombiePatrol',on:e.target.checked})}/>Lính tự phản ứng bảo vệ quanh vị trí đang đứng</label><p className="small muted">Chọn lính và đặt vị trí bảo vệ tại Quân đội. Tháp hỗ trợ bắn; y tế cần người làm và thực phẩm.</p>
  <MagicDefense city={city} now={now} onLocate={onLocate}/>
  {city.era>=5&&<p className="inline-warning">Từ Công nghiệp, zombie biết né vùng hỏa lực đã phát hiện. Bố trí tháp chồng vùng và lính ở lối vòng.</p>}

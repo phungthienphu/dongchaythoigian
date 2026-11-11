@@ -566,3 +566,6 @@ body:has(.map-loading) { padding: 0; }
 .map-loading button { margin-top: 16px; }
 
 .map-bearing { text-align: center; font-size: 10px; color: #d7c99f; padding: 2px 0; border-radius: 5px; background: #17201ecc; pointer-events: none; }
+
+.zombie-locator{position:fixed;z-index:38;left:50%;bottom:100px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;width:max-content;max-width:calc(100vw - 24px);padding:10px 12px;background:#342b25f5;border:1px solid #c87458;border-radius:12px;color:#f7e6cf;box-shadow:0 6px 24px #0005}
+.zombie-locator span{font-size:13px}.zombie-locator button{padding:7px 10px;min-height:36px}.zombie-positions{display:flex;flex-wrap:wrap;gap:6px}.zombie-positions button{text-align:left}

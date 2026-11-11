@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {newCity,G,R,F,RES,idx,seedOpenLand,disasterResource,repairCost,levelCost,CRYSTAL_ORE,RUNE_ORE,ESSENCE_ORE,CELESTIAL_ORE,isMagicDeposit,mineralResource,depositCapacity,applyAction,settle,HOUR,type City} from './engine';
-function city():City{const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.b={};c.people=[];c.herds=[];c.camps=[];c.army={};c.camp=idx(10,10);c.wildernessAt=10*HOUR;c.disaster={kind:'earthquake',at:10*HOUR,level:0,center:c.camp};return c;}
+function city():City{const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.b={};c.people=[];c.herds=[];c.camps=[];c.army={};c.camp=idx(10,10);c.zombies!.nextAt=10*HOUR;c.wildernessAt=10*HOUR;c.disaster={kind:'earthquake',at:10*HOUR,level:0,center:c.camp};return c;}
 test('four-cell clearings inside building buffers spawn; three cells and pinned routes do not',()=>{
  const c=city();c.t.fill(R);const four=[idx(40,40),idx(41,40),idx(40,41),idx(41,41)],three=[idx(60,60),idx(61,60),idx(60,61)];
  for(const i of [...four,...three])c.t[i]=G;c.b[idx(39,40)]={k:'house',lvl:1,doneAt:null};

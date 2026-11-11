@@ -24,3 +24,13 @@ Kiểm tra: 562 test game, 9 test API, 18 test Worker, TypeScript, render regres
 - Log: `/tmp/zombie-spread-{web-deploy,battle-deploy,production-smoke,reconcile}.log`.
 
 Phạm vi điều quân hiện có: di chuyển đơn/nhóm, đặt chốt và tự chọn zombie trong tầm. Chưa có lệnh chọn một zombie làm mục tiêu tập trung. Lỗi tái đánh số lính sau khi đồng đội chết làm thay vị trí gác đã được tái hiện, chưa sửa trong bản này. Kiểm tra API production không thay cho nghiệm thu điều quân tương tác trên tài khoản thật.
+
+## Zombie locator and committed pursuit (local, not released)
+
+- The village threat banner locates the next emerged, living zombie. A red ring and label identify the selected actor; the map toolbar can recenter or cycle targets. The zombie panel lists coordinates and individual location buttons. Pending actors are counted separately and have a pending marker when selected.
+- Dead and expired actors are excluded. Once the selected actor disappears, recenter is disabled and the player can select the next actor.
+- Distant actors now approach the closest village structure rather than idling outside the local detection radius. Valid targets are held for at least five seconds unless a nearby soldier intercepts; civilian contact and guard pursuit limits still apply.
+- Routes remain stable until the target moves to a different tile or the next step is blocked. Replanning preserves the unfinished edge to avoid walking back toward a cell center. Failed routes retry with a two-second cooldown. Close pursuit accounts for the victim's fractional position to reach melee range.
+- Drawing interpolates the previous simulated second without predicting future movement. Wilderness renewal protects live zombie positions and paths.
+- The local `/dev/magic-ui` harness includes “Thử định vị zombie”: two emerged actors and one pending actor, without production account data. Desktop and 390px mobile checks covered banner location, target cycling, red marker and disabled recenter after death.
+- Economic resource/crafting test fixtures postpone zombie waves beyond their simulated window, so the new long-range attacks do not destroy unrelated production fixtures.

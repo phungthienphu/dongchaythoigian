@@ -1,6 +1,7 @@
+import {zombiePresence} from './zombie-view';
 import {B,RES,RN,availableForQuickAssign,farmRemaining,type City,type Res} from './engine';
 import type {SaveStatus} from './batched-city';
-export type AttentionTarget = {kind:'shop'|'people'|'army'|'era'|'log'|'sync'|'zombies'}|{kind:'tile';tile:number}|{kind:'resource';resource:keyof Res}|{kind:'battle';id:string};
+export type AttentionTarget = {kind:'shop'|'people'|'army'|'era'|'log'|'sync'|'zombies'|'zombie-location'}|{kind:'tile';tile:number}|{kind:'resource';resource:keyof Res}|{kind:'battle';id:string};
 export type AttentionItem = {id:string;severity:'urgent'|'warning'|'info';title:string;detail:string;action:string;target:AttentionTarget};
 type War = { _id:string;status:string;side:string;attackerName:string;defenderName:string };
 /** Derived presentation only: no timers, requests, simulation or automatic orders. */
@@ -11,7 +12,9 @@ export function villageAttention(c:City,storage:Res,save:SaveStatus,wars:readonl
   if(c.raid||c.raidEncounter)items.push({id:'raid',severity:'urgent',title:'Man rợ đe dọa làng',detail:'Xem thời điểm địch tới và chuẩn bị phòng thủ tại Quân đội.',action:'Chuẩn bị phòng thủ',target:{kind:'army'}});
   const zombies=c.zombies;
   if(!zombies)items.push({id:'zombie-activation',severity:'info',title:'Luật zombie mới đang chờ bạn đọc',detail:'Đợt đầu sau 5 phút kể từ khi bật. Chuẩn bị lính và y tế; công trình bị phá mất vĩnh viễn.',action:'Đọc và chuẩn bị',target:{kind:'zombies'}});
-  else if(zombies.actors.length||zombies.warning!==undefined)items.push({id:'zombies',severity:'urgent',title:zombies.actors.length?`${zombies.actors.length} zombie đang đe dọa làng`:'Đất nứt · zombie sắp trồi',detail:'Bảo vệ dân, chặn lối bằng tường và giữ thợ y tế sẵn sàng. Nhà bị phá phải xây mới.',action:'Xem zombie và cứu hộ',target:{kind:'zombies'}});
+  else {const {active,pending}=zombiePresence(c,now);
+    if(active.length||pending.length||zombies.warning!==undefined)items.push({id:'zombies',severity:'urgent',title:active.length?`${active.length} zombie đang đe dọa làng`:pending.length?`${pending.length} zombie sắp trồi`:'Đất nứt · zombie sắp trồi',detail:`${pending.length?`Còn ${pending.length} con chưa trồi. `:''}Bấm để tới vị trí hiện tại; có thể xem lần lượt từng con.`,action:'Định vị zombie',target:{kind:'zombie-location'}});
+  }
   const down=c.people.filter(p=>p.vital?.downAt!==undefined).length;
   if(down)items.push({id:'zombie-rescue',severity:'urgent',title:`${down} dân gục cần cứu ngay`,detail:'Có 10 phút để tiếp cận cứu hộ. Giao thợ y tế và chuẩn bị thực phẩm.',action:'Xem cứu hộ',target:{kind:'zombies'}});
   if(c.disaster&&c.disaster.at>now&&c.disaster.at-now<=30*60000)items.push({id:'disaster',severity:'warning',title:`${c.disaster.kind==='earthquake'?'Động đất':'Thiên tai'} có thể sắp tới`,detail:'Xem dự báo và chuẩn bị công trình bảo vệ. Cảnh báo còn hiệu lực vẫn hiện dù đã đọc tin.',action:'Xem thông báo',target:{kind:'log'}});

@@ -40,3 +40,11 @@ test('spread, headings and movement replay identically after a saved split and w
  const online=fixture();online.b[idx(44,50)]={k:'house',lvl:1,doneAt:null};settle(online,0);const offline=structuredClone(online);
  for(let at=1000;at<=60000;at+=1000)settle(online,at);settle(offline,60000);assert.deepEqual(offline,online);
 });
+
+test('distant zombies advance toward the village and hold their target without reversing',()=>{
+ const c=fixture();c.zombies!.nextAt=1000000;c.b[idx(50,10)]={k:'house',lvl:3,doneAt:null};
+ c.zombies!.actors=[{id:1,kind:'normal',hp:90,maxHp:90,x:10.5,y:10.5,era:6,until:100000,nextHit:0,repath:0}];
+ let previous=10.5;
+ for(let at=1000;at<=10000;at+=1000){stepZombies(c,at);const z=c.zombies!.actors[0];assert.equal(z.target,'b:'+idx(50,10));assert.ok(z.x>=previous);previous=z.x;}
+ assert.ok(previous>13);
+});
