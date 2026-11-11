@@ -2,7 +2,7 @@
  * Drawing only: never changes simulation, hit boxes, attack timing or resources.
  * All entry points restore the caller's complete Canvas state.
  */
-export type ActorPose = { time?: number; walking?: boolean; fighting?: boolean; face?: 1 | -1; seed?: number; hostile?: boolean; active?: boolean; graze?: boolean; antlers?: boolean };
+export type ActorPose = { time?: number; walking?: boolean; fighting?: boolean; face?: 1 | -1; seed?: number; hostile?: boolean; active?: boolean; graze?: boolean; antlers?: boolean; /** Spell cast (mages, phoenix heal); visual only. */ casting?: boolean; /** Just took a hit: brief warm flash. */ hurt?: boolean; /** Reduced motion: no idle glow flicker. */ still?: boolean };
 export type AnimalArt = "buffalo" | "elephant" | "deer" | "boar";
 export type SoldierArt = "club" | "sling" | "spear" | "bow" | "sword" | "crossbow" | "cavalry" | "musket" | "cannon" | "infantry" | "armor" | "wagon" | "medic" | "elephant";
 export type FutureArt = "tank" | "fighter" | "radar" | "oil" | "coal" | "helicopter" | "drone" | "mech" | "fusion" | "orbital" | "satellite";
@@ -428,3 +428,252 @@ function vehicle(c:C,kind:FutureArt,p:ActorPose){
 export function drawFutureArt(c:C,kind:FutureArt,x:number,y:number,scale:number,pose:ActorPose={}){
   local(c,x,y,scale,pose,()=>vehicle(c,kind,pose));
 }
+
+/* ---------- eras 7–9: mages, golem, spirit beasts and the spirit-wood carrier ---------- */
+export type MagicArt = "firemage" | "watermage" | "golem" | "spiritdeer" | "dragon" | "tortoise" | "phoenix" | "treant";
+export const MAGIC_ART: readonly MagicArt[] = ["firemage", "watermage", "golem", "spiritdeer", "dragon", "tortoise", "phoenix", "treant"];
+/** Height above the feet at which flying beasts are drawn; shadows stay on the ground. */
+export const FLIGHT_HEIGHT: Partial<Record<MagicArt, number>> = { dragon: 30, phoenix: 34 };
+function glowDot(c: C, x: number, y: number, r: number, color: string, alpha = 1) {
+  if (alpha <= 0 || r <= 0) return;
+  const g = c.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, color); g.addColorStop(1, color.slice(0, 7) + "00");
+  c.save(); c.globalAlpha *= Math.min(1, alpha); c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill(); c.restore();
+}
+const MAGE = {
+  firemage: { robe: "#a3412f", dark: "#6e2820", trim: "#e8b75a", glow: "#ffa64a", core: "#fff0b8" },
+  watermage: { robe: "#2f6c8c", dark: "#1f4a60", trim: "#c4e6df", glow: "#7fd8ff", core: "#effcff" },
+} as const;
+function mageArt(c: C, kind: "firemage" | "watermage", p: ActorPose) {
+  const e = MAGE[kind], time = p.time ?? 0, ph = time / 150 + (p.seed ?? 0) * 10, still = p.still;
+  const step = p.walking ? Math.sin(ph) * 2.2 : 0, bob = p.walking ? Math.abs(Math.sin(ph)) * .6 : still ? 0 : Math.sin(time / 700) * .2;
+  const swing = p.fighting ? Math.max(0, Math.sin(time / 160 + (p.seed ?? 0) * 8)) : 0, cast = p.casting ? 1 : 0;
+  shadow(c, 6.5, 2.5);
+  if (cast) {
+    // Rune circle under the caster.
+    c.save(); c.strokeStyle = e.glow; c.globalAlpha = .75; c.lineWidth = .9; c.beginPath(); c.ellipse(0, 0, 11, 4.2, 0, 0, TAU); c.stroke();
+    for (let i = 0; i < 6; i++) { const a = i * TAU / 6 + (still ? 0 : time / 700); stroke(c, [[Math.cos(a) * 11, Math.sin(a) * 4.2 - 1], [Math.cos(a) * 11, Math.sin(a) * 4.2 + 1]], e.core, .8); }
+    c.restore();
+  }
+  c.save(); c.translate(0, -bob);
+  for (const [x, d] of [[-2, -step], [2, step]]) shape(c, [[x + d - 1.3, -1.8], [x + d + 1.4, -1.8], [x + d + 2.1, .4], [x + d - 1.3, .4]], "#3a2f28");
+  // Long robe with a flared hem, shaded far side, sash and a chest rune.
+  shape(c, [[-4, -18], [2.6, -18], [4.4, -9], [6, -1.4], [-5.8, -1.4], [-4.6, -9]], p.hurt ? "#d0705c" : e.robe);
+  shape(c, [[-4, -18], [-1.6, -18], [-2.2, -1.4], [-5.8, -1.4], [-4.6, -9]], "rgba(18,26,34,.3)", "", 0);
+  stroke(c, [[-5.6, -2], [5.8, -2]], e.trim, 1);
+  stroke(c, [[1.2, -17.5], [1.8, -2.3]], e.trim, .6);
+  rect(c, -4.4, -11.5, 8.4, 1.4, e.trim);
+  shape(c, [[-.3, -16], [.8, -14.6], [-.3, -13.2], [-1.4, -14.6]], e.core, "", 0);
+  glowDot(c, -.3, -14.6, 3, e.glow + "cc", still ? .5 : .5 + .3 * Math.sin(time / 300));
+  shape(c, [[-4.6, -18.6], [3.2, -18.6], [4.2, -15.2], [-5, -15.2]], e.dark);
+  ellipse(c, .2, -21, 2.9, 3.5, "#d8ac7f");
+  shape(c, [[1, -22], [3, -22], [3.9, -20], [2.5, -19.5]], "#d8ac7f", "", 0);
+  stroke(c, [[2.6, -21.2], [3.1, -21.2]], "#34362c", .7);
+  if (kind === "firemage") {
+    // Tall pointed hat with a wide brim and a short ember-coloured beard.
+    shape(c, [[-5.4, -22.6], [5.4, -22.8], [3.3, -21.4], [-3.4, -21.4]], e.dark);
+    shape(c, [[-3.2, -22.6], [3.3, -22.7], [-.6 + swing * .8, -32]], e.robe);
+    stroke(c, [[-3, -23.4], [3.1, -23.5]], e.trim, .8);
+    shape(c, [[.6, -19.4], [3.2, -19.6], [2, -16.4]], "#e0d6c0", "", 0);
+  } else {
+    // Hood folded back over the shoulders, with a pale river-shell clasp.
+    shape(c, [[-3.8, -18.6], [-4.3, -23], [-1.2, -26.2], [3, -25.4], [3.9, -22.4], [2, -22.6], [-1.6, -23.6], [-2, -18.8]], e.robe);
+    stroke(c, [[-1.2, -26], [3, -25.2]], e.trim, .6);
+    ellipse(c, 2.6, -18, 1, .8, e.core);
+  }
+  // Far arm, then the staff hand: idle low, thrust forward when attacking, raised when casting.
+  stroke(c, [[-3, -17], [-5, -13], [-3, -11]], e.dark, 2.6); ellipse(c, -3, -11, 1.2, 1.1, "#d8ac7f");
+  const hx = cast ? 6.5 : 6 + swing * 3, hy = cast ? -20 : -12.5 - swing * 3;
+  const top: Pt = [hx + 1.2, hy - 13 + cast * 2], foot: Pt = [hx - 1, hy + 11 - cast * 4];
+  stroke(c, [foot, top], "#6f4f33", 1.5);
+  stroke(c, [[top[0] - 1.5, top[1] + 1.5], [top[0] + 1.5, top[1] - .5]], e.trim, .7);
+  const power = .55 + swing * .5 + cast * .6, flick = still ? 0 : Math.sin(time / 90 + (p.seed ?? 0) * 4);
+  glowDot(c, top[0], top[1] - 2, 5 + power * 4, e.glow + "dd", power);
+  if (kind === "firemage") {
+    shape(c, [[top[0] - 2, top[1]], [top[0] + flick * .7, top[1] - 6 - power * 2], [top[0] + 2, top[1]], [top[0], top[1] + 1.2]], "#f0722e", "", 0);
+    shape(c, [[top[0] - 1, top[1]], [top[0] + flick * .4, top[1] - 3.8 - power], [top[0] + 1, top[1]]], e.core, "", 0);
+  } else {
+    ellipse(c, top[0], top[1] - 2.2, 2.3, 2.6, "#59b9dc");
+    ellipse(c, top[0] - .6, top[1] - 3, .8, .9, e.core);
+    if (power > .9) for (let i = 0; i < 3; i++) { const a = i * TAU / 3 + (still ? 0 : time / 260); ellipse(c, top[0] + Math.cos(a) * 4.5, top[1] - 2 + Math.sin(a) * 2, .8, .8, e.core); }
+  }
+  stroke(c, [[3, -17], [5, -14.5], [hx, hy]], p.hurt ? "#d0705c" : e.robe, 2.8); ellipse(c, hx, hy, 1.3, 1.3, "#d8ac7f");
+  c.restore();
+}
+const STONE = { top: "#b9b4a2", front: "#8f8b7c", side: "#6d6b60", moss: "#6f8f4f", rune: "#f2bd5c" };
+function golemArt(c: C, p: ActorPose) {
+  const t = p.time ?? 0, ph = t / 260 + (p.seed ?? 0) * 7, w = p.walking ? Math.sin(ph) : 0, still = p.still;
+  const slam = p.fighting ? Math.max(0, Math.sin(t / 240 + (p.seed ?? 0) * 3)) : 0;
+  const top = p.hurt ? "#d4a491" : STONE.top, front = p.hurt ? "#a8786a" : STONE.front;
+  shadow(c, 13, 3.8);
+  c.save(); c.translate(0, -(p.walking ? Math.abs(w) * .9 : 0));
+  // Stacked river boulders, held together by glowing seams of earth light.
+  block(c, -8 + w * 1.6, 0, 5.5, 3, 10, top, front, STONE.side);
+  block(c, 2 - w * 1.6, 0, 5.5, 3, 10, top, front, STONE.side);
+  stroke(c, [[-11, -21], [-14, -14 + slam * 2], [-13, -7 + slam * 2]], STONE.side, 4);
+  ellipse(c, -13, -6 + slam * 2, 3.2, 2.8, STONE.side);
+  block(c, -8, -9, 14, 4, 3.5, top, front, STONE.side);
+  block(c, -10, -12, 17, 5, 13, top, front, STONE.side);
+  stroke(c, [[-8, -21], [-5, -17], [-1, -19], [2, -15], [6, -18]], STONE.rune, .9);
+  stroke(c, [[-6, -14], [-2, -15], [1, -13]], STONE.rune, .7);
+  glowDot(c, -1, -18, 4.5, STONE.rune + "cc", still ? .55 : .5 + .3 * Math.sin(t / 420));
+  shape(c, [[-10, -25], [-6, -25.5], [-4, -24], [-9, -23.5]], STONE.moss, "", 0);
+  block(c, -3.5, -25, 7, 3.5, 5, top, front, STONE.side);
+  rect(c, .8, -22.5, 1.6, 1.1, STONE.rune); rect(c, -2.2, -22.5, 1.4, 1.1, STONE.rune);
+  // Near arm: hangs, then rises and slams on the authoritative attack flag.
+  const a = -1.2 + slam * -1.4 + (1 - slam) * 1.25, sx = 8, sy = -21, ex = sx + Math.cos(a) * 7, ey = sy + Math.sin(a) * 7;
+  stroke(c, [[sx, sy], [ex, ey]], front, 4.4);
+  const fx = ex + Math.cos(a + .5) * 5, fy = ey + Math.sin(a + .5) * 5;
+  stroke(c, [[ex, ey], [fx, fy]], front, 4);
+  ellipse(c, fx, fy, 3.8, 3.3, top); stroke(c, [[fx - 2, fy], [fx + 1.5, fy - 1]], STONE.side, .6);
+  if (slam > .92) for (const d of [-6, 0, 6]) stroke(c, [[fx + d, 1], [fx + d * 1.4, -2]], "#d8cdb0", .8);
+  c.restore();
+}
+function spiritDeerArt(c: C, p: ActorPose) {
+  const t = p.time ?? 0, ph = t / 130 + (p.seed ?? 0) * 11, walk = p.walking ? Math.sin(ph) : 0, still = p.still;
+  const lunge = p.fighting ? Math.max(0, Math.sin(t / 180)) : 0, body = p.hurt ? "#e3b7a5" : "#d9ead9", shade = "#a9c8b8", glow = "#a6f3c8";
+  shadow(c, 14, 3.5);
+  if (!still) for (let i = 0; i < 4; i++) { const q = ((t / 1400 + i / 4 + (p.seed ?? 0)) % 1); glowDot(c, -14 - q * 8, -18 - q * 10, 2.5, glow + "aa", 1 - q); }
+  for (const [x, d] of [[-9, walk], [6, -walk]]) stroke(c, [[x, -13], [x + d * 1.5, -6], [x + d * 2.4, 0]], shade, 1.8);
+  ellipse(c, -2, -16, 11, 5.2, body); ellipse(c, -4, -18, 7, 2.6, "#f2faf0");
+  for (const [x, d] of [[-7, -walk], [8, walk]]) { stroke(c, [[x, -13], [x + d * 1.5, -6], [x + d * 2.4, 0]], body, 2); ellipse(c, x + d * 2.4, 0, 1.4, .7, "#5c6a5f"); }
+  for (const [x, y] of [[-6, -17], [-2, -15], [2, -17], [-9, -15]]) ellipse(c, x, y, .9, .7, glow);
+  const hx = 11 + lunge * 3, hy = -27 + lunge * 6;
+  shape(c, [[5, -19], [8, -26 + lunge * 4], [12 + lunge * 2, -27 + lunge * 6], [12, -20], [8, -16]], body);
+  ellipse(c, hx + 1, hy + 1, 4, 2.6, body, .3);
+  shape(c, [[hx + 3, hy], [hx + 7, hy + 2.4], [hx + 3, hy + 3]], "#c7dccf");
+  ellipse(c, hx + 1.8, hy - .2, .7, .7, "#24403a");
+  shape(c, [[hx - 2, hy - 2], [hx - 4, hy - 5], [hx - 1, hy - 3]], shade);
+  // Branching antlers grow leaves and glow; brighter while charging.
+  const g = lunge > .3 ? 1 : .6;
+  for (const side of [-1, 1]) {
+    const bx = hx + side * .8, by = hy - 2;
+    curve(c, [bx, by], [bx - 4 + side, by - 6], [bx - 1 + side * 2, by - 11], "#e6d8a8", 1.1);
+    stroke(c, [[bx - 2.4 + side, by - 5], [bx - 5 + side, by - 7]], "#e6d8a8", .8);
+    stroke(c, [[bx - .8 + side * 1.5, by - 8.5], [bx + 2 + side, by - 10]], "#e6d8a8", .8);
+    ellipse(c, bx - 1 + side * 2, by - 11.5, 1.4, .8, "#9fe09a", .5);
+  }
+  glowDot(c, hx - 1, hy - 8, 7, glow + "cc", still ? .45 : g * (.45 + .2 * Math.sin(t / 380)));
+  curve(c, [-13, -18], [-16, -20], [-15, -15], body, 2);
+}
+function dragonArt(c: C, p: ActorPose) {
+  const t = p.time ?? 0, still = p.still, alt = FLIGHT_HEIGHT.dragon! + (still ? 0 : Math.sin(t / 600 + (p.seed ?? 0) * 5) * 2.5);
+  const roar = p.fighting ? Math.max(0, Math.sin(t / 200)) : 0, scale = p.hurt ? "#c98b72" : "#3f9a78", belly = "#e8dcae", fin = "#d8a64a";
+  ellipse(c, -6, 1, 24, 4, "rgba(8,20,17,.17)");
+  c.save(); c.translate(0, -alt);
+  const n = 16, pts: Pt[] = [];
+  for (let i = 0; i <= n; i++) { const s = i / n; pts.push([16 - s * 46, Math.sin(s * TAU * 1.15 - (still ? 0 : t / (p.walking ? 170 : 320))) * 5.5 * (.35 + s)]); }
+  // Cloud wisps the beast swims through.
+  for (const [x, y, r] of [[-26, 6, 5], [-12, 8, 4], [-34, 1, 4]] as const) ellipse(c, x, y, r * 1.6, r * .7, "rgba(236,244,238,.55)");
+  for (let i = n; i > 0; i--) {
+    const w = 1.5 + (1 - i / n) * 6.5, [x0, y0] = pts[i], [x1, y1] = pts[i - 1];
+    stroke(c, [[x0, y0], [x1, y1]], scale, w);
+    stroke(c, [[x0, y0 + w * .3], [x1, y1 + w * .3]], belly, w * .35);
+    if (i % 2 === 0 && i < n) shape(c, [[x0, y0 - w * .45], [x0 - 2, y0 - w * .45 - 2.6], [x1, y1 - w * .45]], fin, "", 0);
+  }
+  const [tx, ty] = pts[n]; shape(c, [[tx, ty], [tx - 5, ty - 3], [tx - 3, ty + 1], [tx - 5, ty + 3]], fin);
+  for (const k of [4, 10]) { const [lx, ly] = pts[k]; stroke(c, [[lx, ly + 2], [lx + 1.5, ly + 6], [lx + 3.5, ly + 6.5]], scale, 1.3); stroke(c, [[lx + 3.5, ly + 6.5], [lx + 4.5, ly + 5.6]], "#f3e9c6", .6); }
+  const [hx, hy] = pts[0];
+  // Long-snouted head with antler horns, flowing whiskers and a pearl of light.
+  ellipse(c, hx + 2, hy - 1, 6, 3.6, scale, -.1);
+  shape(c, [[hx + 5, hy - 2.6], [hx + 11, hy - 1.6 - roar], [hx + 11, hy + .4], [hx + 5, hy + 1]], scale);
+  shape(c, [[hx + 5, hy + 1], [hx + 10.5, hy + 1 + roar * 2.4], [hx + 5, hy + 2.6]], belly);
+  ellipse(c, hx + 4, hy - 2.4, .9, .8, "#fff2a8");
+  for (const d of [0, 1.5]) curve(c, [hx - 1 + d, hy - 3], [hx - 4 + d, hy - 9], [hx - 7 + d, hy - 10], "#e3cf8c", .9);
+  curve(c, [hx + 10, hy], [hx + 15, hy + 3], [hx + 12, hy + 8 + (still ? 0 : Math.sin(t / 240) * 1.5)], "#f0dc9c", .5);
+  curve(c, [hx + 10, hy - 1], [hx + 14, hy - 4], [hx + 18, hy - 2], "#f0dc9c", .5);
+  for (let i = 0; i < 4; i++) shape(c, [[hx - 2 - i * 1.6, hy - 2.8], [hx - 4 - i * 1.6, hy - 6], [hx - 3.5 - i * 1.6, hy - 1.5]], "#2c6f58", "", 0);
+  if (roar > 0) glowDot(c, hx + 14, hy, 5 + roar * 5, "#b9f5ff", roar);
+  c.restore();
+}
+function tortoiseArt(c: C, p: ActorPose) {
+  const t = p.time ?? 0, walk = p.walking ? Math.sin(t / 330 + (p.seed ?? 0) * 5) : 0, still = p.still;
+  const snap = p.fighting ? Math.max(0, Math.sin(t / 260)) : 0, shell = p.hurt ? "#7d5a4c" : "#36564e", rim = "#c9a557", skin = "#6f8f7d";
+  shadow(c, 22, 6);
+  for (const [x, d] of [[-14, walk], [8, -walk]]) { shape(c, [[x - 3, -8], [x + 3, -8], [x + 3.5 + d, 0], [x - 3 + d, 0]], darkSkin(skin)); }
+  // Snake-like tail of the Black Tortoise.
+  curve(c, [-20, -8], [-28, -6], [-26 + (still ? 0 : Math.sin(t / 500) * 2), -14], skin, 2.4);
+  ellipse(c, -2, -9, 21, 6, "#4b5e52");
+  shape(c, [[-21, -10], [-16, -21], [-6, -27], [6, -27], [15, -21], [18, -10]], shell);
+  shape(c, [[-21, -10], [-16, -21], [-6, -27], [-4, -27], [-12, -18], [-15, -10]], "rgba(12,24,22,.28)", "", 0);
+  stroke(c, [[-21, -10], [18, -10]], rim, 1.6);
+  // Hexagon scutes carry faint protective runes.
+  for (const [x, y] of [[-8, -19], [2, -21], [11, -16], [-15, -14], [-1, -14], [8, -12.5]] as const) {
+    const pts: Pt[] = Array.from({ length: 6 }, (_, i) => [x + Math.cos(i * TAU / 6) * 3.6, y + Math.sin(i * TAU / 6) * 2.4] as Pt);
+    shape(c, pts, "#476f63", "#2a4640", .6);
+  }
+  const lit = still ? .5 : .45 + .25 * Math.sin(t / 700);
+  glowDot(c, 2, -21, 9, "#8ee0d0aa", lit); stroke(c, [[0, -22], [2, -19.5], [4, -22]], "#a8efe0", .7);
+  const hx = 21 + snap * 4, hy = -11 - snap * 1.5;
+  stroke(c, [[15, -11], [hx - 2, hy]], skin, 4.6);
+  ellipse(c, hx, hy, 4.2, 3.1, skin);
+  shape(c, [[hx + 2, hy + .5], [hx + 5 + snap, hy + 1 + snap], [hx + 2, hy + 2]], "#4d6b5a");
+  ellipse(c, hx + 1.3, hy - 1, .8, .8, "#f0d86a");
+  for (const [x, d] of [[-10, -walk], [12, walk]]) { shape(c, [[x - 3.5, -9], [x + 3.5, -9], [x + 4 + d, 0], [x - 3.5 + d, 0]], skin); for (const o of [-2, 0, 2]) rect(c, x + d + o - .4, -1.2, .8, 1.2, "#d9d0b0"); }
+}
+function darkSkin(hex: string) { return hex === "#6f8f7d" ? "#56705f" : hex; }
+function phoenixArt(c: C, p: ActorPose) {
+  const t = p.time ?? 0, still = p.still, alt = FLIGHT_HEIGHT.phoenix! + (still ? 0 : Math.sin(t / 520 + (p.seed ?? 0) * 3) * 3);
+  const flap = still ? .3 : Math.sin(t / (p.walking ? 120 : 190)), spread = p.fighting || p.casting ? 1 : 0;
+  const body = p.hurt ? "#f0a090" : "#d8452f", gold = "#f2c35a", flame = "#ff8a3a";
+  ellipse(c, -4, 1, 16, 3.2, "rgba(8,20,17,.16)");
+  c.save(); c.translate(0, -alt);
+  if (p.casting) glowDot(c, 0, 0, 22, "#ffd88acc", .55);
+  // Streaming flame tail feathers, flickering behind the body.
+  for (let i = 0; i < 5; i++) {
+    const wave = still ? 0 : Math.sin(t / 150 + i * 1.3) * 2, end: Pt = [-24 - i * 3, 4 + i * 2.4 + wave];
+    curve(c, [-6, 0], [-14 - i * 2, -1 + i * 1.5 + wave * .5], end, i % 2 ? gold : flame, 2.2 - i * .25);
+    glowDot(c, end[0], end[1], 3.2, "#ffd27acc", .7);
+  }
+  // Far wing, body, crest and near wing.
+  const wy = -8 - flap * 9 - spread * 3;
+  shape(c, [[-2, -3], [-9, wy - 2], [-16, wy + 2], [-6, 0]], "#a8321f");
+  ellipse(c, -1, -1, 8, 3.8, body, -.15);
+  ellipse(c, 0, 0, 5, 2.2, gold, -.15);
+  stroke(c, [[5, -3], [8, -7]], body, 2.8);
+  ellipse(c, 9, -8, 2.6, 2.2, body);
+  shape(c, [[11, -8.4], [14.5, -7.4], [11, -6.8]], gold);
+  ellipse(c, 9.6, -8.6, .6, .6, "#2a1c16");
+  for (let i = 0; i < 3; i++) curve(c, [8, -10], [6 - i * 1.5, -14 - i], [4 - i * 2.5, -13 - i * 2], i ? gold : flame, .9);
+  const ny = -6 - flap * 10 - spread * 5;
+  shape(c, [[0, -2], [4, ny - 4], [-3, ny - 6], [-12, ny], [-6, 0]], flame);
+  for (let i = 0; i < 4; i++) stroke(c, [[-1 - i * 2.5, -1 - i * .3], [1 - i * 3, ny - 3 + i * 1.2]], gold, .8);
+  if (p.fighting) glowDot(c, 15, -7, 6, "#ffe6a0dd", .9);
+  c.restore();
+}
+function treantArt(c: C, p: ActorPose) {
+  const t = p.time ?? 0, ph = t / 210 + (p.seed ?? 0) * 9, walk = p.walking ? Math.sin(ph) : 0, still = p.still;
+  const bark = p.hurt ? "#a56b56" : "#7a5634", barkDark = "#5b3f27", leaf = "#5e9a48", glow = "#b8f27a";
+  shadow(c, 8, 2.6);
+  c.save(); c.translate(0, -(p.walking ? Math.abs(walk) * .6 : 0));
+  // Root legs splay and shuffle; the trunk body sways a little.
+  for (const [x, d] of [[-3, -walk], [3, walk]]) { curve(c, [x * .6, -8], [x + d * 2, -4], [x + d * 3, 0], barkDark, 2.4); stroke(c, [[x + d * 3, 0], [x + d * 3 + 2, .5]], barkDark, 1.2); }
+  shape(c, [[-4, -9], [4, -9], [3, -21], [-3, -21]], bark);
+  shape(c, [[-4, -9], [-1.5, -9], [-1.2, -21], [-3, -21]], barkDark, "", 0);
+  for (const y of [-12, -16]) stroke(c, [[-2.5, y], [2, y - 1]], "#9b7448", .6);
+  ellipse(c, -.5, -16, 1, 1.3, "#2f2418"); ellipse(c, 1.8, -16.2, .8, 1.1, "#2f2418");
+  glowDot(c, .6, -16, 3, glow + "bb", still ? .4 : .4 + .2 * Math.sin(t / 400));
+  for (const [x, y, r] of [[-4, -24, 5], [3, -25, 5.5], [0, -29, 5], [-6, -27, 3.5], [6, -28, 3.5]] as const) ellipse(c, x, y, r, r * .85, leaf);
+  for (const [x, y] of [[-3, -27], [3, -29], [1, -24]] as const) ellipse(c, x, y, 1.6, 1.2, "#86c25e");
+  if (!still) for (let i = 0; i < 3; i++) { const q = (t / 1600 + i / 3) % 1; glowDot(c, -6 + i * 6, -30 - q * 8, 1.8, glow + "cc", 1 - q); }
+  // Branch arms carry a bundle while delivering to a spell buffer.
+  stroke(c, [[-3, -18], [-7, -14], [-6, -11]], bark, 1.8);
+  if (p.active) {
+    block(c, 2, -9, 8, 3, 6, "#c4a06a", "#8c6a40", "#6a4f30");
+    stroke(c, [[2, -12], [10, -12]], "#e4cf98", .5);
+    stroke(c, [[3, -18], [6, -16], [5, -14]], bark, 1.8);
+  } else stroke(c, [[3, -18], [7, -15], [8, -11]], bark, 1.8);
+  c.restore();
+}
+export function drawMagicArt(c: C, kind: MagicArt, x: number, y: number, scale: number, pose: ActorPose = {}) {
+  local(c, x, y, scale, pose, () => {
+    if (kind === "firemage" || kind === "watermage") mageArt(c, kind, pose);
+    else if (kind === "golem") golemArt(c, pose);
+    else if (kind === "spiritdeer") spiritDeerArt(c, pose);
+    else if (kind === "dragon") dragonArt(c, pose);
+    else if (kind === "tortoise") tortoiseArt(c, pose);
+    else if (kind === "phoenix") phoenixArt(c, pose);
+    else treantArt(c, pose);
+  });
+}
+export const isMagicArt = (k: string): k is MagicArt => (MAGIC_ART as readonly string[]).includes(k);
