@@ -9,11 +9,36 @@ import { stripTypeScriptTypes } from 'node:module';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dong-render-check-'));
 try {
-  for (const [input, name] of [['lib/formation.ts','formation'], ['lib/fortifications.ts','fortifications'], ['lib/bridges.ts','bridges'], ['lib/economy-balance.ts','economy-balance'], ['lib/resource-history.ts','resource-history'], ['lib/hunger.ts','hunger'], ['lib/tower-balance.ts','tower-balance'], ['lib/industry.ts','industry'], ['lib/modern.ts','modern'], ['lib/era-military.ts','era-military'], ['lib/eras.ts','eras'], ['lib/medieval.ts','medieval'], ['lib/bounded-cache.ts', 'bounded-cache'], ['lib/action-input.ts', 'action-input'], ['lib/engine.ts', 'engine'], ['lib/villager-mood.ts','villager-mood'], ['lib/build-placement.ts', 'build-placement'], ['components/villager-art.ts', 'villager-art'], ['components/actor-art.ts', 'actor-art'], ['components/trade-actors.ts', 'trade-actors'], ['components/draw.ts', 'draw'], ['components/villagers.ts', 'villagers']]) {
-    const output = stripTypeScriptTypes(fs.readFileSync(path.join(root, input), 'utf8'))
-      .replaceAll('"./eras"', '"./eras.js"').replaceAll('"./medieval"', '"./medieval.js"').replaceAll('"./bounded-cache"', '"./bounded-cache.js"').replaceAll('"@/lib/bounded-cache"', '"./bounded-cache.js"').replaceAll('"./action-input"', '"./action-input.js"').replaceAll('"@/lib/villager-mood"', '"./villager-mood.js"').replaceAll('"@/lib/engine"', '"./engine.js"').replaceAll('"@/lib/build-placement"', '"./build-placement.js"').replaceAll("'./engine'", "'./engine.js'").replaceAll('"./villager-art"', '"./villager-art.js"').replaceAll('"./actor-art"', '"./actor-art.js"').replaceAll('"./trade-actors"', '"./trade-actors.js"').replaceAll('"./draw"', '"./draw.js"').replaceAll('"./villagers"', '"./villagers.js"');
-    fs.writeFileSync(path.join(temp, `${name}.js`), output.replace(/from (['"])(?:@\/lib\/|\.\/)(formation|fortifications|bridges|economy-balance|resource-history|hunger|industry|modern|medieval|eras|era-military|tower-balance)\1/g, 'from $1./$2.js$1'));
+  // Bundle the entry modules and everything they import (lib/ and components/), flattened
+  // into temp/<name>.js. Walking the imports keeps this check working as modules are added.
+  const seen = new Map(); // source path -> flat name
+  const queue = ['components/draw.ts', 'components/villagers.ts', 'components/actor-art.ts', 'components/villager-art.ts', 'lib/engine.ts'];
+  const resolve = (from, spec) => {
+    let rel;
+    if (spec.startsWith('@/')) rel = spec.slice(2);
+    else if (spec.startsWith('.')) rel = path.relative(root, path.resolve(root, path.dirname(from), spec));
+    else return null; // packages and node: built-ins stay as they are
+    for (const ext of ['.ts', '.tsx', '/index.ts']) if (fs.existsSync(path.join(root, rel + ext))) return rel + ext;
+    return fs.existsSync(path.join(root, rel)) ? rel : null;
+  };
+  const flat = (rel) => rel.replace(/\.(tsx?|js)$/, '').replace(/\//g, '__');
+  while (queue.length) {
+    const input = queue.shift();
+    if (seen.has(input)) continue;
+    seen.set(input, flat(input));
+    let output = stripTypeScriptTypes(fs.readFileSync(path.join(root, input), 'utf8'));
+    output = output.replace(/(from\s*|import\s*\(\s*|import\s+)(['"])([^'"]+)\2/g, (all, lead, quote, spec) => {
+      const target = resolve(input, spec);
+      if (!target) return all;
+      queue.push(target);
+      return `${lead}${quote}./${flat(target)}.js${quote}`;
+    });
+    fs.writeFileSync(path.join(temp, `${flat(input)}.js`), output);
   }
+  // Short names (file basename) for the checks below, e.g. temp/engine.js, temp/fortifications.js.
+  const short = new Map();
+  for (const [rel, name] of seen) { const base = path.basename(rel).replace(/\.(tsx?|js)$/, ''); short.set(base, short.has(base) ? null : name); }
+  for (const [base, name] of short) if (name) fs.writeFileSync(path.join(temp, `${base}.js`), `export * from './${name}.js';\n`);
   fs.writeFileSync(path.join(temp, 'package.json'), '{"type":"module"}');
   const { visibleTileBounds, fitView, camView, focusOn, pickBuilding, pickVillageTarget, pickHomeSoldier } = await import(pathToFileURL(path.join(temp, 'draw.js')).href);
   const { Crowd } = await import(pathToFileURL(path.join(temp, 'villagers.js')).href);
