@@ -13,7 +13,11 @@ export function zombieStats(kind:ZombieKind,era:number){
  return {hp:era>=6?90:era>=3?55:25,speed:era>=6?.35:era>=3?.3:.25,damage:era>=6?8:era>=3?5:2,civilianDamage:era>=6?8:era>=3?5:2,attackMs:2000,civilianAttackMs:2000,building:1};
 }
 export function zombiePressure(c:City,at=c.last){const s=c.zombies;return Math.max(c.people.length,...(s?.peaks??[]).filter(p=>p.at>at-6*HOUR).map(p=>p.pop));}
-export function zombieWave(pop:number,era:number,index:number){const total=Math.max(1,Math.ceil(pop/40)),superCount=era<4?0:total===1?(index%3===0?1:0):Math.max(1,Math.floor(total/6)),breaker=era>=5?Math.floor(total/5):0;return {total,normal:total-superCount-breaker,super:superCount,breaker,interval:Math.max(15,60-5*Math.floor(pop/100))*MINUTE};}
+export const WEEK=7*24*HOUR;
+/** Whole weeks since activation, on server timestamps: identical online and offline. */
+export const zombieWeeks=(s:Pick<ZombieState,'activatedAt'>,at:number)=>Math.max(0,Math.floor((at-s.activatedAt)/WEEK));
+/** I(P,w)=max(15,60−5·floor(P/100)−5·w) minutes; N(P)=max(1,ceil(P/40)). */
+export function zombieWave(pop:number,era:number,index:number,weeks=0){const total=Math.max(1,Math.ceil(pop/40)),superCount=era<4?0:total===1?(index%3===0?1:0):Math.max(1,Math.floor(total/6)),breaker=era>=5?Math.floor(total/5):0;return {total,normal:total-superCount-breaker,super:superCount,breaker,interval:Math.max(15,60-5*Math.floor(pop/100)-5*Math.max(0,Math.floor(weeks)))*MINUTE};}
 export function activateZombies(c:City,at:number,patrol=false){if(c.zombies)return;c.zombies={activatedAt:at,last:at,nextAt:at+5*MINUTE,index:0,actors:[],guards:[],peaks:[{at,pop:c.people.length}],population:c.people.length,patrol,healthAt:at,report:{waves:0,killed:0,lost:0,infected:0,destroyed:0}};notice(c,at,'Zombie sẽ trồi sau 5 phút. Tuyển lính, đặt vị trí bảo vệ và dựng lều cứu thương. Công trình bị phá mất vĩnh viễn!');}
 export function notice(c:City,at:number,msg:string){c.log.push({at,msg,cls:'warn'});if(c.log.length>60)c.log.splice(0,c.log.length-60);}
 const tileOf=(x:number,y:number)=>Math.max(0,Math.min(H-1,Math.floor(y)))*W+Math.max(0,Math.min(W-1,Math.floor(x)));
@@ -44,7 +48,7 @@ function move(actor:{x:number;y:number;path?:number[];walking?:boolean},speed:nu
 function occupiedTiles(c:City,at:number){const result=new Set(c.people.map(p=>{const pos=position(c,p,at);return tileOf(pos.x,pos.y);}));if(UKEYS.some(u=>(c.army[u]??0)>0))for(const g of homeSoldiers(c,at))result.add(tileOf(g.x,g.y));return result;}
 function spawnChoices(c:City,at:number){const occupied=occupiedTiles(c,at),result:number[]=[];for(let i=0;i<c.t.length;i++)if(c.seen[i]&&!c.b[i]&&c.t[i]===0&&!occupied.has(i))result.push(i);return result;}
 function freeSpawn(c:City,start:number,at:number){const occupied=occupiedTiles(c,at);if(!occupied.has(start)&&!c.b[start])return start;const deck=bridgeDeck(c),queue=[start],visited=new Set(queue);for(let n=0;n<queue.length&&n<128;n++){const tile=queue[n];if(!occupied.has(tile)&&!c.b[tile]&&c.seen[tile]&&c.t[tile]===0)return tile;for(const [dx,dy]of N4){const x=tile%W+dx,y=Math.floor(tile/W)+dy,next=y*W+x;if(x<0||x>=W||y<0||y>=H||visited.has(next)||!passable(c,next,deck))continue;visited.add(next);queue.push(next);}}return undefined;}
-function spawn(c:City,at:number){const s=c.zombies!,w=zombieWave(zombiePressure(c,at),c.era,++s.index),random=rng(c.seed^Math.imul(s.index,0x9e3779b1));let tile=s.warning;
+function spawn(c:City,at:number){const s=c.zombies!,w=zombieWave(zombiePressure(c,at),c.era,++s.index,zombieWeeks(s,at)),random=rng(c.seed^Math.imul(s.index,0x9e3779b1));let tile=s.warning;
  if(tile===undefined||c.b[tile]){const choices=spawnChoices(c,at);tile=choices.length?choices[Math.floor(random()*choices.length)]:undefined;}
  if(tile!==undefined)tile=freeSpawn(c,tile,at);
  delete s.idleUntil;s.actors=[];if(tile!==undefined){const counts={normal:w.normal,super:w.super,breaker:w.breaker};let id=0;while(id<w.total){for(const kind of ['normal','super','normal','breaker'] as const)if(counts[kind]>0){counts[kind]--;const spec=zombieStats(kind,c.era);s.actors.push({id:s.index*10000+id++,emergesAt:at+(id-1)*2000,kind,hp:spec.hp,maxHp:spec.hp,...point(tile),era:c.era,until:at+15*MINUTE,nextHit:at+spec.attackMs,repath:at});}}

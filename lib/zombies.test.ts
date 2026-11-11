@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {newCity,idx,canPlace,derive,applyAction,homeSoldiers,settle,F} from './engine';
 import {createBattle} from './battle';
-import {zombiePath,zombieWave,zombieStats,stepZombies,zombiePressure} from './zombies';
+import {zombiePath,zombieWave,zombieWeeks,zombieStats,stepZombies,zombiePressure} from './zombies';
 function city(){const c=newCity(0,123);c.t.fill(0);c.seen.fill(1);c.b={};return c;}
 test('population scales waves and unlocks variants without increasing the total',()=>{
  assert.deepEqual(zombieWave(680,5,1),{total:17,normal:12,super:2,breaker:3,interval:30*60000});
@@ -77,4 +77,14 @@ test('PvP does not restore zombie damage on a surviving building',()=>{
 test('infection reduces actual gathering deliveries while preserving the old cargo flow',()=>{
  const healthy=city();healthy.b={};healthy.camp=idx(10,10);healthy.manualWorkforce=true;healthy.people=[{id:1,name:'Thợ',task:{t:'chop',at:idx(11,10)},pos:idx(10,10)}];healthy.pop=1;healthy.t[idx(11,10)]=F;healthy.res.wood=0;healthy.res.food=500;const sick=structuredClone(healthy);sick.people[0].vital={hp:100,infectedAt:1,last:0};
  settle(healthy,120000);settle(sick,120000);assert.ok(healthy.res.wood>sick.res.wood);assert.ok(sick.res.wood>0);
+});
+
+test('wave interval shrinks five minutes per whole week since activation, floored at fifteen',()=>{
+ assert.equal(zombieWave(40,1,2,0).interval,60*60000);assert.equal(zombieWave(40,1,2,1).interval,55*60000);
+ assert.equal(zombieWave(450,7,2,2).interval,30*60000);assert.equal(zombieWave(450,7,2,9).interval,15*60000);assert.equal(zombieWave(1100,7,2,3).interval,15*60000);
+ assert.equal(zombieWeeks({activatedAt:1000},1000+7*24*3600000-1),0);assert.equal(zombieWeeks({activatedAt:1000},1000+7*24*3600000),1);
+ // The interval is fixed when the wave spawns, from the activation timestamp alone.
+ const c=city();c.people=c.people.slice(0,3);c.pop=3;const s=c.zombies!;const at=s.activatedAt+15*24*3600000;s.nextAt=at;s.last=at-1000;s.peaks=[{at:at-1000,pop:3}];s.population=3;
+ const reloaded=JSON.parse(JSON.stringify(c));stepZombies(c,at);stepZombies(reloaded,at);
+ assert.equal(c.zombies!.nextAt,at+50*60000);assert.deepEqual(reloaded.zombies,c.zombies);
 });
