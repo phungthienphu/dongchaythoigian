@@ -44,3 +44,9 @@ CPU Node v24.14.1, cùng fixture nông dân, warm 5 frame, median 9 nhóm x 10 f
 Fixture mọi người cùng tọa độ/cùng trạng thái: 300/1.200/3.000 sprite còn 3, giảm 99.0%/99.75%/99.9% số sprite dân. Người phân tán hoặc khác trạng thái vẫn cần vẽ; không suy ra giảm tổng frame cùng tỷ lệ.
 
 Kiểm chứng: TypeScript, renderer regression và 7 crowd tests đạt; lượt full trước test neo nhãn bổ sung: 581 tests / 95 files đạt. Browser local fixture 1.200 dân desktop và 390x844: nhãn không nền, click mở directory, chọn cụm 88 người giữ đủ 88 ID; đường đi/nhà cách nước/threat/manual order có regression. Mức FPS và độ trễ production chưa có A/B. Cache sprite còn là đề xuất.
+
+## Production release
+
+Đã phát hành Web/API Cloudflare từ commit `48f4be0`, release `crowd-zombie-48f4be0`, version `c60e9738-0730-4302-9c90-a0df94311707`. Build production đạt; TypeScript, 581 full game tests (trước test neo nhãn cuối), 7 crowd tests, 6 API tests và 18 Worker tests đạt. Combat Worker không deploy lại; không migration/reset/chỉnh dữ liệu làng.
+
+Public smoke: health 200 / ready đúng release ID; 8 asset JS/CSS trang chủ khớp SHA256 bản build; `/dev/magic-ui` và `/dev/zombies` trả 404. Không dùng private-account smoke; chưa đo độ trễ/FPS trên làng production.

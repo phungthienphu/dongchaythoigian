@@ -37,7 +37,7 @@ Released together with catch-up routing optimization in `c9ec755`: Web/API relea
 - The local `/dev/magic-ui` harness includes “Thử định vị zombie”: two emerged actors and one pending actor, without production account data. Desktop and 390px mobile checks covered banner location, target cycling, red marker and disabled recenter after death.
 - Economic resource/crafting test fixtures postpone zombie waves beyond their simulated window, so the new long-range attacks do not destroy unrelated production fixtures.
 
-## Unreachable-target recovery (local, not released)
+## Unreachable-target recovery (released 48f4be0)
 
 When bounded A* fails, zombie pursuit now searches connected walkable ground for
 an attackable structure. The first reachable building or blocking wall/gate
@@ -52,7 +52,7 @@ opening a crossing allows pursuit to resume. Regression tests cover a closer
 building across a river with an accessible alternative, enclosed buildings,
 reopening a crossing, and save/reload equivalence. No production data is edited.
 
-## Modern-era pressure rebalance (local, not released)
+## Modern-era pressure rebalance (released 48f4be0)
 
 From era 6, population-scaled wave size is multiplied by 2 / 2.25 / 2.5 /
 2.75 for eras 6–9, rounded up, with a minimum of eight actors. For 680 people:
@@ -84,3 +84,9 @@ combat ticking rather than sleeping through the next scheduled shot. Magic
 integration fixtures now stage armor support so scripted research/mana-outage
 checks retain their intended protected production infrastructure under the
 stronger modern waves.
+
+## Production release
+
+Đã phát hành Web/API Cloudflare từ commit `48f4be0`, release `crowd-zombie-48f4be0`, version `c60e9738-0730-4302-9c90-a0df94311707`. Build production đạt; TypeScript, 581 full game tests (trước test neo nhãn cuối), 7 crowd tests, 6 API tests và 18 Worker tests đạt. Combat Worker không deploy lại; không migration/reset/chỉnh dữ liệu làng.
+
+Public smoke: health 200 / ready đúng release ID; 8 asset JS/CSS trang chủ khớp SHA256 bản build; `/dev/magic-ui` và `/dev/zombies` trả 404. Không dùng private-account smoke; chưa đo độ trễ/FPS trên làng production.

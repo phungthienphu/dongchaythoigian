@@ -19,3 +19,9 @@ Tỷ lệ = (trước − sau) / trước × 100%. Các hàng đo những tác v
 Bản release này còn gồm sửa zombie kẹt mục tiêu và cân bằng áp lực đời 6–9 theo task zombie. Đây là thay đổi gameplay, không tính là phần trăm tối ưu; wave mạnh hơn có thể tăng chi phí mô phỏng.
 
 Nguồn kiểm chứng chi tiết: `logic-performance-implementation-2026-11-10.md`, `render-smoothness-handoff-2026-11-11.md`, `catchup-optimization-2026-11-11.md`, `ui-performance-2026-11-11.md`, `crowd-performance-review-2026-11-11.md`. Chưa có phép đo hợp lệ cho % cải thiện toàn game hay p95 login/thao tác production.
+
+## Production release
+
+Đã phát hành Web/API Cloudflare từ commit `48f4be0`, release `crowd-zombie-48f4be0`, version `c60e9738-0730-4302-9c90-a0df94311707`. Build production đạt; TypeScript, 581 full game tests (trước test neo nhãn cuối), 7 crowd tests, 6 API tests và 18 Worker tests đạt. Combat Worker không deploy lại; không migration/reset/chỉnh dữ liệu làng.
+
+Public smoke: health 200 / ready đúng release ID; 8 asset JS/CSS trang chủ khớp SHA256 bản build; `/dev/magic-ui` và `/dev/zombies` trả 404. Không dùng private-account smoke; chưa đo độ trễ/FPS trên làng production.
