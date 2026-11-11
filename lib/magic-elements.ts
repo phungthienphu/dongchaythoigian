@@ -142,7 +142,7 @@ function cleanse(c:City,at:number,entries:[number,Building][]){
 }
 /** Keep at least one Bão lửa worth of mana in the source for defence. */
 const GROWTH_RESERVE=MAGIC_SPELLS.firestorm.mana;
-/** Mưa sinh trưởng: up to four staffed fields in six tiles get +300 food/h for an hour. */
+/** Mưa sinh trưởng: up to four staffed fields in six tiles carry 50% larger food loads for an hour. */
 function growthRain(c:City,at:number,entries:[number,Building][],staff:Map<number,number>){
  const m=c.magic!,spell=MAGIC_SPELLS.growthrain;if((m.cooldowns.growthrain??0)>at)return false;
  for(const [tile,b]of stations(c,entries,'woodgrove')){
@@ -154,9 +154,11 @@ function growthRain(c:City,at:number,entries:[number,Building][],staff:Map<numbe
  }
  return false;
 }
-/** Extra food per hour for a field under growth rain; never scaled by other bonuses. */
-export const GROWTH_FOOD_PER_HOUR=300;
-export const magicGrowth=(c:City,tile:number,at:number)=>(c.magic?.growth?.[tile]??0)>at?GROWTH_FOOD_PER_HOUR:0;
+/** Cân bằng 11/11: each food load hauled from a field under growth rain is 50% larger.
+ * Fields are walk-bound (a staffed level-3 estate delivers ~10,000 food/h whatever its
+ * rate), so the old flat +300 food/h (≈0.1% of the work rate) changed nothing. */
+export const GROWTH_LOAD=1.5;
+export const magicGrowth=(c:City,tile:number,at:number)=>(c.magic?.growth?.[tile]??0)>at?GROWTH_LOAD:1;
 
 /* ---------- spirit-wood carriers ---------- */
 export function treantsInTransit(c:City,tile:number,r:string){let n=0;for(const t of c.magic?.treants??[])if(t.target===tile&&t.resource===r&&t.phase!=='idle')n+=t.carried||t.load;return n;}

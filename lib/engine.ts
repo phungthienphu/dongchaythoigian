@@ -1674,8 +1674,6 @@ function haulingJob(c: City, p: Person, at: number, ctx: HaulContext): HaulJob |
   if (c.cropDamage?.tile===tk.at && at<c.cropDamage.until) rate *= .5;
   if (crop || b.k === "wood" || b.k === "quarry") rate *= ctx.tools;
   if(resource==='food')rate*=foodEraScale(c,at)*pollutionFood(c);
-  // Mưa sinh trưởng adds flat food per field, outside every other multiplier.
-  if (isField(b.k)) rate += magicGrowth(c, tk.at, at) / buildingJobs(b);
   let source: HaulJob["source"] = { kind: "building", key: tk.at };
   let tile = tk.at;
   if (b.k === "wood" || b.k === "quarry" || b.k === "smelter" || b.k === "coalmine") {
@@ -1759,7 +1757,7 @@ function beginHaul(c: City, p: Person, at: number, ctx: HaulContext) {
   }
   const from = p.pos ?? c.camp, path = haulPath(c, from, job.tile, ctx);
   if (!path) return;
-  const travel = Math.ceil(routeLength(path)/transportSpeed(c,p.task.t==='work'?p.task.at:job.tile,ctx.transport)) * HAUL_TILE_MS, capacity=job.resource==='diamond'?1:job.resource==='gold'?5:job.resource==='food'?HAUL_CAPACITY*foodEraScale(c,at):HAUL_CAPACITY;
+  const travel = Math.ceil(routeLength(path)/transportSpeed(c,p.task.t==='work'?p.task.at:job.tile,ctx.transport)) * HAUL_TILE_MS, capacity=job.resource==='diamond'?1:job.resource==='gold'?5:job.resource==='food'?HAUL_CAPACITY*foodEraScale(c,at)*(job.source.kind==='building'?magicGrowth(c,job.source.key,at):1):HAUL_CAPACITY;
   p.haul = { phase: travel ? "travel" : "work", at, nextAt: at + (travel || Math.ceil(capacity / job.rate * HOUR / HAUL_TILE_MS) * HAUL_TILE_MS), tile: from,
     route: path, routeStart: at, resource: job.resource, carried: 0, capacity, source: job.source, taskKey: taskKey(p), workRate: job.rate };
 }

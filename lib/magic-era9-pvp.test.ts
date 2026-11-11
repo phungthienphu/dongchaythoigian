@@ -9,9 +9,9 @@ test('PvP flyers: only anti-air hits them, mages ×1.5, they cross walls, and fl
  const town=()=>{const c=era9();c.b={'4658':{k:'hut',lvl:1,doneAt:null}};c.camp=4658;c.army={};c.pop=20;return c;};
  const duel=(attacker:string,defender:string,n=1)=>{const d=town();d.army={[defender]:n};const s=createBattle({id:'f',attackerId:'a',defenderId:'d',attacker:town(),defender:d,troops:{[attacker]:1},now:0});
   const a=s.groups.find(g=>g.side==='attacker')!,b=s.groups.find(g=>g.side==='defender')!;a.x=b.x+1;a.y=b.y;a.order={type:'guard',x:a.x,y:a.y};advanceBattle(s,2000);return {a,b,s};};
- {const {a,b}=duel('dragon','golem');assert.equal(a.hp,1000);assert.ok(b.hp<900);}
- {const {a}=duel('dragon','bow',5);assert.ok(a.hp<1000);}
- {const {a}=duel('dragon','firemage');const {a:t}=duel('tortoise','firemage');assert.ok(Math.abs((1000-a.hp)-(1600-t.hp)*1.5)<1e-6);}
+ {const {a,b}=duel('dragon','golem');assert.equal(a.hp,2000);assert.ok(b.hp<1800);}
+ {const {a}=duel('dragon','bow',5);assert.ok(a.hp<2000);}
+ {const {a}=duel('dragon','firemage');const {a:t}=duel('tortoise','firemage');assert.ok(Math.abs((2000-a.hp)-(3200-t.hp)*1.5)<1e-6);}
  // Walls stop ground troops, not dragons; flyers alone never win by devastation and take no loot.
  const d=town();for(let y=40;y<56;y++)d.b[idx(40,y)]={k:'wall',lvl:1,doneAt:null};
  const s=createBattle({id:'w',attackerId:'a',defenderId:'d',attacker:town(),defender:d,troops:{dragon:2},now:0});
@@ -40,11 +40,11 @@ test('PvP beasts: dragon breath hits two more squads at 50%, tortoise covers 15%
  const s=createBattle({id:'b',attackerId:'a',defenderId:'d',attacker:town(),defender:d,troops:{dragon:1,golem:1},now:0});
  const dragon=s.groups.find(g=>g.u==='dragon')!,golem=s.groups.find(g=>g.u==='golem')!,spears=s.groups.filter(g=>g.u==='spear');
  // Split the spears into three squads around one point so the breath can chain.
- const base=spears[0];const squads=[base,{...base,id:'defender:spear:x1',count:1,initial:1,hp:40},{...base,id:'defender:spear:x2',count:1,initial:1,hp:40}];
- s.groups=[dragon,golem,...squads];base.count=1;base.initial=1;base.hp=40;squads[1].x=base.x+.5;squads[2].x=base.x-.5;
+ const base=spears[0];const squads=[base,{...base,id:'defender:spear:x1',count:3,initial:3,hp:120},{...base,id:'defender:spear:x2',count:3,initial:3,hp:120}];
+ s.groups=[dragon,golem,...squads];base.count=3;base.initial=3;base.hp=120;squads[1].x=base.x+.5;squads[2].x=base.x-.5;
  golem.x=80.5;golem.y=80.5;golem.order={type:'guard',x:80.5,y:80.5};dragon.x=base.x+3;dragon.y=base.y;dragon.order={type:'attack',targetId:base.id};
- advanceBattle(s,100);const taken=squads.map(g=>40-g.hp).sort((a,b)=>a-b);
- assert.deepEqual(taken,[22.5,22.5,40]);// primary 45 (overkill on a 40 HP squad), two secondaries at 50%
+ advanceBattle(s,100);const taken=squads.map(g=>120-g.hp).sort((a,b)=>a-b);
+ assert.deepEqual(taken,[45,45,90]);// primary 90, two secondaries at 50%
  // Golems cannot be ordered to attack a dragon.
  const t=createBattle({id:'c',attackerId:'a',defenderId:'d',attacker:town(),defender:(()=>{const x=town();x.army={golem:1};return x;})(),troops:{dragon:1},now:0});
  t.defenderOnline=true;const enemy=t.groups.find(g=>g.u==='dragon')!,mine=t.groups.find(g=>g.u==='golem')!;

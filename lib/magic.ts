@@ -158,8 +158,11 @@ export function magicBuildError(c:City,k:BKey,tile:number):string|null{
 /** Old industry must keep running: no mana bypass for the crystal/rune chains. */
 export function magicSupportError(c:City,tile:number,b:Building):string|null{
  const support=b.k==='crystalworks'?['forge']:b.k==='runeworks'?['artisan','machine']:b.k==='essenceforge'?['machine']:b.k==='celestialforge'?['complex']:null;if(!support)return null;
- const deck=bridgeDeck(c);
- for(const [i,o]of Object.entries(c.b))if(support.includes(o.k)&&operating(o)&&routeConnected(c,tile,+i,deck))return null;
+ // Runs on every carried load: scan only the 6-tile box (ascending tile order, as
+ // Object.entries would) and build the bridge deck only when a candidate exists.
+ let deck:ReturnType<typeof bridgeDeck>|undefined;const x=tile%W,y=Math.floor(tile/W);
+ for(let ny=Math.max(0,y-6);ny<=Math.min(W-1,y+6);ny++)for(let nx=Math.max(0,x-6);nx<=Math.min(W-1,x+6);nx++){const i=ny*W+nx,o=c.b[i];
+  if(o&&support.includes(o.k)&&operating(o)&&tileDistance(tile,i)<=6&&routeConnected(c,tile,i,deck??=bridgeDeck(c)))return null;}
  return b.k==='celestialforge'?'Cần Tổ hợp sản xuất hoạt động trong 6 ô, có đường nối.':b.k==='crystalworks'?'Cần Xưởng dụng cụ hoạt động trong 6 ô, có đường nối.':b.k==='essenceforge'?'Cần Xưởng cơ khí hoạt động trong 6 ô, có đường nối.':'Cần Xưởng thủ công hoặc Xưởng cơ khí hoạt động trong 6 ô, có đường nối.';
 }
 /** Academies, golem works and spirit stables each open their own magic army space. */

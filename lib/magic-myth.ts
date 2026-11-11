@@ -44,7 +44,7 @@ export const PACKAGE_TTL=24*HOUR,MAX_PACKAGES=2,BEAST_SLOTS=4;
 export const PACKAGE_SEALS:Record<PackageSpell,Element[]>={thunder:['fire','water'],sanctuary:['wood','earth']};
 export const TELEPORT={max:60,ms:30*SECOND,cooldown:2*MINUTE,mana:20,rune:1};
 export const EYE_WARNING=180*SECOND;
-export const BEAST_HEAL={every:10*SECOND,amount:30,radius:3,targets:4};
+export const BEAST_HEAL={every:10*SECOND,amount:60,radius:3,targets:4};
 export const TORTOISE_COVER={radius:2,targets:4,reduction:.15};
 /** Damage reductions of different names add up, capped at 30% (spec 2.3). */
 export const MAX_REDUCTION=.3;

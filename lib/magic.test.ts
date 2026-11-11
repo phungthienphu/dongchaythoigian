@@ -58,12 +58,12 @@ test('aether well yields 240 mana/h up to 1200; the academy turns 6 runes and 20
  assert.ok(m.mana[magicSiteId(well)]>1199&&m.mana[magicSiteId(well)]<=1200);
 });
 
-test('Linh quang pulses every ten seconds only with zombies near the well, 2 mana for 10 damage and a 40% slow',()=>{
+test('Linh quang pulses every ten seconds only with zombies within six tiles of the well, 2 mana for 20 damage and a 40% slow',()=>{
  const c=era7(),well=place(c,'aetherwell',30,30);stepMagic(c,MIN);const id=magicSiteId(well);c.magic!.mana[id]=10;
  const near=zombie(1,32,30),far=zombie(2,40,30);
  magicStructureDefense(c,9000,[near,far],[]);assert.equal(near.hp,90);
- magicStructureDefense(c,10000,[near,far],[]);assert.equal(near.hp,80);assert.equal(far.hp,90);assert.equal(c.magic!.mana[id],8);assert.equal(zombieSlow(near,11000),.4);
- magicStructureDefense(c,11000,[near,far],[]);assert.equal(near.hp,80);assert.equal(zombieSlow(near,14000),0);
+ magicStructureDefense(c,10000,[near,far],[]);assert.equal(near.hp,70);assert.equal(far.hp,90);assert.equal(c.magic!.mana[id],8);assert.equal(zombieSlow(near,11000),.4);
+ magicStructureDefense(c,11000,[near,far],[]);assert.equal(near.hp,70);assert.equal(zombieSlow(near,14000),0);
  magicStructureDefense(c,20000,[far],[]);assert.equal(c.magic!.mana[id],8);
 });
 
@@ -108,10 +108,10 @@ test('mage spells: fireball splash and water heal cast from a nearby source, the
  const mage:ZombieGuard={id:'firemage:0',u:'firemage',x:31.5,y:30.5,hp:110,nextHit:0,anchor:idx(31,30)};
  const target=zombie(1,35,30),side=zombie(2,36,30),far=zombie(3,39,30);
  assert.equal(mageAction(c,mage,target,MIN,[target,side,far],[mage]),true);
- assert.deepEqual([target.hp,side.hp,far.hp],[30,60,90]);assert.equal(c.magic!.mana[id],70);
+ assert.deepEqual([target.hp,side.hp,far.hp],[0,45,90]);// 90 at the target, 45 splash (cân bằng 11/11)assert.equal(c.magic!.mana[id],70);
  assert.equal(mageAction(c,mage,target,MIN+1000,[target,side,far],[mage]),false);
  const healer:ZombieGuard={id:'watermage:0',u:'watermage',x:31.5,y:31.5,hp:130,nextHit:0,anchor:idx(31,31)},hurt:ZombieGuard={...mage,id:'firemage:1',hp:40};
- assert.equal(mageAction(c,healer,undefined,MIN,[],[healer,hurt]),true);assert.equal(hurt.hp,90);assert.equal(c.magic!.mana[id],45);
+ assert.equal(mageAction(c,healer,undefined,MIN,[],[healer,hurt]),true);assert.equal(hurt.hp,120);assert.equal(c.magic!.mana[id],45);
  c.magic!.mana[id]=0;const away:ZombieGuard={...mage,id:'firemage:2',castAt:0};assert.equal(mageAction(c,away,target,MIN,[target],[away]),false);
 });
 
@@ -123,17 +123,17 @@ test('zombies engage flying units in melee exactly like ground units',()=>{
   zombies(c,[]);stepZombies(c,1000);const guard=c.zombies!.guards[0]??{x:11.5,y:10.5};
   c.zombies!.actors=[{...zombie(1,0,0),x:guard.x+.5,y:guard.y,nextHit:0}];
   for(let at=2000;at<=6000;at+=1000)stepZombies(c,at);
-  assert.ok(c.zombies!.guards[0].hp<110);
+  assert.ok(c.zombies!.guards[0].hp<UNITS.firemage.hp);
  }finally{(UNITS as Record<string,unknown>).firemage=original;}
 });
 
 test('PvP uses the same per-hit mage damage as the village (DPS × interval)',()=>{
- assert.equal(UNITS.firemage.atk*UNITS.firemage.attackMs!/1000,12);assert.equal(UNITS.watermage.atk*UNITS.watermage.attackMs!/1000,6);
+ assert.equal(UNITS.firemage.atk*UNITS.firemage.attackMs!/1000,24);assert.equal(UNITS.watermage.atk*UNITS.watermage.attackMs!/1000,12);
  const town=()=>{const c=era7();c.b={'4658':{k:'hut',lvl:1,doneAt:null}};c.camp=4658;c.army={};c.pop=20;return c;};
  const defender=town();defender.army={club:10};
  const s=createBattle({id:'mage',attackerId:'a',defenderId:'d',attacker:town(),defender,troops:{firemage:1},now:0});
  const mage=s.groups.find(g=>g.u==='firemage')!,guards=s.groups.find(g=>g.side==='defender')!;mage.x=guards.x+3;mage.y=guards.y;const hp=guards.hp;
- advanceBattle(s,1000);assert.equal(hp-guards.hp,12);
+ advanceBattle(s,1000);assert.equal(hp-guards.hp,24);
 });
 
 test('purification and gardens act at minute boundaries from bound sources',()=>{
@@ -192,8 +192,9 @@ test('PvP Hỏa cầu and Thủy hồi spend squad flask mana with village coold
  const mage=s.groups.find(g=>g.u==='firemage')!,clubs=s.groups.find(g=>g.u==='club')!,spears=s.groups.find(g=>g.u==='spear')!;
  s.groups=[mage,clubs,spears];for(const g of [clubs,spears]){g.count=10;g.hp=10*UNITS[g.u].hp;}
  assert.equal(mage.flask,100);mage.x=clubs.x+3;mage.y=clubs.y;spears.x=clubs.x;spears.y=clubs.y+1;const c0=clubs.hp,s0=spears.hp;
- advanceBattle(s,100);assert.equal(c0-clubs.hp,60);assert.equal(s0-spears.hp,30);assert.equal(mage.flask,70);
- mage.x=clubs.x+3;mage.y=clubs.y;spears.x=clubs.x;spears.y=clubs.y+2;advanceBattle(s,2100);assert.equal(c0-clubs.hp,72);assert.equal(mage.flask,70);// basic attack while the spell cools down
+ // One cast hits one unit per squad: a 20 HP club absorbs 20 of the 90, a 40 HP spear 40 of the 45.
+ advanceBattle(s,100);assert.equal(c0-clubs.hp,20);assert.equal(s0-spears.hp,40);assert.equal(mage.flask,70);
+ mage.x=clubs.x+3;mage.y=clubs.y;spears.x=clubs.x;spears.y=clubs.y+2;advanceBattle(s,2100);assert.equal(c0-clubs.hp,44);assert.equal(mage.flask,70);// basic attack while the spell cools down
  assert.equal(battleResult({...s,status:'finished',winner:'attacker'})!.flask!.attacker,70);
  const healer=createBattle({id:'water',attackerId:'a',defenderId:'d',attacker:town(),defender:town(),troops:{watermage:2,club:10},now:0,attackerFlask:150});
  const water=healer.groups.find(g=>g.u==='watermage')!,friends=healer.groups.find(g=>g.side==='attacker'&&g.u==='club')!;

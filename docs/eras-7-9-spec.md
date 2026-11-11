@@ -326,3 +326,26 @@ Nguồn luật duy nhất: **`docs/zombie-spec.md`**. Tóm tắt:
 - Playtest phải có các đội hình khác nhau thắng theo tình huống; quân cũ bảo vệ được, thần thú không thắng mọi trận, phép đủ nổi bật mà người offline không cần bấm tay mỗi đợt.
 
 Chỉ bàn giao spec. Chưa tự commit/push/deploy hay triển khai gameplay theo tài liệu này.
+
+## 13. Cân bằng 11/11 (sau mô phỏng `tests/magic-balance.ts`)
+
+Số đo ở `docs/magic-balance-2026-11-11.md`. Luật zombie, nguồn mana 240/480, nhà bị phá vĩnh viễn và cấu trúc lên đời giữ nguyên.
+
+| Mục | Trước | Sau | Lý do |
+|---|---|---|---|
+| Hỏa thuật sư HP / đòn | 110 / 12 mỗi 2s | 160 / 24 | Mỗi chỗ quân yếu ~10 lần bộ binh thời 6; chết trong 2–4 giây |
+| Thủy thuật sư HP / đòn | 130 / 6 | 190 / 12 | Như trên |
+| Hỏa cầu tâm / lan | 60 / 30 | 90 / 45 | Phép chống cụm gần như không giết được zombie Super/phá hoại |
+| Thủy hồi | 50 HP | 80 HP | Theo HP mới của quân |
+| Golem HP / đòn | 900 / 50 mỗi 2,5s | 1.800 / 100 | Thua cả kiếm sĩ cùng chỗ; giờ thắng quân cận chiến, vẫn thua quân bắn xa |
+| Linh lộc HP / đòn | 350 / 18 | 700 / 36 | Cùng hệ số ×2 |
+| Thanh Long / Huyền Quy / Phượng Hoàng HP | 1.000 / 1.600 / 800 | 2.000 / 3.200 / 1.600 | Chết sau 2 giây trước 24 bộ binh, không gây được sát thương |
+| Thanh Long / Huyền Quy / Phượng Hoàng đòn | 45 / 35 / 25 | 90 / 70 / 50 | Như trên |
+| Phượng Hoàng hồi | 30 HP/10s | 60 HP/10s | Theo HP mới |
+| Thiên lôi, Hỏa cầu (PvP) | sát thương dồn vào HP chung của đội | mỗi lượt trúng tối đa bằng HP một quân | Thiên lôi giết cả 30 chiến binh gậy thay vì tối đa 6 |
+| Mưa sinh trưởng | +300 thực/giờ/ruộng | mỗi chuyến gánh từ ruộng được mưa ×1,5 | Ruộng cấp 3 giao ~10.000 thực/giờ; +300 không nhìn thấy |
+| Hỏa trận vùng | 6 ô | 8 ô | Mana dư (thu ~13.000/ngày, tiêu ~2.000); phép thiếu tầm, không thiếu mana |
+| Pháp trận hộ thành tối đa | 4 | 6 | Như trên |
+| Linh quang vùng / sát thương | 4 ô / 10 | 6 ô / 20 | Chỉ gây 30 sát thương cả ngày ở làng 450 dân |
+
+Không đổi: Hỏa trận vẫn 1 mana mỗi lần trúng (đo được không hút cạn mana trong trận lớn).

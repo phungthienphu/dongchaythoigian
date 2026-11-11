@@ -31,7 +31,7 @@ export const canHit=(u:UKey,target:UKey)=>!UNITS[target].flying||ANTI_AIR.has(u)
 /** Mages ×1.5 and modern infantry ×1.25 against flying beasts. */
 const antiAir=(u:UKey,target:UKey)=>UNITS[target].flying&&UNITS[target].contract?MAGES.has(u)?1.5:u==='infantry'?1.25:1:1;
 const flying=(g:Pick<BattleGroup,'u'>)=>!!UNITS[g.u].flying;
-const PHOENIX={every:10_000,amount:30,radius:3,targets:4},COVER={radius:2,targets:4},VISION=8;
+const PHOENIX={every:10_000,amount:60,radius:3,targets:4},COVER={radius:2,targets:4},VISION=8;
 export const unitHp=(g:Pick<BattleGroup,'u'|'unitHp'>)=>g.unitHp??UNITS[g.u].hp;
 const dist = (a: {x:number;y:number}, b: {x:number;y:number}) => Math.hypot(a.x-b.x,a.y-b.y);
 const xy = (tile:number) => ({ x: tile % W + .5, y: Math.floor(tile / W) + .5 });
@@ -273,21 +273,24 @@ const sheltered=(s:BattleState,target:BattleGroup)=>!!s.spellEffects?.some(e=>e.
 /** Linh lộc 10%, Huyền Quy 15%, Hộ giới 25%: different names add, at most 30% (spec 2.3). */
 const mitigation=(s:BattleState,target:BattleGroup)=>1-Math.min(.3,(escort(s,target)<1?.1:0)+(cover(s,target)?.15:0)+(sheltered(s,target)?MAGIC_SPELLS.sanctuary.reduction:0));
 const hurt=(s:BattleState,target:BattleGroup,amount:number)=>damage(target,amount*mitigation(s,target));
-/** Hỏa cầu per mage in the squad: 60 at the target, 30 to four more within 1.5
- * tiles (buildings ×0.5, never the caster's own); 30 flask mana and 20 s each. */
+/** Hỏa cầu per mage in the squad: 90 at the target, 45 to four more within 1.5
+ * tiles (buildings ×0.5, never the caster's own); 30 flask mana and 20 s each.
+ * Each cast hits one unit of a squad: overkill on a weak unit never spills into the
+ * pooled squad HP (cân bằng 11/11), so a fireball cannot wipe a whole cheap squad. */
 function fireball(s:BattleState,g:BattleGroup,target:BattleGroup):boolean{
   const spell=MAGIC_SPELLS.fireball;if(g.u!=='firemage'||(g.castAt??0)>s.lastTick||(g.flask??0)<spell.mana)return false;
-  const casts=Math.min(g.count,Math.floor((g.flask!+1e-9)/spell.mana)),power=casts*(s.specialization?.[g.side]==='fire'?1.1:1);
-  hurt(s,target,spell.damage*power);
+  const casts=Math.min(g.count,Math.floor((g.flask!+1e-9)/spell.mana)),boost=s.specialization?.[g.side]==='fire'?1.1:1,power=casts*boost;
+  const perUnit=(e:BattleGroup,amount:number)=>Math.min(amount*boost,unitHp(e))*Math.min(casts,e.count);
+  hurt(s,target,perUnit(target,spell.damage));
   const near:(BattleGroup|BattleBuilding)[]=[...s.groups.filter(e=>e.side!==g.side&&e!==target&&living(e)&&dist(e,target)<=spell.radius),...(g.side==='attacker'?s.buildings.filter(b=>!b.burned&&dist(xy(b.tile),target)<=spell.radius):[])];
   const at=(e:BattleGroup|BattleBuilding)=>'tile'in e?xy(e.tile):e;
   for(const e of near.sort((a,b)=>dist(at(a),target)-dist(at(b),target)||a.id.localeCompare(b.id)).slice(0,spell.targets-1)){
-    if('tile'in e){e.hp=Math.max(0,e.hp-spell.splash*power*spell.buildingScale);if(!e.hp)e.burned=true;}else hurt(s,e,spell.splash*power);
+    if('tile'in e){e.hp=Math.max(0,e.hp-spell.splash*power*spell.buildingScale);if(!e.hp)e.burned=true;}else hurt(s,e,perUnit(e,spell.splash));
   }
   g.flask=g.flask!-casts*spell.mana;g.castAt=s.lastTick+spell.cooldown;
   strike(s,g.id,'shell',g,target,true);return true;
 }
-/** Thủy hồi per mage: 50 HP to up to three wounded allies (four with Thủy) in two tiles,
+/** Thủy hồi per mage: 80 HP to up to three wounded allies (four with Thủy) in two tiles,
  * only when they miss at least 50 HP together. Heals never revive a fallen unit. */
 function waterheal(s:BattleState,g:BattleGroup):boolean{
   const spell=MAGIC_SPELLS.waterheal;if(g.u!=='watermage'||(g.castAt??0)>s.lastTick||(g.nextAttackAt??0)>s.lastTick||(g.flask??0)<spell.mana)return false;
@@ -298,19 +301,20 @@ function waterheal(s:BattleState,g:BattleGroup):boolean{
   for(const a of allies){const add=Math.min(pool,missing(a));a.hp+=add;pool-=add;if(pool<=0)break;}
   g.flask=g.flask!-casts*spell.mana;g.castAt=s.lastTick+spell.cooldown;g.nextAttackAt=s.lastTick+(UNITS[g.u].attackMs??1000);return true;
 }
-/** Phượng Hoàng: every 10 s, 30 HP for up to four allies per bird within three tiles; never revives. */
+/** Phượng Hoàng: every 10 s, 60 HP for up to four allies per bird within three tiles; never revives. */
 function phoenixHeal(s:BattleState,g:BattleGroup){
   if(g.u!=='phoenix'||(s.lastTick-s.startedAt)%PHOENIX.every!==0)return;
   const missing=(a:BattleGroup)=>Math.max(0,a.count*unitHp(a)-a.hp);let pool=PHOENIX.amount*PHOENIX.targets*g.count;
   for(const a of s.groups.filter(a=>a.side===g.side&&a!==g&&living(a)&&dist(a,g)<=PHOENIX.radius&&missing(a)>0).sort((a,b)=>dist(a,g)-dist(b,g)||a.id.localeCompare(b.id)).slice(0,PHOENIX.targets)){const add=Math.min(pool,missing(a),PHOENIX.amount*g.count*Math.min(a.count,PHOENIX.targets));a.hp+=add;pool-=add;if(pool<=0)break;}
 }
 /** Thiên lôi strikes five seconds after its warning zone appears (180 per unit, at most
- * six units, buildings ×0.25 for the attacker); then each side may open its packages. */
+ * six units, never more than a unit's HP so a squad of cheap units loses six, not all;
+ * buildings ×0.25 for the attacker); then each side may open its packages. */
 function bigSpells(s:BattleState){
   const thunder=MAGIC_SPELLS.thunder,sanctuary=MAGIC_SPELLS.sanctuary;
   for(const e of s.spellEffects??[])if(e.kind==='thunder'&&e.until===s.lastTick){
     let left=thunder.targets;
-    for(const t of s.groups.filter(t=>t.side!==e.side&&living(t)&&dist(t,e)<=thunder.radius).sort((a,b)=>dist(a,e)-dist(b,e)||a.id.localeCompare(b.id))){if(left<=0)break;const n=Math.min(t.count,left);hurt(s,t,thunder.damage*n);left-=n;}
+    for(const t of s.groups.filter(t=>t.side!==e.side&&living(t)&&dist(t,e)<=thunder.radius).sort((a,b)=>dist(a,e)-dist(b,e)||a.id.localeCompare(b.id))){if(left<=0)break;const n=Math.min(t.count,left);hurt(s,t,Math.min(thunder.damage,unitHp(t))*n);left-=n;}
     if(e.side==='attacker')for(const b of s.buildings.filter(b=>!b.burned&&dist(xy(b.tile),e)<=thunder.radius).sort((a,b)=>dist(xy(a.tile),e)-dist(xy(b.tile),e)||a.tile-b.tile)){if(left<=0)break;b.hp=Math.max(0,b.hp-thunder.damage*thunder.buildingScale);if(!b.hp)b.burned=true;left--;}
     strike(s,e.id,'shell',e,e,true);
   }

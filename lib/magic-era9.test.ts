@@ -100,11 +100,11 @@ test('zombies bite flying dragons and phoenixes in melee; dragon hits three, tor
  const c=era9();c.people=[];c.pop=0;c.camp=idx(10,10);c.b={[idx(10,10)]:{k:'barracks',lvl:1,doneAt:null}};c.army={dragon:1,phoenix:1,tortoise:1,club:1};
  activateZombies(c,0);c.zombies!.nextAt=1e12;c.zombies!.actors=[{...zombie(9,80,80),nextHit:0}];stepZombies(c,1000);
  const g=(u:string)=>c.zombies!.guards.find(x=>x.u===u)!;const dragon=g('dragon'),phoenix=g('phoenix'),tortoise=g('tortoise'),club=g('club');
- assert.deepEqual([dragon.hp,phoenix.hp],[1000,800]);
+ assert.deepEqual([dragon.hp,phoenix.hp],[2000,1600]);
  dragon.x=40.5;dragon.y=40.5;phoenix.x=60.5;phoenix.y=60.5;tortoise.x=20.5;tortoise.y=20.5;club.x=5.5;club.y=80.5;
  c.zombies!.actors=[{...zombie(1,0,0,5000),x:41.2,y:40.5,nextHit:0},{...zombie(2,0,0,5000),x:61.2,y:60.5,nextHit:0},{...zombie(3,0,0,200),x:43.5,y:40.5},{...zombie(4,0,0,200),x:44.5,y:40.5},{...zombie(5,0,0,200),x:44.5,y:41.5}];
  for(let at=2000;at<=8000;at+=1000)stepZombies(c,at);
- assert.ok(dragon.hp<1000,'zombie must hit a flying dragon');assert.ok(phoenix.hp<800,'zombie must hit a flying phoenix');
+ assert.ok(dragon.hp<2000,'zombie must hit a flying dragon');assert.ok(phoenix.hp<1600,'zombie must hit a flying phoenix');
  const splashed=c.zombies!.actors.filter(z=>z.id>=3&&z.hp<200).length;assert.equal(splashed,2);// two secondaries per breath, the third spared
  // Tortoise cover and the 30% cap.
  const ally:ZombieGuard={id:'club:9',u:'club',x:20.5,y:21.5,hp:100,nextHit:0,anchor:0},turtle:ZombieGuard={...tortoise,x:20.5,y:20.5},deer:ZombieGuard={id:'spiritdeer:0',u:'spiritdeer',x:21.5,y:21.5,hp:350,nextHit:0,anchor:0};
@@ -112,10 +112,10 @@ test('zombies bite flying dragons and phoenixes in melee; dragon hits three, tor
  c.magic!.mythEffects=[{id:1,kind:'sanctuary',x:20.5,y:21.5,start:0,until:15000}];
  assert.equal(guardDamageScale(c,[turtle,ally,deer],ally,1000),.7);assert.equal(guardDamageScale(c,[ally],ally,1000),.75);
  assert.equal(guardDamageScale(c,[ally],ally,15000),1);
- // Phoenix: every 10 s, +30 HP to up to four wounded allies within three tiles.
+ // Phoenix: every 10 s, +60 HP to up to four wounded allies within three tiles (a sword tops out at 70).
  const bird:ZombieGuard={id:'phoenix:5',u:'phoenix',x:50.5,y:50.5,hp:800,nextHit:0,anchor:0},hurt=[0,1,2,3,4].map(n=>({id:`sword:${n+20}`,u:'sword' as const,x:50.5+n*.3,y:51.5,hp:10,nextHit:0,anchor:0}));
- magicStructureDefense(c,19_000,[],[bird,...hurt]);assert.equal(hurt.filter(h=>h.hp===40).length,0);
- magicStructureDefense(c,20_000,[],[bird,...hurt]);assert.equal(hurt.filter(h=>h.hp===40).length,4,JSON.stringify(hurt.map(h=>h.hp)));
+ magicStructureDefense(c,19_000,[],[bird,...hurt]);assert.equal(hurt.filter(h=>h.hp===70).length,0);
+ magicStructureDefense(c,20_000,[],[bird,...hurt]);assert.equal(hurt.filter(h=>h.hp===70).length,4,JSON.stringify(hurt.map(h=>h.hp)));
 });
 
 test('spell packages: seals, 2 per village, 24 h expiry without refund, lost with the matrix; Thiên lôi warns 5 s then strikes 6',()=>{

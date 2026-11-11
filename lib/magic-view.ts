@@ -119,8 +119,8 @@ export const SPELL_TRIGGERS:Record<MagicSpell,string>={
  fireball:'Pháp sư bắn khi có mục tiêu trong tầm và đủ mana.',
  waterheal:'Khi nhóm quân gần đó thiếu tổng ≥50 HP.',
  roots:'Khi ≥3 địch đứng gần nhau trong 6 ô quanh trận.',
- lightpulse:'Mỗi 10 giây nếu có zombie trong 4 ô.',
- firecircle:'Mỗi 2 giây, tự động khi zombie vào 6 ô.',
+ lightpulse:`Mỗi 10 giây nếu có zombie trong ${MAGIC_SPELLS.lightpulse.radius} ô.`,
+ firecircle:`Mỗi 2 giây, tự động khi zombie vào ${MAGIC_SPELLS.firecircle.radius} ô.`,
  purify:'Khi ≥2 dân nhiễm bệnh trong vùng.',
  firestorm:'Khi ≥4 địch trong vùng 3 ô.',
  cleanse:'Khi ≥2 dân nhiễm bệnh trong 10 ô.',
@@ -261,8 +261,8 @@ export function magicDefenseView(c:City,now:number){
  const m=c.magic;if(!m)return null;const sites=magicSites(c),rows:{name:string;detail:string;ok:boolean;tile?:number}[]=[];
  const eye=c.era>=9&&eyeActive(c),observatory=sites.find(s=>s.b.k==='observatory');
  for(const s of sites){const id=s.id,running=operating(s.b)&&!!m.factories[id]&&!m.factories[id].blocked;
-  if(s.b.k==='aetherwell')rows.push({name:`Linh quang · ${siteName(c,s)}`,detail:(m.mana[id]??0)>=2?`${Math.floor(m.mana[id]??0)} mana · đánh zombie trong 4 ô`:'Hết mana',ok:operating(s.b)&&(m.mana[id]??0)>=2,tile:s.tile});
-  if(s.b.k==='wardcircle')rows.push({name:`Hỏa trận · ${siteName(c,s)}`,detail:m.network.bindings[id]?.primary?'Đốt zombie trong 6 ô':m.network.bindings[id]?.reason??'Chưa nối nguồn mana',ok:operating(s.b)&&!!m.network.bindings[id]?.primary,tile:s.tile});
+  if(s.b.k==='aetherwell')rows.push({name:`Linh quang · ${siteName(c,s)}`,detail:(m.mana[id]??0)>=2?`${Math.floor(m.mana[id]??0)} mana · đánh zombie trong ${MAGIC_SPELLS.lightpulse.radius} ô`:'Hết mana',ok:operating(s.b)&&(m.mana[id]??0)>=2,tile:s.tile});
+  if(s.b.k==='wardcircle')rows.push({name:`Hỏa trận · ${siteName(c,s)}`,detail:m.network.bindings[id]?.primary?`Đốt zombie trong ${MAGIC_SPELLS.firecircle.radius} ô`:m.network.bindings[id]?.reason??'Chưa nối nguồn mana',ok:operating(s.b)&&!!m.network.bindings[id]?.primary,tile:s.tile});
   if(s.b.k==='firealtar'||s.b.k==='earthtemple'){const spell=s.b.k==='firealtar'?'firestorm':'stonewall',cd=Math.max(0,(m.cooldowns[spell]??0)-now);rows.push({name:`${MAGIC_SPELLS[spell].name} · ${siteName(c,s)}`,detail:!running?m.factories[id]?.blocked??'Không hoạt động':c.res.essence<2?'Thiếu 2 tinh chất trong kho':cd?`Hồi còn ${Math.ceil(cd/1000)} giây`:'Sẵn sàng',ok:running&&c.res.essence>=2&&!cd,tile:s.tile});}
  }
  const ready=(m.packages??[]).filter(p=>!p.away&&p.expiresAt>now);

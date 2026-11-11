@@ -4,7 +4,7 @@ import {applyAction,armyCap,buildMs,canPlace,derive,ENGINE_MAX_ERA,ERA_REQ,eraCo
 import {RELEASE_RULES} from './eras';
 import {eraFixture,eraStaff} from './era-fixtures.test-utils';
 import {initializeMagic,stepMagic,magicSiteId,deliverMagicSupply,magicStructureDefense,magicGuardHp,mageAction} from './magic';
-import {magicGrowth} from './magic-elements';
+import {magicGrowth,GROWTH_LOAD} from './magic-elements';
 import {activateZombies,stepZombies,zombiePath,type Zombie,type ZombieGuard} from './zombies';
 import {advanceBattle,createBattle} from './battle';
 const RULES={maxEra:9};
@@ -80,7 +80,7 @@ test('golems need Khế ước, the Thổ seal and 120 mana; works add 24 space;
  assert.equal(applyAction(c,{type:'magicSpecialize',element:'earth'},3*MIN,RULES),null);
  assert.equal(applyAction(c,{type:'train',u:'golem',n:1},3*MIN,RULES),null);
  settle(c,3*MIN+2*HOUR);assert.equal(c.army.golem,2);assert.equal(c.magic!.hardened,1);
- assert.equal(magicGuardHp(c,{id:'golem:0',u:'golem'}),990);assert.equal(magicGuardHp(c,{id:'golem:1',u:'golem'}),900);
+ assert.equal(magicGuardHp(c,{id:'golem:0',u:'golem'}),1980);assert.equal(magicGuardHp(c,{id:'golem:1',u:'golem'}),1800);
  void earth;
 });
 
@@ -101,11 +101,11 @@ test('chuyên tu: first pick is free; a switch costs 100 runes + 40 essence and 
 test('specialization effects: Hỏa +10% fireball, Thủy one more heal target',()=>{
  const c=era8(),well=place(c,'aetherwell',30,30);stepMagic(c,MIN);c.magic!.mana[id(well)]=500;
  const mage:ZombieGuard={id:'firemage:0',u:'firemage',x:31.5,y:30.5,hp:110,nextHit:0,anchor:idx(31,30)},target=zombie(1,35,30);target.hp=200;
- c.magic!.specialization={element:'fire'};assert.equal(mageAction(c,mage,target,MIN,[target],[mage]),true);assert.ok(Math.abs(200-target.hp-66)<1e-9);
+ c.magic!.specialization={element:'fire'};assert.equal(mageAction(c,mage,target,MIN,[target],[mage]),true);assert.ok(Math.abs(200-target.hp-99)<1e-9);
  c.magic!.specialization={element:'water'};
- const healer:ZombieGuard={id:'watermage:0',u:'watermage',x:31.5,y:31.5,hp:130,nextHit:0,anchor:idx(31,31)};
+ const healer:ZombieGuard={id:'watermage:0',u:'watermage',x:31.5,y:31.5,hp:UNITS.watermage.hp,nextHit:0,anchor:idx(31,31)};
  const hurt=[0,1,2,3].map(n=>({...mage,id:`firemage:${n+1}`,hp:40}));
- assert.equal(mageAction(c,healer,undefined,MIN,[],[healer,...hurt]),true);assert.equal(hurt.filter(g=>g.hp===90).length,4);
+ assert.equal(mageAction(c,healer,undefined,MIN,[],[healer,...hurt]),true);assert.equal(hurt.filter(g=>g.hp===120).length,4);
 });
 
 test('Bão lửa needs a running Hỏa altar and 4 clustered zombies: 120 mana + 2 essence, 10/s for 8 s on ≤8, 3 min cooldown',()=>{
@@ -132,13 +132,13 @@ test('Tịnh hóa cures up to 8 within 10 tiles and cuts 4 pollution; Thủy sea
  assert.equal(c.people.filter(p=>p.vital?.infectedAt!==undefined).length,0);
 });
 
-test('Mưa sinh trưởng: up to 4 staffed fields in six tiles get +300 food/h for an hour, keeping a defence reserve',()=>{
+test('Mưa sinh trưởng: up to 4 staffed fields in six tiles carry 50% larger food loads for an hour, keeping a defence reserve',()=>{
  const c=era8(),well=place(c,'aetherwell',30,30,2);station(c,'woodgrove',32,30);
  const fields=[[33,32],[34,32],[35,32],[33,33],[34,33]].map(([x,y])=>{place(c,'farm',x,y,1);return idx(x,y);});
  prime(c,MIN,[idx(32,30)]);c.magic!.mana[id(well)]=150;stepMagic(c,2*MIN);stepMagic(c,3*MIN);
- assert.equal(magicGrowth(c,fields[0],3*MIN+1),0);// 80 + 120 reserve not available
+ assert.equal(magicGrowth(c,fields[0],3*MIN+1),1);// 80 + 120 reserve not available
  c.magic!.mana[id(well)]=600;stepMagic(c,4*MIN);
- assert.equal(fields.filter(f=>magicGrowth(c,f,4*MIN+1)===300).length,4);assert.equal(magicGrowth(c,fields[0],4*MIN+HOUR),0);
+ assert.equal(fields.filter(f=>magicGrowth(c,f,4*MIN+1)===GROWTH_LOAD).length,4);assert.equal(magicGrowth(c,fields[0],4*MIN+HOUR),1);
  assert.equal(c.magic!.cooldowns.growthrain,4*MIN+2*HOUR);
 });
 
@@ -180,23 +180,23 @@ test('golems and deer guard the village against zombies; zombies hit them and de
  const c=era8();c.people=[];c.pop=0;c.camp=idx(10,10);c.b={[idx(10,10)]:{k:'barracks',lvl:1,doneAt:null}};c.army={golem:1,spiritdeer:1,club:1};
  activateZombies(c,0);c.zombies!.nextAt=1e12;c.zombies!.actors=[{...zombie(9,80,80),nextHit:0}];stepZombies(c,1000);const guards=c.zombies!.guards;
  assert.deepEqual(guards.map(g=>g.u).sort(),['club','golem','spiritdeer']);
- const golem=guards.find(g=>g.u==='golem')!,deer=guards.find(g=>g.u==='spiritdeer')!;assert.equal(golem.hp,900);
+ const golem=guards.find(g=>g.u==='golem')!,deer=guards.find(g=>g.u==='spiritdeer')!;assert.equal(golem.hp,1800);
  const club=guards.find(g=>g.u==='club')!;club.x=golem.x;club.y=golem.y-3;deer.x=golem.x-1;deer.y=golem.y;
  c.zombies!.actors=[{...zombie(1,0,0),x:golem.x+.6,y:golem.y,nextHit:0,hp:5000,maxHp:5000}];
  for(let at=2000;at<=8000;at+=1000)stepZombies(c,at);
  const now=c.zombies!.guards.find(g=>g.id===golem.id)!;assert.equal(now,golem);
- assert.ok(golem.hp<900);assert.ok(c.zombies!.actors[0].hp<5000);
- const hits=Math.round((900-golem.hp)/(8*.9));assert.ok(Math.abs(900-golem.hp-hits*8*.9)<1e-6);// each bite reduced by the escort
+ assert.ok(golem.hp<1800);assert.ok(c.zombies!.actors[0].hp<5000);
+ const hits=Math.round((1800-golem.hp)/(8*.9));assert.ok(Math.abs(1800-golem.hp-hits*8*.9)<1e-6);// each bite reduced by the escort
 });
 
 test('PvP: golems hit buildings ×1.5, hardened golems keep +10% HP, deer escort reduces damage',()=>{
  const town=()=>{const c=era8();c.b={'4658':{k:'hut',lvl:1,doneAt:null}};c.camp=4658;c.army={};c.pop=20;return c;};
  const attacker=town();attacker.magic!.hardened=1;
  const s=createBattle({id:'g',attackerId:'a',defenderId:'d',attacker,defender:town(),troops:{golem:2,spiritdeer:1},now:0});
- const golems=s.groups.find(g=>g.u==='golem')!;assert.equal(golems.unitHp,945);assert.equal(golems.hp,1890);
- assert.equal(UNITS.golem.buildingAtk,1.5);assert.equal(UNITS.golem.atk*UNITS.golem.attackMs!/1000,50);
+ const golems=s.groups.find(g=>g.u==='golem')!;assert.equal(golems.unitHp,1890);assert.equal(golems.hp,3780);
+ assert.equal(UNITS.golem.buildingAtk,1.5);assert.equal(UNITS.golem.atk*UNITS.golem.attackMs!/1000,100);
  const hut=s.buildings[0],hp=hut.hp;golems.x=hut.tile%96+.5+1;golems.y=Math.floor(hut.tile/96)+.5;golems.order={type:'attack',targetId:hut.id};
- advanceBattle(s,100);assert.equal(hp-hut.hp,Math.min(hp,2*50*1.5));
+ advanceBattle(s,100);assert.equal(hp-hut.hp,Math.min(hp,2*100*1.5));
 });
 
 test('split, reloaded and single settlement agree with essence, seals, a mana outage and zombies',()=>{
