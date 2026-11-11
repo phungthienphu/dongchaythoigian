@@ -20,7 +20,7 @@ import {
 } from "@/lib/engine";
 import {mapRotationShortcut} from "./map-shortcuts";
 import {captureMapTurn,paintMapTurn,type MapTurn} from "./map-transition";
-import { createGroundCache, projectWorld, rotateCam, screenToWorld, MAX_ZOOM, camView, clampCam, drawCity, fitView, focusOn, pickBuilding, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
+import { createLayerCache, projectWorld, rotateCam, screenToWorld, MAX_ZOOM, camView, clampCam, drawCity, fitView, focusOn, pickBuilding, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import {drawSelectionBox,inSelection,selectionMoved,type SelectionDrag} from './map-selection';
 import { Crowd } from "./villagers";
 import { erasUpTo, RELEASED_ERA } from "@/lib/eras";
@@ -739,7 +739,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if (!cv || !frame) return;
     const ctx = cv.getContext("2d")!;
     const rm = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let dpr = 1;
+    // Pixel ratio cap; lowered once per step when the device cannot keep up while active.
+    let dpr = 1, dprCap = 2;
     const resize = () => {
       const w = frame.clientWidth, h = frame.clientHeight;
       const cam = camRef.current, v = camView(fitRef.current, cam);
@@ -749,7 +750,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       rotationFadeRef.current=null;
       if (focusedRef.current) focusOn(f, cam, cx,cy, cam.zoom);
       else clampCam(f, cam);
-      dpr = Math.min(2, window.devicePixelRatio || 1);
+      dpr = Math.min(dprCap, window.devicePixelRatio || 1);
       cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
     };
     const ro = new ResizeObserver(resize);
@@ -763,9 +764,10 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     };
     cv.addEventListener("wheel", onWheel, { passive: false });
     let raf = 0, last = 0;
-    const ground = createGroundCache();
+    const ground = createLayerCache(), items = createLayerCache();
     // Full frame rate while the player moves the camera or pointer; ~30 fps when idle.
     let activeAt = 0, cx = NaN, cy = NaN, cz = NaN, cr = NaN, ch: unknown = null, cd: unknown = null;
+    let slowSum = 0, slowN = 0;
     const loop = (t: number) => {
       if(document.hidden || renderPausedRef.current){last=t;raf=requestAnimationFrame(loop);return;}
       const cam = camRef.current, drag = selectionDrag.current, hov = viewRef.current.hover;
@@ -777,6 +779,14 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       const c = vis ? vis.city : cityRef.current, D = vis ? vis.D : dRef.current, crowd = vis ? vis.crowd : crowdRef.current;
       const dt = last ? Math.min(0.1, (t - last) / 1000) : 0;
       last = t;
+      // Below ~35 fps over 90 active frames: drop half a step of pixel ratio (not below 1).
+      if (dt > 0 && t - activeAt <= 1000) {
+        slowSum += dt;
+        if (++slowN === 90) {
+          if (slowSum / slowN > 0.028 && dpr > 1) { dprCap = Math.max(1, dpr - 0.5); resize(); }
+          slowSum = 0; slowN = 0;
+        }
+      }
       if (c && D) {
         if (!focusedRef.current) {
           const f = fitRef.current;
@@ -786,7 +796,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         if (!rm) crowd.update(c, dt, now());
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const view = vis ? VISIT_VIEW : viewRef.current;
-        drawCity(ctx, c, D, { v: camView(fitRef.current, camRef.current), now: now(), anim: rm ? 0 : t, villagers: crowd.list, fx: crowd.fx, chopping: crowd.chopping, ...view, rules, ground, dpr });
+        drawCity(ctx, c, D, { v: camView(fitRef.current, camRef.current), now: now(), anim: rm ? 0 : t, villagers: crowd.list, fx: crowd.fx, chopping: crowd.chopping, ...view, rules, ground, items, dpr });
         const turn=rotationFadeRef.current;
         if(turn&&!paintMapTurn(ctx,turn,t,fitRef.current.width,fitRef.current.height))rotationFadeRef.current=null;
         if(!vis)drawSelectionBox(ctx,selectionDrag.current);

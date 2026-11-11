@@ -402,16 +402,16 @@ function drawLiveRipples(r: RC, tiles: number[]) {
   }
 }
 
-/** Offscreen copy of the ground layer, reused across frames. Created by the
- * game screen; renders without one (tests, dev pages) draw ground directly. */
-export type GroundCache = {
+/** Offscreen copy of a render layer, reused across frames. The game screen creates
+ * them; renders without one (tests, dev pages) draw every layer directly. */
+export type LayerCache = {
   canvas: HTMLCanvasElement | null;
-  sig: number; season: number; rotation: number; dpr: number;
+  sig: number; season: number; rotation: number; dpr: number; builtAt: number;
   TW: number; ox: number; oy: number; width: number; height: number; margin: number;
   /** Most recent requested tile width and when it was first seen (zoom settling). */
   wantTW: number; wantAt: number;
 };
-export const createGroundCache = (): GroundCache => ({ canvas: null, sig: -1, season: -1, rotation: -1, dpr: 0, TW: 0, ox: 0, oy: 0, width: 0, height: 0, margin: 0, wantTW: 0, wantAt: 0 });
+export const createLayerCache = (): LayerCache => ({ canvas: null, sig: -1, season: -1, rotation: -1, dpr: 0, builtAt: 0, TW: 0, ox: 0, oy: 0, width: 0, height: 0, margin: 0, wantTW: 0, wantAt: 0 });
 const ZOOM_SETTLE_MS = 150;
 
 function groundSignature(city: City, D: Derived) {
@@ -422,17 +422,34 @@ function groundSignature(city: City, D: Derived) {
   return h >>> 0;
 }
 
-/** Blit the cached ground, rebuilding it when terrain, fog, season, rotation or size
- * changed, the camera left its margin, or a zoom has settled. Returns false when no
- * canvas is available. */
-function paintGround(r: RC, g: GroundCache, dpr: number, lod: boolean) {
+// Keyed by village and its clock: a visited village is settled in place.
+const itemSigs = new WeakMap<City, { last: number; sig: number }>();
+/** Content of the zoomed-out object layer (buildings, trees, rocks, camps). */
+function itemsSignature(city: City) {
+  const memo = itemSigs.get(city);
+  if (memo && memo.last === city.last) return memo.sig;
+  // Estate fertility changes every tick but is not drawn; deposit wear (rock height)
+  // is picked up by the layer's periodic refresh.
+  const text = JSON.stringify([city.b, city.camps, city.era, city.t, city.seen], (k, value) => k === "fertility" ? undefined : value);
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  const sig = h >>> 0;
+  itemSigs.set(city, { last: city.last, sig });
+  return sig;
+}
+
+/** Blit a cached layer, rebuilding it when its content signature, season, rotation,
+ * size or pixel ratio changed, it is older than `maxAge`, the camera left its margin,
+ * or a zoom has settled (while zooming the old bitmap is scaled). Returns false when
+ * no canvas is available. */
+function paintLayer(c: Ctx, v: View, g: LayerCache, dpr: number, sig: number, season: number, maxAge: number, draw: (gc: Ctx, cv: View) => void) {
   if (typeof document === "undefined") return false;
-  const { c, v } = r, rot = v.rotation ?? 0, now = performance.now(), sig = groundSignature(r.city, r.D);
+  const rot = v.rotation ?? 0, now = performance.now();
   if (v.TW !== g.wantTW) { g.wantTW = v.TW; g.wantAt = now; }
   const k = v.TW / g.TW, sx = v.ox - k * g.ox, sy = v.oy - k * g.oy, M = g.margin;
   const covers = sx - k * M <= 0 && sy - k * M <= 0 && sx + k * (g.width + M) >= v.width && sy + k * (g.height + M) >= v.height;
   const zooming = v.TW !== g.TW && now - g.wantAt < ZOOM_SETTLE_MS && k >= 0.5 && k <= 2;
-  const valid = g.canvas && g.sig === sig && g.season === r.season && g.rotation === rot && g.dpr === dpr && g.width === v.width && g.height === v.height;
+  const valid = g.canvas && g.sig === sig && g.season === season && g.rotation === rot && g.dpr === dpr && g.width === v.width && g.height === v.height && now - g.builtAt < maxAge;
   if (!valid || !covers || (v.TW !== g.TW && !zooming)) {
     const margin = Math.round(Math.max(v.width, v.height) * 0.25);
     const canvas = g.canvas ?? document.createElement("canvas");
@@ -442,10 +459,8 @@ function paintGround(r: RC, g: GroundCache, dpr: number, lod: boolean) {
     const gc = canvas.getContext("2d");
     if (!gc) return false;
     gc.setTransform(1, 0, 0, 1, 0, 0); gc.clearRect(0, 0, w, h); gc.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const cv: View = { ...v, ox: v.ox + margin, oy: v.oy + margin, width: v.width + 2 * margin, height: v.height + 2 * margin };
-    // Zoomed out, ripples are a few pixels and stay frozen in the layer.
-    drawGroundTiles({ ...r, c: gc, v: cv, anim: 0 }, visibleTiles(cv), lod, !lod);
-    Object.assign(g, { canvas, sig, season: r.season, rotation: rot, dpr, TW: v.TW, ox: v.ox, oy: v.oy, width: v.width, height: v.height, margin });
+    draw(gc, { ...v, ox: v.ox + margin, oy: v.oy + margin, width: v.width + 2 * margin, height: v.height + 2 * margin });
+    Object.assign(g, { canvas, sig, season, rotation: rot, dpr, builtAt: now, TW: v.TW, ox: v.ox, oy: v.oy, width: v.width, height: v.height, margin });
   }
   const s = v.TW / g.TW;
   let x = v.ox - s * (g.ox + g.margin), y = v.oy - s * (g.oy + g.margin);
@@ -453,6 +468,12 @@ function paintGround(r: RC, g: GroundCache, dpr: number, lod: boolean) {
   c.drawImage(g.canvas!, x, y, (g.canvas!.width / dpr) * s, (g.canvas!.height / dpr) * s);
   return true;
 }
+
+/** Ground layer: terrain, banks and fog. Zoomed out, ripples are a few pixels
+ * and stay frozen in the layer; zoomed in they are animated separately. */
+const paintGround = (r: RC, g: LayerCache, dpr: number, lod: boolean) =>
+  paintLayer(r.c, r.v, g, dpr, groundSignature(r.city, r.D), r.season, Infinity,
+    (gc, cv) => drawGroundTiles({ ...r, c: gc, v: cv, anim: 0 }, visibleTiles(cv), lod, !lod));
 
 /* ---------- objects ---------- */
 function drawTree(r: RC, x: number, y: number, u: number, v: number, size: number, pine: boolean, shake = 0) {
@@ -2217,7 +2238,11 @@ export type DrawOpts = {
   fx: Fx[];
   chopping: Set<number>;
   /** Reused offscreen ground layer; omit to draw ground directly every frame. */
-  ground?: GroundCache;
+  ground?: LayerCache;
+  /** Reused zoomed-out layer of buildings, trees, rocks and camps. */
+  items?: LayerCache;
+  /** Internal: render only that zoomed-out object layer. */
+  layer?: "static";
   /** Device pixel ratio of the target canvas (used by the ground layer). */
   dpr?: number;
 };
@@ -2239,6 +2264,11 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   const visible = visibleTiles(v), vis = new Uint8Array(W * H);
   for (const i of visible) vis[i] = 1;
   const seen = city.seen;
+  // Zoomed out no villagers are drawn; static objects come from a cached layer and
+  // only moving objects (zombies, placement ghost) are drawn over it each frame.
+  const staticOnly = o.layer === "static", cachedItems = !staticOnly && lod && !!o.items && typeof document !== "undefined";
+  let ghostOk = false;
+  if (!staticOnly) {
 
   // 1. ground, back to front
   if (o.ground && paintGround(r, o.ground, o.dpr ?? 1, lod)) { if (!lod) drawLiveRipples(r, visible); }
@@ -2290,7 +2320,6 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       if(Math.max(Math.abs(i%W-serviceCell.x),Math.abs(Math.floor(i/W)-serviceCell.y))===range)outline({x:i%W,y:Math.floor(i/W)},'rgba(119,217,221,.65)');
     }
   }
-  let ghostOk = false;
   if (o.selected) outline(o.selected, "#f0c766", "rgba(240,199,102,.18)");
   if (o.hover) {
     if (o.tool) {
@@ -2319,6 +2348,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       const a=P(v,from%W+.5,Math.floor(from/W)+.5),b=P(v,to%W+.5,Math.floor(to/W)+.5);c.moveTo(...a);c.lineTo(...b);c.stroke();c.setLineDash([]);
     }
   }
+  }
   const magicScene_=city.magic?magicScene(city,o.now):null;
   if(magicScene_&&!lod)drawMagicGround(r,magicScene_,o.now);
   // 3. objects sorted by depth
@@ -2329,6 +2359,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     for(const t of city.magic!.treants??[]){const at=treantPoint(t,o.now),ti=idx(Math.floor(at.x),Math.floor(at.y));if(!seen[ti]||!onScreen(at.x-.5,at.y-.5))continue;
       items.push({d:viewDepth(v,at.x,at.y),f:()=>{const [sx,sy]=P(v,at.x,at.y);drawMagicArt(c,'treant',sx,sy,Math.max(v.s,.5),{time:o.anim,still:!o.anim,walking:at.walking,active:t.phase==='deliver'||t.phase==='wait',face:cameraFace(v,at.face),seed:t.id*.37});}});}
   }
+  if (!cachedItems) {
   for(const [from,b]of buildings(city))if(b.k==='ironbridge'&&b.bridge){
     const span=b.bridge,alongX=Math.floor(from/W)===Math.floor(span.to/W),ready=bridgeReady(city,from);
     for(const tile of span.tiles){
@@ -2431,10 +2462,11 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       items.push({ d, f: () => drawRock(r, x, y, worn > 0.55, lod) });
     }
   }
+  }
   const zombieState=city.zombies;
-  if(zombieState?.warning!==undefined){const tile=zombieState.warning,fx=tile%W+.5,fy=Math.floor(tile/W)+.5;if(onScreen(fx-.5,fy-.5))items.push({d:viewDepth(v,fx,fy)-.1,f:()=>{const [sx,sy]=P(v,fx,fy);c.strokeStyle='#d79468';c.lineWidth=2*v.s;c.beginPath();c.moveTo(sx-12*v.s,sy);c.lineTo(sx-3*v.s,sy-3*v.s);c.lineTo(sx+2*v.s,sy+2*v.s);c.lineTo(sx+12*v.s,sy-2*v.s);c.stroke();c.fillStyle='#efb77d';c.font=`bold ${12*v.s}px sans-serif`;c.fillText('!',sx,sy-12*v.s);}});}
-  for(const z of zombieState?.actors??[]){if((z.emergesAt??0)>o.now)continue;if(!seen[idx(Math.floor(z.x),Math.floor(z.y))]||!onScreen(z.x-.5,z.y-.5))continue;items.push({d:viewDepth(v,z.x,z.y),f:()=>{const [sx,sy]=P(v,z.x,z.y);drawZombieArt(c,z.kind,sx,sy,Math.max(.55,v.s),{time:o.anim,walking:z.walking,attacking:!!z.hitAt&&o.now-z.hitAt<500,face:cameraFace(v,1),hurt:!!z.hitAt&&o.now-z.hitAt<150});if(z.hp<z.maxHp){c.fillStyle='#342b26';c.fillRect(sx-10*v.s,sy-49*v.s,20*v.s,3*v.s);c.fillStyle='#ca6b58';c.fillRect(sx-10*v.s,sy-49*v.s,20*v.s*Math.max(0,z.hp/z.maxHp),3*v.s);}}});}
-  for (const k of city.camps) {
+  if(!staticOnly&&zombieState?.warning!==undefined){const tile=zombieState.warning,fx=tile%W+.5,fy=Math.floor(tile/W)+.5;if(onScreen(fx-.5,fy-.5))items.push({d:viewDepth(v,fx,fy)-.1,f:()=>{const [sx,sy]=P(v,fx,fy);c.strokeStyle='#d79468';c.lineWidth=2*v.s;c.beginPath();c.moveTo(sx-12*v.s,sy);c.lineTo(sx-3*v.s,sy-3*v.s);c.lineTo(sx+2*v.s,sy+2*v.s);c.lineTo(sx+12*v.s,sy-2*v.s);c.stroke();c.fillStyle='#efb77d';c.font=`bold ${12*v.s}px sans-serif`;c.fillText('!',sx,sy-12*v.s);}});}
+  for(const z of staticOnly?[]:zombieState?.actors??[]){if((z.emergesAt??0)>o.now)continue;if(!seen[idx(Math.floor(z.x),Math.floor(z.y))]||!onScreen(z.x-.5,z.y-.5))continue;items.push({d:viewDepth(v,z.x,z.y),f:()=>{const [sx,sy]=P(v,z.x,z.y);drawZombieArt(c,z.kind,sx,sy,Math.max(.55,v.s),{time:o.anim,walking:z.walking,attacking:!!z.hitAt&&o.now-z.hitAt<500,face:cameraFace(v,1),hurt:!!z.hitAt&&o.now-z.hitAt<150});if(z.hp<z.maxHp){c.fillStyle='#342b26';c.fillRect(sx-10*v.s,sy-49*v.s,20*v.s,3*v.s);c.fillStyle='#ca6b58';c.fillRect(sx-10*v.s,sy-49*v.s,20*v.s*Math.max(0,z.hp/z.maxHp),3*v.s);}}});}
+  for (const k of cachedItems ? [] : city.camps) {
     if (!seen[k.at] || !vis[k.at] || city.b[k.at]) continue;
     items.push({ d: viewDepth(v,k.at%W+.5,Math.floor(k.at/W)+.5), f: () => drawCampSite(r, k) });
     if(!lod && !k.cleared && !city.exps.some(e=>e.camp===k.id && !e.recalled && !e.resolved && o.now>=e.arrive)){
@@ -2584,8 +2616,11 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
     const { x, y } = o.hover, tool = o.tool;
     items.push({ d: viewDepth(v,x+.5,y+.5)+.01, f: () => { c.globalAlpha = ghostOk ? 0.75 : 0.4; drawBuilding(r, tool, x, y, 1, idx(x, y)); c.globalAlpha = 1; } });
   }
+  if (cachedItems) paintLayer(c, v, o.items!, o.dpr ?? 1, itemsSignature(city), r.season, 5000,
+    (gc, cv) => drawCity(gc, city, D, { ...o, v: cv, anim: 0, hover: null, tool: null, layer: "static", ground: undefined, items: undefined }));
   items.sort((a, b) => a.d - b.d);
   for (const it of items) it.f();
+  if (staticOnly) return;
   if(magicScene_&&!lod)drawMagicAir(r,magicScene_,o.now);
 
   // Hunger overlays use existing actor positions; a single speaker avoids a wall of bubbles.
