@@ -90,3 +90,11 @@ stronger modern waves.
 Đã phát hành Web/API Cloudflare từ commit `48f4be0`, release `crowd-zombie-48f4be0`, version `c60e9738-0730-4302-9c90-a0df94311707`. Build production đạt; TypeScript, 581 full game tests (trước test neo nhãn cuối), 7 crowd tests, 6 API tests và 18 Worker tests đạt. Combat Worker không deploy lại; không migration/reset/chỉnh dữ liệu làng.
 
 Public smoke: health 200 / ready đúng release ID; 8 asset JS/CSS trang chủ khớp SHA256 bản build; `/dev/magic-ui` và `/dev/zombies` trả 404. Không dùng private-account smoke; chưa đo độ trễ/FPS trên làng production.
+
+## Hotfix giảm áp lực sau phản hồi Bến Vân Đồng
+
+Giảm vừa phải đời 6–9, giữ sửa đường đi, sát thương, tốc độ, lịch và ngưỡng tối thiểu 8 con. Hệ số số lượng từ 2/2,25/2,5/2,75 xuống 1,75/1,95/2,15/2,35. Máu normal = 210 + 45×growth, super = 600 + 90×growth, breaker = 900 + 140×growth (growth=era−6, tối đa 3). Đời 1–5 giữ nguyên.
+
+Mẫu đời 7, áp lực 1.717 dân: 97→84 con; tổng máu đợt 56.360→40.070, giảm 28,9%. HP normal 300→255, super 840→690, breaker 1.280→1.040. Số lượng/maxHp mới áp dụng khi sinh đợt mới; không chỉnh trực tiếp actor hoặc dữ liệu production. Các bộ đếm thiệt hại là lũy kế, không quy toàn bộ cho release vừa rồi.
+
+TypeScript và 62 tests zombie/spread/magic integration đạt; test mới khóa mẫu quy mô Bến Vân Đồng và chu kỳ 15 phút.

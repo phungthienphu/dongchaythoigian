@@ -12,9 +12,9 @@ export type ZombieGuard={id:string;u:UKey;x:number;y:number;hp:number;nextHit:nu
 export type ZombieState={activatedAt:number;last:number;nextAt:number;index:number;warning?:number;actors:Zombie[];guards:ZombieGuard[];peaks:{at:number;pop:number}[];population:number;patrol:boolean;healthAt:number;idleUntil?:number;idlePopulation?:number;resumeAt?:number;survivorsAt?:number;report:{waves:number;killed:number;lost:number;infected:number;destroyed:number};};
 export function zombieStats(kind:ZombieKind,era:number){
  if(era>=6){const growth=Math.max(0,Math.min(3,era-6));
-  if(kind==='super')return {hp:720+120*growth,speed:1.05,damage:18+3*growth,civilianDamage:4,attackMs:1500,civilianAttackMs:2000,building:1};
-  if(kind==='breaker')return {hp:1100+180*growth,speed:.4,damage:24+4*growth,civilianDamage:12,attackMs:2500,civilianAttackMs:2500,building:2};
-  return {hp:240+60*growth,speed:.6,damage:12+2*growth,civilianDamage:8,attackMs:2000,civilianAttackMs:2000,building:1};
+  if(kind==='super')return {hp:600+90*growth,speed:1.05,damage:18+3*growth,civilianDamage:4,attackMs:1500,civilianAttackMs:2000,building:1};
+  if(kind==='breaker')return {hp:900+140*growth,speed:.4,damage:24+4*growth,civilianDamage:12,attackMs:2500,civilianAttackMs:2500,building:2};
+  return {hp:210+45*growth,speed:.6,damage:12+2*growth,civilianDamage:8,attackMs:2000,civilianAttackMs:2000,building:1};
  }
  if(kind==='super')return {hp:160,speed:.8,damage:6,civilianDamage:3,attackMs:1500,civilianAttackMs:2000,building:1};
  if(kind==='breaker')return {hp:240,speed:.25,damage:12,civilianDamage:12,attackMs:2500,civilianAttackMs:2500,building:2};
@@ -24,9 +24,9 @@ export function zombiePressure(c:City,at=c.last){const s=c.zombies;return Math.m
 export const WEEK=7*24*HOUR;
 /** Whole weeks since activation, on server timestamps: identical online and offline. */
 export const zombieWeeks=(s:Pick<ZombieState,'activatedAt'>,at:number)=>Math.max(0,Math.floor((at-s.activatedAt)/WEEK));
-/** Modern-era waves scale from 2× to 2.75× the early population curve.
+/** Modern-era waves scale from 1.75× to 2.35× the early population curve.
  * Keep the existing warning, first-wave grace and interval floor. */
-export function zombieWave(pop:number,era:number,index:number,weeks=0){const scale=era>=6?2+.25*Math.min(3,era-6):1,total=Math.max(era>=6?8:1,Math.ceil(pop/40*scale)),superCount=era<4?0:total===1?(index%3===0?1:0):Math.max(1,Math.floor(total/6)),breaker=era>=5?Math.floor(total/5):0;return {total,normal:total-superCount-breaker,super:superCount,breaker,interval:Math.max(15,60-5*Math.floor(pop/100)-5*Math.max(0,Math.floor(weeks)))*MINUTE};}
+export function zombieWave(pop:number,era:number,index:number,weeks=0){const scale=era>=6?1.75+.2*Math.min(3,era-6):1,total=Math.max(era>=6?8:1,Math.ceil(pop/40*scale)),superCount=era<4?0:total===1?(index%3===0?1:0):Math.max(1,Math.floor(total/6)),breaker=era>=5?Math.floor(total/5):0;return {total,normal:total-superCount-breaker,super:superCount,breaker,interval:Math.max(15,60-5*Math.floor(pop/100)-5*Math.max(0,Math.floor(weeks)))*MINUTE};}
 export const ZOMBIE_ACTIVATION_NOTICE='Zombie sẽ trồi sau 5 phút. Tuyển lính, đặt vị trí bảo vệ và dựng lều cứu thương. Công trình bị phá mất vĩnh viễn!';
 /** Shared by new villages, explicit activation and the one-time existing-village rollout. */
 export function initialZombieState(at:number,population:number,patrol=false):ZombieState {

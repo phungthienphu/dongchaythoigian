@@ -101,15 +101,15 @@ test('legacy rollout starts in the present without retroactive waves and never r
 
 test('modern waves create a denser threat while early-era population pressure stays unchanged',()=>{
  assert.equal(zombieWave(300,5,1).total,8);
- assert.equal(zombieWave(300,6,1).total,15);assert.equal(zombieWave(680,6,1).total,34);
- assert.equal(zombieWave(680,7,1).total,39);assert.equal(zombieWave(680,9,1).total,47);
+ assert.equal(zombieWave(300,6,1).total,14);assert.equal(zombieWave(680,6,1).total,30);
+ assert.equal(zombieWave(680,7,1).total,34);assert.equal(zombieWave(680,9,1).total,40);
  for(const era of [6,7,8,9]){const wave=zombieWave(680,era,1);assert.equal(wave.normal+wave.super+wave.breaker,wave.total);assert.ok(wave.super>0&&wave.breaker>0);}
 });
 test('modern zombies survive tank shells, with distinct runner and breaker roles',()=>{
  const shell=UNITS.armor.atk*UNITS.armor.attackMs!/1000;
  for(const era of [6,7,8,9]){
   const normal=zombieStats('normal',era),runner=zombieStats('super',era),breaker=zombieStats('breaker',era);
-  assert.ok(Math.ceil(normal.hp/shell)>=2);assert.ok(Math.ceil(runner.hp/shell)>=4);assert.ok(Math.ceil(breaker.hp/shell)>=6);
+  assert.ok(Math.ceil(normal.hp/shell)>=2);assert.ok(Math.ceil(runner.hp/shell)>=3);assert.ok(Math.ceil(breaker.hp/shell)>=5);
   assert.ok(runner.speed>normal.speed&&normal.speed>breaker.speed);assert.ok(breaker.hp>runner.hp&&runner.hp>normal.hp);
   assert.ok(breaker.damage*breaker.building/breaker.attackMs>normal.damage/normal.attackMs);
  }
@@ -120,6 +120,14 @@ test('a modern normal zombie survives the first actual armor shot and dies to th
  const c=city();c.era=6;c.people=[];c.army={armor:1};c.camp=idx(20,20);c.zombies!.nextAt=1000000;
  const guard=homeSoldiers(c,1000,undefined,false).find(g=>g.u==='armor')!,spec=zombieStats('normal',6);
  c.zombies!.actors=[{id:1,kind:'normal',era:6,hp:spec.hp,maxHp:spec.hp,x:guard.x+3,y:guard.y,until:100000,nextHit:100000,repath:0}];
- stepZombies(c,1000);assert.equal(c.zombies!.actors[0].hp,40);stepZombies(c,2000);assert.equal(c.zombies!.actors[0].hp,40);
+ stepZombies(c,1000);assert.equal(c.zombies!.actors[0].hp,10);stepZombies(c,2000);assert.equal(c.zombies!.actors[0].hp,10);
  stepZombies(c,3000);assert.equal(c.zombies!.actors.length,0);assert.equal(c.zombies!.report.killed,1);
+});
+
+test('modern pressure hotfix reduces wave HP moderately at Van Dong population without changing interval',()=>{
+ const wave=zombieWave(1717,7,1);
+ assert.equal(wave.total,84);assert.equal(wave.interval,15*60000);
+ const hp=wave.normal*zombieStats('normal',7).hp+wave.super*zombieStats('super',7).hp+wave.breaker*zombieStats('breaker',7).hp;
+ const previous=62*300+16*840+19*1280;
+ assert.ok(hp/previous>.65&&hp/previous<.8);
 });
