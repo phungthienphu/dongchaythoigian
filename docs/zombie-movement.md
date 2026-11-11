@@ -14,3 +14,13 @@ Nguyên nhân bầy cũ co cụm: cả đợt xuất hiện tại một ô, cùn
 - Không dùng random theo frame/wall clock. Các trường hướng là tùy chọn nên save cũ đọc được; không reset lịch zombie, quân hay làng.
 
 Kiểm tra: 562 test game, 9 test API, 18 test Worker, TypeScript, render regression và build Cloudflare đạt. Test mới gồm sinh rải có vật cản/người/sương, ổ bao kín, đa dạng đường/né đông/qua cầu, lưu-tải lại và online/offline khớp. Browser local `/dev/zombies` có tùy chọn xem bầy 17 zombie không phòng thủ, nút tiến từng giây và chế độ phòng thủ 9 zombie cũ.
+
+## Phát hành 11/11/2026
+
+- Commit tính năng: `5ef36d5`, đã push main.
+- Web/API: `de52696f-7f9d-4617-a516-c4b397c78feb`.
+- Combat Worker: `bba921f9-8cb8-45bf-a7c6-d32c6e7177e5`.
+- Production smoke: 30 request, 19 assets đạt; API xác thực giữ làng Nam Quốc Sơn Hà. Combat/chợ reconcile: `ok: true`, `failed: 0`.
+- Log: `/tmp/zombie-spread-{web-deploy,battle-deploy,production-smoke,reconcile}.log`.
+
+Phạm vi điều quân hiện có: di chuyển đơn/nhóm, đặt chốt và tự chọn zombie trong tầm. Chưa có lệnh chọn một zombie làm mục tiêu tập trung. Lỗi tái đánh số lính sau khi đồng đội chết làm thay vị trí gác đã được tái hiện, chưa sửa trong bản này. Kiểm tra API production không thay cho nghiệm thu điều quân tương tác trên tài khoản thật.
