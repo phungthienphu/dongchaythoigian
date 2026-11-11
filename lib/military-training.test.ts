@@ -11,8 +11,8 @@ function fixture(era=6,levels=[3,3,3]):City{
  c.wildernessAt=100*HOUR;c.disaster={kind:'flood',at:100*HOUR,level:1,center:0};settle(c,0);return c;
 }
 test('capacity grows with era and level; inactive facilities add no slots and existing troops survive capacity loss',()=>{
- for(let era=1;era<=6;era++){
-  const c=fixture(era);assert.equal(armyCap(c),[0,90,90,180,240,300,360][era]);
+ for(let era=1;era<=9;era++){
+  const c=fixture(era);assert.equal(armyCap(c),[0,90,90,180,240,300,360,420,480,540][era]);
   for(let level=1;level<=3;level++){for(const tile of sites)c.b[tile].lvl=level;assert.equal(armyCap(c),3*barracksCapacity(era,level));}
  }
  const c=fixture();c.army={club:360};c.b[sites[0]].burned=true;assert.equal(armyCap(c),240);assert.equal(armyUsed(c),360);

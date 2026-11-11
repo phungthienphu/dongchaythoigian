@@ -787,9 +787,10 @@ const pay = (c: City, cost: Partial<Res>, sign = -1,at=c.last) => { for (const r
 
 export const soldiers = (c: City) => troopCount(c.army) + troopCount(c.deployedArmy ?? {}) + c.queue.length + c.exps.reduce((a, e) => a + troopCount(e.units), 0);
 /** Slots per individual barracks level. Existing troops are never removed when capacity drops. */
-const BARRACKS_CAPACITY=[[0,10,20,30],[0,10,20,30],[0,20,40,60],[0,30,55,80],[0,40,70,100],[0,50,85,120]];
+// Per barracks, by era (rows) and level 0–3. Eras 7–9 keep growing (chốt 11/11/2026).
+const BARRACKS_CAPACITY=[[0,10,20,30],[0,10,20,30],[0,20,40,60],[0,30,55,80],[0,40,70,100],[0,50,85,120],[0,60,100,140],[0,70,115,160],[0,80,130,180]];
 export function barracksCapacity(era:number,level:number){
-  return BARRACKS_CAPACITY[Math.max(1,Math.min(6,Math.floor(era)))-1][Math.max(0,Math.min(3,Math.floor(level)))];
+  return BARRACKS_CAPACITY[Math.max(1,Math.min(BARRACKS_CAPACITY.length,Math.floor(era)))-1][Math.max(0,Math.min(3,Math.floor(level)))];
 }
 export const armyCap = (c: City) => Object.values(c.b).reduce((a, b) => a + (b.k === "barracks" && isBuildingActive(b) ? barracksCapacity(c.era,b.lvl) : 0), 0) + magicArmySpace(c);
 export const armyUsed = (c: City) => troopSpace(c.army) + troopSpace(c.deployedArmy ?? {}) + c.queue.reduce((a, q) => a + UNITS[q.u].space, 0) + c.exps.reduce((a, e) => a + troopSpace(e.units), 0);

@@ -261,7 +261,7 @@ Mỗi loại pháp sư cần nghiên cứu tương ứng và học viện hoạt
 - Mục tiêu quân bay (trong PvP) chỉ bị quân tầm xa có tag chống bay đánh: cung/nỏ/đạn bộ binh/tháp canh và pháp sư. Golem/quân cận chiến không đánh bay. Pháp sư ×1,5 sát thương lên thần thú bay, bộ binh tầm xa hiện đại ×1,25; vẫn cần kiểm tra giá/chỗ và tầm, không tự suy ra khắc chế đã cân bằng.
 - **Zombie đánh được quân bay** khi trong tầm cận chiến (chốt 11/11, xem `zombie-spec.md`). Thần thú bay không miễn nhiễm áp lực zombie.
 - Thanh Long/Phượng bay qua vật cản mặt đất trong biên trận, không chiếm kho, không thắng mục tiêu chiếm Đình nếu thiếu quân mặt đất. Tường vẫn chặn zombie/golem và quân đất; không sinh miễn phí quân phía sau tường qua cổng giới.
-- Trần quân = trần doanh trại hiện có (thời 7–9 giữ mốc thời 6) + chỗ ma pháp từ nhà còn hoạt động; mọi quân cùng tính vào một trần. Slot thần thú là trần phụ 4 (tối đa 2 con), không thay chỗ quân 12/con. Nhà bị phá không xóa quân, chỉ chặn tuyển vượt trần.
+- Trần quân = trần doanh trại (tăng tiếp ở thời 7–9, chốt 11/11: mỗi trại cấp 1/2/3 chứa 60/100/140 ở thời 7, 70/115/160 ở thời 8, 80/130/180 ở thời 9; 3 trại cấp 3 = 420/480/540) + chỗ ma pháp từ nhà còn hoạt động; mọi quân cùng tính vào một trần. Slot thần thú là trần phụ 4 (tối đa 2 con), không thay chỗ quân 12/con. Nhà bị phá không xóa quân, chỉ chặn tuyển vượt trần.
 - Đánh giá bắt buộc: ngân sách tương đương, quân đất thời 6 đối đầu pháp sư, pháp sư đông bị áp sát, golem bị kite, thần thú bị tập trung chống bay. Không tăng HP/đòn toàn bộ theo đời để ép bỏ quân cũ.
 
 ## 8. Cơ chế phép chung và giới hạn chống lạm dụng

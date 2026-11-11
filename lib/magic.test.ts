@@ -93,7 +93,7 @@ test('research queue pays atomically, needs academy and university, completes of
 
 test('mages need research, academy space and mana paid once at the start of training',()=>{
  const c=era7(),well=place(c,'aetherwell',30,30),academy=place(c,'mageacademy',32,30);c.b[idx(10,10)]={k:'barracks',lvl:1,doneAt:null};stepMagic(c,MIN);
- assert.equal(armyCap(c),50+12);
+ assert.equal(armyCap(c),60+12); // era-7 barracks level 1 + one academy
  assert.match(applyAction(c,{type:'train',u:'firemage',n:2},MIN,RULES)!,/Chiến pháp/);
  c.magic!.researched.push('conduction','warcraft');const id=magicSiteId(well);c.magic!.mana[id]=70;const before=structuredClone(c);
  assert.match(applyAction(c,{type:'train',u:'firemage',n:2},MIN,RULES)!,/mana/);assert.deepEqual(c.res,before.res);assert.equal(c.magic!.mana[id],70);
