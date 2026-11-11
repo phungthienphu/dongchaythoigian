@@ -39,7 +39,7 @@ Giảm khoảng 28% số lệnh so với cache lớp trước đó. Thời gian 
 
 Browser local đã chạy mẫu 1.500 dân, kéo bản đồ, mở camera, zoom và xoay, cùng mẫu thời 9 mở bảng Ma pháp và hướng dẫn. Trong lần đo mẫu 1.500 dân, `crowd` trung vị khoảng 1 ms, `draw` có lúc hàng chục ms; renderer vẫn cần được ưu tiên trước khi chuyển toàn bộ queue sang Worker. Browser tự động có các khoảng lịch chạy gần 1 giây; không suy ra FPS production từ các khoảng frame đó.
 
-Đã quan sát đúng tài khoản được người dùng cho phép trên production. Màn hình báo chưa lấy được quyền điều khiển/cần kiểm tra đồng bộ; chưa xác định nguyên nhân, không gán cảnh báo này cho renderer. Không gửi lệnh xây dựng, điều quân, sửa nhà hoặc thay tài nguyên trên tài khoản thật. Chưa có số đo trước/sau của tài khoản này với bundle mới vì chưa triển khai production.
+Đã quan sát đúng tài khoản được người dùng cho phép trên production. Màn hình báo chưa lấy được quyền điều khiển/cần kiểm tra đồng bộ; chưa xác định nguyên nhân, không gán cảnh báo này cho renderer. Không gửi lệnh xây dựng, điều quân, sửa nhà hoặc thay tài nguyên trên tài khoản thật. Sau release đã mở được đúng làng Nam Quốc Sơn Hà trong browser; chưa có phép đo FPS trước/sau có kiểm soát.
 
 ## Kết luận về tài nguyên và thiên tai
 
@@ -64,7 +64,7 @@ HUD tài nguyên: bỏ ép các ô về flex-basis 0; dùng container query theo
 - `bun run build`
 - `git diff --check`
 
-Chưa deploy bản đang kiểm tra. Thay đổi `.gitignore` đã tồn tại trước phiên này, không thuộc bản sửa.
+Đã phát hành bản mở rộng `8f363b2` lên Cloudflare và kiểm tra production; xem báo cáo release và tài liệu cân bằng. Thay đổi `.gitignore` đã tồn tại trước phiên này, không thuộc bản sửa.
 
 ## Phần còn lại
 

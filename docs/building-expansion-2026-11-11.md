@@ -60,7 +60,7 @@ Xem `/dev/expansion` khi chạy development: đổi thời 6–9, cấp 1–3 v�
 
 ## Ranh giới xác nhận
 
-Có kiểm tra mô phỏng sản xuất, trả nguyên liệu, kho, tri thức, mana, phòng thủ zombie và tính nhất quán online/offline. Đây là cân bằng ban đầu dựa trên công thức hiện hữu, chưa phải kết quả playtest dài ngày của tài khoản thật. Chưa triển khai production.
+Có kiểm tra mô phỏng sản xuất, trả nguyên liệu, kho, tri thức, mana, phòng thủ zombie và tính nhất quán online/offline. Đây là cân bằng ban đầu dựa trên công thức hiện hữu, chưa phải kết quả playtest dài ngày của tài khoản thật. Bản đầu đã triển khai production; chi tiết và cập nhật cân bằng ở phần dưới.
 
 ## Rà soát sau release
 
