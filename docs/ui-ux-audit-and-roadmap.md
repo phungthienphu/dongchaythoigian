@@ -1,4 +1,4 @@
-# Rà soát UI/UX và kế hoạch cải tiến Dòng Sông Thời Đại
+# Rà soát UI/UX và kế hoạch cải tiến Dòng Chảy Thời Gian
 
 Ngày: 10/11/2026. Mốc mã nguồn: `7a63720` trên `main`.
 

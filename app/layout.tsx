@@ -11,20 +11,20 @@ const siteDescription = `Dựng thành phố ven sông từ thời đồ đá t�
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://dongchaythoigian.vercel.app"),
-  title: "Dòng Sông Thời Đại",
+  title: "Dòng Chảy Thời Gian",
   description: siteDescription,
   openGraph: {
     type: "website",
     locale: "vi_VN",
-    siteName: "Dòng Sông Thời Đại",
-    title: "Dòng Sông Thời Đại",
+    siteName: "Dòng Chảy Thời Gian",
+    title: "Dòng Chảy Thời Gian",
     description: siteDescription,
   },
   twitter: {
     card: "summary_large_image",
-    title: "Dòng Sông Thời Đại",
+    title: "Dòng Chảy Thời Gian",
     description: siteDescription,
-    images: [{ url: "/opengraph-image.png", alt: "Dòng Sông Thời Đại — ngôi làng ven sông theo phong cách isometric." }],
+    images: [{ url: "/opengraph-image.png", alt: "Dòng Chảy Thời Gian — ngôi làng ven sông theo phong cách isometric." }],
   },
 };
 export const viewport: Viewport = { themeColor: "#17201e", viewportFit: "cover" };

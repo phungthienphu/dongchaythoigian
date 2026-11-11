@@ -11,7 +11,7 @@ const home = await get('/');
 assert.equal(home.status, 200);
 assert.match(home.headers.get('content-type'), /text\/html/);
 const html = await home.text();
-assert.match(html, /Dòng Sông Thời Đại/);
+assert.match(html, /Dòng Chảy Thời Gian/);
 const socialImage = html.match(/<meta property="og:image" content="([^"]+)"/);
 assert.ok(socialImage, 'Missing social image metadata');
 assert.equal(new URL(socialImage[1]).origin, new URL(origin).origin, 'Metadata points to a different environment');

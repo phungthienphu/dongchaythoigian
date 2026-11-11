@@ -70,7 +70,7 @@ export default function WelcomeScreen({ user, name, onName, onCreate, busy, mess
   const eras = ERAS.filter(e => e.id <= maxEra);
   return <main className="welcome">
     <header className="welcome-header">
-      <a href="/" className="welcome-wordmark" aria-label="Dòng Sông Thời Đại — trang chủ"><svg viewBox="0 0 36 36" width="32" height="32" fill="none" aria-hidden="true"><path d="M5 10h26M5 26h26M5 18c8-10 18 10 26 0" stroke="currentColor" strokeWidth="2"/><path d="m13 4 5 5 5-5M13 32l5-5 5 5" stroke="currentColor" strokeWidth="1.5"/></svg><span>Dòng Sông Thời Đại</span></a>
+      <a href="/" className="welcome-wordmark" aria-label="Dòng Chảy Thời Gian — trang chủ"><svg viewBox="0 0 36 36" width="32" height="32" fill="none" aria-hidden="true"><path d="M5 10h26M5 26h26M5 18c8-10 18 10 26 0" stroke="currentColor" strokeWidth="2"/><path d="m13 4 5 5 5-5M13 32l5-5 5 5" stroke="currentColor" strokeWidth="1.5"/></svg><span>Dòng Chảy Thời Gian</span></a>
       <a href="#truoc-khi-choi" className="welcome-help-link">Trước khi chơi <span aria-hidden="true">↗</span></a>
     </header>
 
@@ -119,6 +119,6 @@ export default function WelcomeScreen({ user, name, onName, onCreate, busy, mess
         <details><summary>Có thể chơi cùng bạn bè không?</summary><p>Có. Đăng nhập Google để tìm bạn, kết bạn và thăm làng nhau. Muốn biết vị trí nước khác trên bản đồ thế giới, bạn cần cử sứ giả đi tìm. Khi đủ quân và lương thực, bạn có thể xuất quân.</p></details>
       </div>
     </section>
-    <footer className="welcome-footer"><span>Dòng Sông Thời Đại</span><span>Từ thời đồ đá đến {eras.at(-1)?.name.toLowerCase()}.</span></footer>
+    <footer className="welcome-footer"><span>Dòng Chảy Thời Gian</span><span>Từ thời đồ đá đến {eras.at(-1)?.name.toLowerCase()}.</span></footer>
   </main>;
 }

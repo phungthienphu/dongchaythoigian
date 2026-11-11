@@ -1,4 +1,4 @@
-# Spec mở rộng thời đại 4–6 — Dòng Sông Thời Đại
+# Spec mở rộng thời đại 4–6 — Dòng Chảy Thời Gian
 
 Ngày: 06/11/2026. Trạng thái: đề xuất sản phẩm để triển khai; chưa thay đổi luật chơi đang chạy. Các giá, thời gian và chỉ số dưới đây là mốc cân bằng ban đầu, cần kiểm chứng bằng mô phỏng và chơi thử.
 
