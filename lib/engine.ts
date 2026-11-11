@@ -2047,7 +2047,8 @@ function rareDeposit(c:City,random:()=>number){
 }
 function naturalResource(c:City,random:()=>number,allowRare=true){
   if(allowRare&&c.era>=7&&c.t.filter(isMagicDeposit).length<4&&random()<.002){const rare=rareDeposit(c,random);if(rare!==null)return rare;}
-  const roll=random();return roll<.45?F:roll<.75?HL:roll<.9?O:roll<.98?GOLD:DIAMOND;
+  // Coal takes five percentage points from stone after the Industrial unlock.
+  const roll=random();return roll<.45?F:roll<.70?HL:roll<.75?(c.era>=5?COAL:HL):roll<.9?O:roll<.98?GOLD:DIAMOND;
 }
 /** Do not place an impassable deposit across a narrow passage. */
 function openDepositSite(c:City,tile:number){
