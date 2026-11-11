@@ -1,6 +1,8 @@
 # Tối ưu thao tác bảng và quản lý công trình
 
-Trạng thái: thay đổi local, chưa deploy. Production hiện là `c9ec755`, release `catchup-zombie-c9ec755`, Cloudflare version `30417b97-a65d-4059-a553-87c0a0e450c4`. Public health ready, tám asset trang chủ khớp SHA256 bản build; các route dev trả 404.
+Đã phát hành cùng thay đổi sinh than: UI commit `9f6c06d`, production source `572923a`, release `ui-coal-572923a`, Cloudflare version `29e623e4-71cd-4b20-8281-1fcf1451c835`. Public health ready, tám asset trang chủ khớp SHA256 bản build; các route dev trả 404. Sinh than từ đời 5 lấy 5 điểm phần trăm từ xác suất đá khi sinh tài nguyên tự nhiên; đời 4 trở xuống giữ nguyên.
+
+Release được build từ snapshot Git riêng, giữ `.gitignore` ngoài commit. Bản UI qua 565 game tests, 9 API tests, render regression và 18 Worker tests; bản gộp qua build TypeScript/Cloudflare và 15 frontier/natural-resource tests, gồm hai regression mới cho than. Không thay đổi Combat Worker hoặc schema. Không dùng tài khoản thật để smoke test.
 
 ## Nguyên nhân và thay đổi
 
