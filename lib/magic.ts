@@ -3,7 +3,7 @@
  * training and zombie combat. All timing uses absolute timestamps so online,
  * offline and chunked settlement give the same result. Functions only: this
  * module is imported by the engine, so it must not touch engine values at load. */
-import {UNITS,isBuildingActive,hallLevel,stats,derive,type City,type Building,type BKey,type UKey,type ResKey} from './engine';
+import {UNITS,isBuildingActive,hallLevel,stats,derive,type City,type Building,type BKey,type UKey,type ResKey,type Troops} from './engine';
 import type {EngineRules} from './eras';
 import {staffCounts} from './industry';
 import {zombiePath,zombiePersonPosition,type Zombie,type ZombieGuard} from './zombies';
@@ -11,10 +11,12 @@ import {bridgeDeck} from './bridges';
 import {manaNetwork,spendMana,type ManaNetwork,type ManaSite} from './mana-network';
 import {reconcileMagicFactories,deliverMagicInput,stepMagicProduction,type MagicProduction} from './magic-production';
 import {beginMagicResearch,finishMagicResearch,cancelMagicResearch,type MagicResearchState} from './magic-research';
-import {MAGIC_BUILDINGS,MAGIC_RESEARCH,MAGIC_SPELLS,magicDef,type MagicBuilding,type MagicGoods,type Research} from './magic-data';
+import {MAGIC_BUILDINGS,MAGIC_RESEARCH,MAGIC_SPELLS,magicDef,type MagicBuilding,type MagicGoods,type Research,type Element} from './magic-data';
 import {recordResourceFlow} from './resource-history';
 const SECOND=1000,MINUTE=60*SECOND;
-export type MagicState=MagicProduction&MagicResearchState&{version:1;enteredAt:number;nextUid:number;network:ManaNetwork;topology:string;cooldowns:Record<string,number>;boosted:number[]};
+export type MagicState=MagicProduction&MagicResearchState&{version:1;enteredAt:number;nextUid:number;network:ManaNetwork;topology:string;cooldowns:Record<string,number>;boosted:number[];
+ /** Era 8 chuyên tu: one active element; a switch removes it until `pending` completes. */
+ specialization?:{element?:Element;pending?:{element:Element;doneAt:number}}};
 export type MagicAction={type:'magicResearch';key:Research}|{type:'cancelMagicResearch'};
 export const RESEARCH_NAMES:Record<Research,string>={conduction:'Dẫn linh',warcraft:'Chiến pháp',lifecraft:'Hộ sinh',elements:'Tứ nguyên',pact:'Khế ước',gatecraft:'Khai giới'};
 /** Era 7 kinds that the engine registers. Later-era data stays dormant. */
@@ -190,6 +192,7 @@ function homeMana(c:City,pos:{x:number;y:number},amount:number){
  for(const e of nearest(entries.filter(([,b])=>b.k==='wardcircle').map(([tile,b])=>({...point(tile),tile,b})),pos,e=>e.tile))if(!('error'in spendMana(m.network,m.mana,magicSiteId(e.b),amount)))return true;
  return false;
 }
+export const magicSpecialization=(c:City)=>c.magic?.specialization?.element;
 function heal(guards:ZombieGuard[],origin:{x:number;y:number},radius:number,targets:number,amount:number){
  const allies=nearest(guards.filter(g=>g.hp>0&&distance(g,origin)<=radius),origin,g=>g.id);
  if(allies.reduce((n,g)=>n+Math.max(0,UNITS[g.u].hp-g.hp),0)<50)return false;
@@ -209,15 +212,48 @@ export function magicStructureDefense(c:City,at:number,actors:Zombie[],guards:Zo
     if(cluster.length>=3&&!('error'in spendMana(m.network,m.mana,id,roots.mana))){for(const z of cluster.slice(0,roots.targets))applySlow(z,'roots',roots.slow,at,at+roots.duration);m.cooldowns['roots:'+id]=at+roots.cooldown;}}
   }
   if(b.k==='rivershrine'&&m.researched.includes('lifecraft')&&(m.cooldowns['heal:'+id]??0)<=at){const s=MAGIC_SPELLS.waterheal;
-   if(heal(guards.filter(g=>distance(g,origin)<=s.radius),origin,s.radius,0,0)&&!('error'in spendMana(m.network,m.mana,id,s.mana))){heal(guards,origin,s.radius,s.targets,s.heal);m.cooldowns['heal:'+id]=at+s.cooldown;}}
+   if(heal(guards.filter(g=>distance(g,origin)<=s.radius),origin,s.radius,0,0)&&!('error'in spendMana(m.network,m.mana,id,s.mana))){heal(guards,origin,s.radius,s.targets+(magicSpecialization(c)==='water'?1:0),s.heal);m.cooldowns['heal:'+id]=at+s.cooldown;}}
  }
 }
 /** A mage's action: cast instead of a basic attack when ready, valid and paid. */
 export function mageAction(c:City,g:ZombieGuard,target:Zombie|undefined,at:number,actors:Zombie[],guards:ZombieGuard[]):boolean{
  if(!c.magic||(g.castAt??0)>at)return false;
- if(g.u==='watermage'){const s=MAGIC_SPELLS.waterheal;if(!heal(guards,g,s.radius,0,0)||!homeMana(c,g,s.mana))return false;heal(guards,g,s.radius,s.targets,s.heal);g.castAt=at+s.cooldown;return true;}
+ if(g.u==='watermage'){const s=MAGIC_SPELLS.waterheal;if(!heal(guards,g,s.radius,0,0)||!homeMana(c,g,s.mana))return false;heal(guards,g,s.radius,s.targets+(magicSpecialization(c)==='water'?1:0),s.heal);g.castAt=at+s.cooldown;return true;}
  if(g.u==='firemage'&&target&&live(target,at)){const s=MAGIC_SPELLS.fireball;if(!homeMana(c,g,s.mana))return false;
-  target.hp-=s.damage;target.hitAt=at;for(const z of nearest(actors.filter(z=>z!==target&&live(z,at)&&distance(z,target)<=s.radius),target,z=>z.id).slice(0,s.targets-1)){z.hp-=s.splash;z.hitAt=at;}
+  const power=magicSpecialization(c)==='fire'?1.1:1;
+  target.hp-=s.damage*power;target.hitAt=at;for(const z of nearest(actors.filter(z=>z!==target&&live(z,at)&&distance(z,target)<=s.radius),target,z=>z.id).slice(0,s.targets-1)){z.hp-=s.splash*power;z.hitAt=at;}
   g.castAt=at+s.cooldown;return true;}
  return false;
+}
+
+/* ---------- mana flasks for armies leaving the village (spec 7.2) ---------- */
+export const FLASK_PER_MAGE=100;
+/** Mana poured into flasks, by source id, so unused mana returns where it came from. */
+export type ManaFlask={mana:number;from:Record<string,number>};
+export const flaskMages=(t:Troops)=>(t.firemage??0)+(t.watermage??0);
+const sourceAt=(c:City,tile:number)=>{const b=c.b[tile];return c.magic&&operating(b)&&SOURCES.has(b.k)?magicSiteId(b):undefined;};
+/** Pour up to 100 mana per mage from one chosen source before marching. */
+export function pourFlask(c:City,troops:Troops,sourceTile:number):ManaFlask|string{
+ const m=c.magic,mages=flaskMages(troops);if(!m||!mages)return 'Chỉ pháp sư mang bình mana.';
+ const id=sourceAt(c,sourceTile);if(!id)return 'Chọn giếng linh mạch hoặc tháp tụ linh đang hoạt động để rót bình mana.';
+ const mana=Math.min(FLASK_PER_MAGE*mages,Math.max(0,m.mana[id]??0));m.mana[id]=(m.mana[id]??0)-mana;
+ return {mana,from:mana>0?{[id]:mana}:{}};
+}
+/** Home defenders snapshot flasks from operating sources in tile order; the
+ * battle frame never touches village mana again. */
+export function pourDefenseFlask(c:City):ManaFlask|undefined{
+ const m=c.magic,mages=flaskMages(c.army);if(!m||!mages)return undefined;
+ let want=FLASK_PER_MAGE*mages;const from:Record<string,number>={};
+ for(const [,b]of magicEntries(c)){if(want<=0)break;if(!SOURCES.has(b.k)||!operating(b))continue;const id=magicSiteId(b),take=Math.min(want,Math.max(0,m.mana[id]??0));if(take>0){m.mana[id]-=take;from[id]=take;want-=take;}}
+ const mana=Object.values(from).reduce((n,v)=>n+v,0);return {mana,from};
+}
+/** Return at most the unused mana, never more than was poured, only into free
+ * space of the original sources that still exist. Drunk mana is not refunded. */
+export function returnFlask(c:City,flask:ManaFlask|undefined,unused:number){
+ const m=c.magic;if(!m||!flask)return 0;let left=Math.max(0,Math.min(flask.mana,Number.isFinite(unused)?unused:0)),returned=0;
+ for(const [id,poured]of Object.entries(flask.from).sort((a,b)=>a[0].localeCompare(b[0]))){
+  const capacity=m.network.sources[id]?.capacity;if(capacity===undefined||!(id in m.mana))continue;
+  const add=Math.max(0,Math.min(left,poured,capacity-m.mana[id]));m.mana[id]+=add;left-=add;returned+=add;
+ }
+ return returned;
 }

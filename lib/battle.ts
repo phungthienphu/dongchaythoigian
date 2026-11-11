@@ -3,6 +3,7 @@ import {assignFormation,formationSlots} from './formation';
 import {unitCounter} from './era-military';
 import {selectTowerTiles,towerDamage,towerStats} from './tower-balance';
 import {bridgeReady,SHORT_BRIDGE_WATER_TILES,type BridgeSpan} from './bridges';
+import {MAGIC_SPELLS,type Element} from './magic-data';
 /** Serializable, deterministic battle simulation. All time advances in 100 ms ticks.
  * Balance defaults: loot cap is 25% of each starting resource; civilian loss is
  * capped at floor(pop/2). Retreating armies can be pursued until they leave. */
@@ -11,14 +12,16 @@ export const BATTLE_TICK_MS = 100;
 export const BATTLE_TIMEOUT_MS = 180_000;
 export type BattleSide = 'attacker' | 'defender';
 export type BattleOrder = { type: 'move'; x: number; y: number } | { type: 'attack'; targetId: string } | { type: 'guard'; x: number; y: number } | { type: 'retreat' };
-export type BattleGroup = {nextAttackAt?:number; naval?: boolean; id: string; side: BattleSide; u: UKey; count: number; initial: number; hp: number; x: number; y: number; order: BattleOrder; moving?: boolean; blocked?: boolean; entry?: {x:number;y:number}; resumeOrder?: BattleOrder; breachRetryAt?: number; retreatExit?: {x:number;y:number}; escaped?: boolean; path?: number[] | null; pathGoal?: number; pathVersion?: number };
+export type BattleGroup = {/** Flask mana carried by this squad (≤100 per mage). */ flask?:number; castAt?:number; /** Per-unit max HP locked at recruitment (golems hardened by Thổ). */ unitHp?:number; nextAttackAt?:number; naval?: boolean; id: string; side: BattleSide; u: UKey; count: number; initial: number; hp: number; x: number; y: number; order: BattleOrder; moving?: boolean; blocked?: boolean; entry?: {x:number;y:number}; resumeOrder?: BattleOrder; breachRetryAt?: number; retreatExit?: {x:number;y:number}; escaped?: boolean; path?: number[] | null; pathGoal?: number; pathVersion?: number };
 export type BattleBuilding = { bridge?:BridgeSpan; nextAttackAt?:number; towerEnabled?:boolean; id: string; tile: number; k: string; lvl: number; hp: number; maxHp: number; inactive?: boolean; burned: boolean; initiallyBurned: boolean; value: number };
 type BattleSelection = { groupId: string; groupIds?: never } | { groupIds: string[]; groupId?: never };
 export type BattleCommand = ({ type: 'move'; x: number; y: number } & BattleSelection) | ({ type: 'attack'; targetId: string } & BattleSelection) | { type: 'retreat' } | { type: 'presence'; online: boolean };
 export type BattleStrike = { id: string; at: number; source: string; kind: 'arrow' | 'stone' | 'melee'|'bullet'|'shell'; from: {x:number;y:number}; to: {x:number;y:number} };
-export type BattleState = { towerSlotsReady?:boolean; defenseCenter?:number; strikes?: BattleStrike[]; defenderEra?:number; id: string; attackerId: string; defenderId: string; startedAt: number; lastTick: number; terrain: number[]; groups: BattleGroup[]; buildings: BattleBuilding[]; status: 'fighting' | 'retreating' | 'finished'; winner?: BattleSide; defenderOnline: boolean; initialPopulation: number; populationLoss: number; startingResources: Res; loot: Res; devastation: number };
-export type BattleResult = { winner: BattleSide; attackerSurvivors: Troops; defenderSurvivors: Troops; attackerCasualties: number; defenderCasualties: number; populationLoss: number; burnedTiles: number[]; loot: Res; devastation: number };
+export type BattleState = { specialization?: Partial<Record<BattleSide, Element>>; towerSlotsReady?:boolean; defenseCenter?:number; strikes?: BattleStrike[]; defenderEra?:number; id: string; attackerId: string; defenderId: string; startedAt: number; lastTick: number; terrain: number[]; groups: BattleGroup[]; buildings: BattleBuilding[]; status: 'fighting' | 'retreating' | 'finished'; winner?: BattleSide; defenderOnline: boolean; initialPopulation: number; populationLoss: number; startingResources: Res; loot: Res; devastation: number };
+export type BattleResult = { winner: BattleSide; attackerSurvivors: Troops; defenderSurvivors: Troops; attackerCasualties: number; defenderCasualties: number; populationLoss: number; burnedTiles: number[]; loot: Res; devastation: number; /** Unused flask mana per side, returned up to the source's free space. */ flask?: Record<BattleSide, number> };
 const emptyRes = (): Res => ({ food: 0, wood: 0, stone: 0, copper: 0 , gold: 0, diamond:0,coal:0,aetherCrystal:0,rune:0});
+const MAGES=new Set<UKey>(['firemage','watermage']);
+export const unitHp=(g:Pick<BattleGroup,'u'|'unitHp'>)=>g.unitHp??UNITS[g.u].hp;
 const dist = (a: {x:number;y:number}, b: {x:number;y:number}) => Math.hypot(a.x-b.x,a.y-b.y);
 const xy = (tile:number) => ({ x: tile % W + .5, y: Math.floor(tile / W) + .5 });
 const living = (g:BattleGroup) => g.count > 0 && !g.escaped;
@@ -61,7 +64,9 @@ function invasionEntry(terrain:number[],center:{x:number;y:number},preferredY:nu
   return xy(best);
 }
 
-export function createBattle(o: { id: string; attackerId: string; defenderId: string; attacker: City; defender: City; troops: Troops; now: number; attackerShips?: number; defenderOnline?: boolean }): BattleState {
+/** Flask mana is a snapshot poured before the battle (attacker before marching,
+ * defender from home sources at the start); the frame never reads village stock. */
+export function createBattle(o: { id: string; attackerId: string; defenderId: string; attacker: City; defender: City; troops: Troops; now: number; attackerShips?: number; defenderOnline?: boolean; attackerFlask?: number; defenderFlask?: number }): BattleState {
   const buildings: BattleBuilding[] = Object.entries(o.defender.b).filter(([,b]) => b.lvl > 0).map(([tile,b]) => {
     const value = Object.values(B[b.k].cost).reduce((s,n)=>s+(n??0),0)*b.lvl;
     const maxHp = Math.max(60,value*2);
@@ -96,7 +101,9 @@ export function createBattle(o: { id: string; attackerId: string; defenderId: st
     }
     if(total<count)add('defender',u,count-total,center,defenderNaval,total?':reserve':'');
   }
-  const s:BattleState={defenseCenter:o.defender.camp,defenderEra:o.defender.era,id:o.id,attackerId:o.attackerId,defenderId:o.defenderId,startedAt:o.now,lastTick:o.now,terrain:[...o.defender.t],groups,buildings,status:'fighting',defenderOnline:!!o.defenderOnline,initialPopulation:o.defender.pop,populationLoss:0,startingResources:{...o.defender.res},loot:emptyRes(),devastation:0};
+  for(const [side,amount] of [['attacker',o.attackerFlask],['defender',o.defenderFlask]] as [BattleSide,number|undefined][]){let left=Math.max(0,amount??0);for(const g of groups)if(g.side===side&&MAGES.has(g.u)){g.flask=Math.min(100*g.count,left);left-=g.flask;}}
+  const specialization:Partial<Record<BattleSide,Element>>={};const sa=o.attacker.magic?.specialization?.element,sd=o.defender.magic?.specialization?.element;if(sa)specialization.attacker=sa;if(sd)specialization.defender=sd;
+  const s:BattleState={...(sa||sd?{specialization}:{}),defenseCenter:o.defender.camp,defenderEra:o.defender.era,id:o.id,attackerId:o.attackerId,defenderId:o.defenderId,startedAt:o.now,lastTick:o.now,terrain:[...o.defender.t],groups,buildings,status:'fighting',defenderOnline:!!o.defenderOnline,initialPopulation:o.defender.pop,populationLoss:0,startingResources:{...o.defender.res},loot:emptyRes(),devastation:0};
   for(const g of groups) if(g.side==='attacker') { const target=buildings.find(b=>b.k==='hall'&&!b.burned)??buildings.find(b=>!b.burned); if(target)g.order={type:'attack',targetId:target.id}; }
   return s;
 }
@@ -230,7 +237,42 @@ function retreatExit(s:BattleState,g:BattleGroup,deck:ReadonlySet<number>){
   return {x:0,y:g.y};
 }
 
-function damage(g:BattleGroup,amount:number){g.hp=Math.max(0,g.hp-amount);g.count=Math.ceil(g.hp/UNITS[g.u].hp);}
+/** A flask belongs to its mage: fallen mages lose theirs. */
+function damage(g:BattleGroup,amount:number){g.hp=Math.max(0,g.hp-amount);g.count=Math.ceil(g.hp/unitHp(g));if(g.flask!==undefined)g.flask=Math.min(g.flask,100*g.count);}
+/** Linh lộc escort: at most four allies in three tiles take 10% less; never stacks. */
+function escort(s:BattleState,target:BattleGroup){
+  for(const deer of s.groups)if((deer.u as string)==='spiritdeer'&&deer.side===target.side&&living(deer)&&deer!==target&&dist(deer,target)<=3){
+    const near=s.groups.filter(a=>a.side===deer.side&&a!==deer&&living(a)&&dist(a,deer)<=3).sort((a,b)=>dist(a,deer)-dist(b,deer)||a.id.localeCompare(b.id)).slice(0,4);
+    if(near.includes(target))return .9;
+  }
+  return 1;
+}
+const hurt=(s:BattleState,target:BattleGroup,amount:number)=>damage(target,amount*escort(s,target));
+/** Hỏa cầu per mage in the squad: 60 at the target, 30 to four more within 1.5
+ * tiles (buildings ×0.5, never the caster's own); 30 flask mana and 20 s each. */
+function fireball(s:BattleState,g:BattleGroup,target:BattleGroup):boolean{
+  const spell=MAGIC_SPELLS.fireball;if(g.u!=='firemage'||(g.castAt??0)>s.lastTick||(g.flask??0)<spell.mana)return false;
+  const casts=Math.min(g.count,Math.floor((g.flask!+1e-9)/spell.mana)),power=casts*(s.specialization?.[g.side]==='fire'?1.1:1);
+  hurt(s,target,spell.damage*power);
+  const near:(BattleGroup|BattleBuilding)[]=[...s.groups.filter(e=>e.side!==g.side&&e!==target&&living(e)&&dist(e,target)<=spell.radius),...(g.side==='attacker'?s.buildings.filter(b=>!b.burned&&dist(xy(b.tile),target)<=spell.radius):[])];
+  const at=(e:BattleGroup|BattleBuilding)=>'tile'in e?xy(e.tile):e;
+  for(const e of near.sort((a,b)=>dist(at(a),target)-dist(at(b),target)||a.id.localeCompare(b.id)).slice(0,spell.targets-1)){
+    if('tile'in e){e.hp=Math.max(0,e.hp-spell.splash*power*spell.buildingScale);if(!e.hp)e.burned=true;}else hurt(s,e,spell.splash*power);
+  }
+  g.flask=g.flask!-casts*spell.mana;g.castAt=s.lastTick+spell.cooldown;
+  strike(s,g.id,'shell',g,target,true);return true;
+}
+/** Thủy hồi per mage: 50 HP to up to three wounded allies (four with Thủy) in two tiles,
+ * only when they miss at least 50 HP together. Heals never revive a fallen unit. */
+function waterheal(s:BattleState,g:BattleGroup):boolean{
+  const spell=MAGIC_SPELLS.waterheal;if(g.u!=='watermage'||(g.castAt??0)>s.lastTick||(g.nextAttackAt??0)>s.lastTick||(g.flask??0)<spell.mana)return false;
+  const missing=(a:BattleGroup)=>Math.max(0,a.count*unitHp(a)-a.hp);
+  const allies=s.groups.filter(a=>a.side===g.side&&living(a)&&dist(a,g)<=spell.radius&&missing(a)>0).sort((a,b)=>dist(a,g)-dist(b,g)||a.id.localeCompare(b.id));
+  if(allies.reduce((n,a)=>n+missing(a),0)<50)return false;
+  const casts=Math.min(g.count,Math.floor((g.flask!+1e-9)/spell.mana));let pool=casts*spell.heal*(spell.targets+(s.specialization?.[g.side]==='water'?1:0));
+  for(const a of allies){const add=Math.min(pool,missing(a));a.hp+=add;pool-=add;if(pool<=0)break;}
+  g.flask=g.flask!-casts*spell.mana;g.castAt=s.lastTick+spell.cooldown;g.nextAttackAt=s.lastTick+(UNITS[g.u].attackMs??1000);return true;
+}
 function strike(s:BattleState,source:string,kind:BattleStrike['kind'],from:{x:number;y:number},to:{x:number;y:number},force=false) {
   // One visual volley per second; damage remains on the authoritative 100 ms clock.
   if (!force&&!s.groups.some(g=>g.id===source&&UNITS[g.u].attackMs)&& (s.lastTick-s.startedAt-BATTLE_TICK_MS)%1000!==0) return;
@@ -240,10 +282,12 @@ function volley(s:BattleState,g:BattleGroup,target:BattleGroup|BattleBuilding){
   const unit=UNITS[g.u];if(unit.attackMs&&(g.nextAttackAt??0)>s.lastTick)return;
   const position='tile'in target?xy(target.tile):target;
   if(unit.attackMs)g.nextAttackAt=s.lastTick+unit.attackMs;
+  // A mage casts instead of its basic attack within the same action cooldown.
+  if(!('tile'in target)&&fireball(s,g,target))return;
   const close=(g.u==='crossbow'&&dist(g,position)<1.5)?.6:(g.u==='cannon'&&dist(g,position)<1.5)?.45:1;
   const hit=unit.atk*g.count*(unit.attackMs?unit.attackMs/1000:.1)*close*('tile'in target?(unit.buildingAtk??1):unitCounter(g.u,target.u));
   strike(s,g.id,unit.shot??(g.u==='bow'?'arrow':g.u==='sling'?'stone':'melee'),g,position);
-  if('tile'in target){target.hp=Math.max(0,target.hp-hit);if(!target.hp)target.burned=true;}else damage(target,hit);
+  if('tile'in target){target.hp=Math.max(0,target.hp-hit);if(!target.hp)target.burned=true;}else hurt(s,target,hit);
 }
 function tick(s:BattleState){
   s.strikes=(s.strikes??[]).filter(e=>s.lastTick-e.at<1200);
@@ -262,12 +306,13 @@ function tick(s:BattleState){
       }
     }
     const enemy=s.groups.filter(e=>e.side!==g.side&&living(e)).sort((a,b)=>dist(g,a)-dist(g,b)||a.id.localeCompare(b.id))[0];
+    if(waterheal(s,g))continue;
     if(g.order.type==='retreat'){const exit=retreatExit(s,g,deck);if(!move(s,g,exit,deck))breach(s,g,exit,deck);if(dist(g,exit)<=.3)g.escaped=true;continue;}
     if(g.u==='wagon'||g.u==='medic'){
       const allies=s.groups.filter(a=>a.side===g.side&&living(a)&&UNITS[a.u].atk>0);
-      const wounded=allies.filter(a=>a.hp<a.count*UNITS[a.u].hp).sort((a,b)=>dist(g,a)-dist(g,b))[0];
+      const wounded=allies.filter(a=>a.hp<a.count*unitHp(a)).sort((a,b)=>dist(g,a)-dist(g,b))[0];
       const lead=(g.u==='medic'?wounded:undefined)??allies.sort((a,b)=>dist(g,a)-dist(g,b))[0];
-      if(g.u==='medic'&&wounded&&dist(g,wounded)<=3)wounded.hp=Math.min(wounded.count*UNITS[wounded.u].hp,wounded.hp+g.count*.4);
+      if(g.u==='medic'&&wounded&&dist(g,wounded)<=3)wounded.hp=Math.min(wounded.count*unitHp(wounded),wounded.hp+g.count*.4);
       if(g.order.type==='move')move(s,g,g.order,deck);
       else if(lead&&dist(g,lead)>2)move(s,g,{x:Math.max(.5,Math.min(W-.5,lead.x+(g.side==='attacker'?-2:2))),y:lead.y},deck);
       continue;
@@ -303,7 +348,7 @@ function tick(s:BattleState){
     const weapon=towerStats(b.lvl),origin=xy(b.tile);
     let target:BattleGroup|undefined,nearest=weapon.range;
     for(const g of s.groups)if(g.side==='attacker'&&living(g)){const distance=dist(g,origin);if(distance<=nearest){target=g;nearest=distance;}}
-    if(target){b.nextAttackAt=s.lastTick+weapon.attackMs;strike(s,b.id,(s.defenderEra??3)>=5?'bullet':'arrow',origin,target,true);damage(target,towerDamage(b.lvl,target.u,s.defenderEra??3));}
+    if(target){b.nextAttackAt=s.lastTick+weapon.attackMs;strike(s,b.id,(s.defenderEra??3)>=5?'bullet':'arrow',origin,target,true);hurt(s,target,towerDamage(b.lvl,target.u,s.defenderEra??3));}
   }
   const total=s.buildings.reduce((n,b)=>n+(b.initiallyBurned?0:b.value),0),burned=s.buildings.reduce((n,b)=>n+(b.burned&&!b.initiallyBurned?b.value:0),0),fraction=total?burned/total:0;
   s.populationLoss=Math.min(Math.floor(s.initialPopulation/2),Math.floor(fraction*s.initialPopulation/2));
@@ -321,5 +366,6 @@ export function advanceBattle(s:BattleState,now:number):BattleState {
 export function battleResult(s:BattleState):BattleResult|null {
   if(s.status!=='finished'||!s.winner)return null;const survivors=(side:BattleSide):Troops=>{const troops:Troops={};for(const g of s.groups)if(g.side===side)troops[g.u]=(troops[g.u]??0)+g.count;return troops;};
   const casualties=(side:BattleSide)=>s.groups.filter(g=>g.side===side).reduce((n,g)=>n+g.initial-g.count,0);
-  return{winner:s.winner,attackerSurvivors:survivors('attacker'),defenderSurvivors:survivors('defender'),attackerCasualties:casualties('attacker'),defenderCasualties:casualties('defender'),populationLoss:s.populationLoss,burnedTiles:s.buildings.filter(b=>b.burned&&!b.initiallyBurned).map(b=>b.tile),loot:{...s.loot},devastation:s.devastation};
+  const flask=(side:BattleSide)=>s.groups.reduce((n,g)=>n+(g.side===side?g.flask??0:0),0);
+  return{...(s.groups.some(g=>g.flask!==undefined)?{flask:{attacker:flask('attacker'),defender:flask('defender')}}:{}),winner:s.winner,attackerSurvivors:survivors('attacker'),defenderSurvivors:survivors('defender'),attackerCasualties:casualties('attacker'),defenderCasualties:casualties('defender'),populationLoss:s.populationLoss,burnedTiles:s.buildings.filter(b=>b.burned&&!b.initiallyBurned).map(b=>b.tile),loot:{...s.loot},devastation:s.devastation};
 }

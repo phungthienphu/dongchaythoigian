@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import {applyAction,armyCap,buildMs,canPlace,derive,ERA_REQ,HOUR,idx,MIN,reqMet,RES,settle,stats,UNITS,type City,type Building} from './engine';
 import {RELEASE_RULES} from './eras';
 import {eraFixture,eraStaff} from './era-fixtures.test-utils';
-import {initializeMagic,stepMagic,magicSiteId,deliverMagicSupply,mageAction,magicStructureDefense,zombieSlow} from './magic';
+import {initializeMagic,stepMagic,magicSiteId,deliverMagicSupply,pourFlask,pourDefenseFlask,returnFlask,type ManaFlask,mageAction,magicStructureDefense,zombieSlow} from './magic';
 import {activateZombies,stepZombies,zombieCanEngage,type Zombie,type ZombieGuard} from './zombies';
-import {advanceBattle,createBattle} from './battle';
+import {advanceBattle,battleResult,createBattle} from './battle';
 const RULES={maxEra:7};
 /** Era 7 village with stores, a staffed university and one-minute-aligned magic. */
 function era7(at=0):City{
@@ -173,4 +173,37 @@ test('carriers walk runes and crystals from the store into academy and spire buf
  // Conservation: stock + buffer + cargo + what the buildings consumed equals the start.
  assert.ok(Math.abs(c.res.rune+a+inHand('rune')+m.knowledge/4-100)<1e-6);
  assert.ok(c.res.aetherCrystal+s+inHand('aetherCrystal')<100);
+});
+
+test('mana flasks: up to 100 per mage from the chosen source; only unused mana returns, up to free space',()=>{
+ const c=era7(),well=place(c,'aetherwell',30,30);stepMagic(c,MIN);const id=magicSiteId(well);c.magic!.mana[id]=150;
+ assert.match(pourFlask(c,{firemage:2},idx(31,30)) as string,/giếng/);assert.match(pourFlask(c,{club:2},idx(30,30)) as string,/pháp sư/);
+ const flask=pourFlask(c,{firemage:1,watermage:1,club:5},idx(30,30)) as ManaFlask;
+ assert.deepEqual(flask,{mana:150,from:{[id]:150}});assert.equal(c.magic!.mana[id],0);
+ assert.equal(returnFlask(c,flask,999),150);assert.equal(c.magic!.mana[id],150);// never more than poured
+ c.magic!.mana[id]=1150;assert.equal(returnFlask(c,flask,80),50);assert.equal(c.magic!.mana[id],1200);// capped by free space
+ c.army={firemage:3};c.magic!.mana[id]=500;const home=pourDefenseFlask(c)!;assert.equal(home.mana,300);assert.equal(c.magic!.mana[id],200);
+});
+
+test('PvP Hỏa cầu and Thủy hồi spend squad flask mana with village cooldowns; fallen mages lose their flask',()=>{
+ const town=()=>{const c=era7();c.b={'4658':{k:'hut',lvl:1,doneAt:null}};c.camp=4658;c.army={};c.pop=20;return c;};
+ const defender=town();defender.army={club:10,spear:10};
+ const s=createBattle({id:'fire',attackerId:'a',defenderId:'d',attacker:town(),defender,troops:{firemage:1},now:0,attackerFlask:100});
+ const mage=s.groups.find(g=>g.u==='firemage')!,clubs=s.groups.find(g=>g.u==='club')!,spears=s.groups.find(g=>g.u==='spear')!;
+ s.groups=[mage,clubs,spears];for(const g of [clubs,spears]){g.count=10;g.hp=10*UNITS[g.u].hp;}
+ assert.equal(mage.flask,100);mage.x=clubs.x+3;mage.y=clubs.y;spears.x=clubs.x;spears.y=clubs.y+1;const c0=clubs.hp,s0=spears.hp;
+ advanceBattle(s,100);assert.equal(c0-clubs.hp,60);assert.equal(s0-spears.hp,30);assert.equal(mage.flask,70);
+ mage.x=clubs.x+3;mage.y=clubs.y;spears.x=clubs.x;spears.y=clubs.y+2;advanceBattle(s,2100);assert.equal(c0-clubs.hp,72);assert.equal(mage.flask,70);// basic attack while the spell cools down
+ assert.equal(battleResult({...s,status:'finished',winner:'attacker'})!.flask!.attacker,70);
+ const healer=createBattle({id:'water',attackerId:'a',defenderId:'d',attacker:town(),defender:town(),troops:{watermage:2,club:10},now:0,attackerFlask:150});
+ const water=healer.groups.find(g=>g.u==='watermage')!,friends=healer.groups.find(g=>g.side==='attacker'&&g.u==='club')!;
+ assert.equal(water.flask,150);
+ friends.x=water.x;friends.y=water.y;friends.hp-=40;advanceBattle(healer,100);assert.equal(water.flask,150);// under 50 missing: no cast
+ friends.hp-=60;advanceBattle(healer,200);assert.equal(friends.hp,200);assert.equal(water.flask,100);
+ friends.hp-=60;advanceBattle(healer,2300);assert.equal(water.flask,100);// 25 s cooldown per caster
+ const foe=town();foe.army={sword:40};
+ const lone=createBattle({id:'loss',attackerId:'a',defenderId:'d',attacker:town(),defender:foe,troops:{firemage:2},now:0,attackerFlask:200});
+ const pair=lone.groups[0],swords=lone.groups.find(g=>g.u==='sword')!;lone.groups=[pair,swords];swords.count=40;swords.hp=40*70;swords.x=pair.x+.5;swords.y=pair.y;
+ for(let at=100;pair.count===2&&at<20000;at+=100)advanceBattle(lone,at);
+ assert.equal(pair.count,1);assert.ok(pair.flask!<=100);
 });
