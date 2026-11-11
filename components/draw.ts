@@ -1099,14 +1099,13 @@ function drawMagicBuilding(r:RC,k:BKey,x:number,y:number,lvl:number,i:number){
     pillar(corners[3]);
     break;}
   case 'celestialforge':{
-    const H=17*hs;bx(-.46,-.44,.46,.44,0,3,E9.jade);bx(-.42,-.4,.12,.06,3,H,E9.jade);gb(-.46,-.44,.16,.1,H,10,E9.gold);
+    const H=17*hs;bx(-.46,-.44,.46,.44,0,3,E9.jade);if(lvl>=2){bx(.2,-.42,.44,-.12,3,11,E9.jade);pyramid(r,x,y,.17,-.45,.47,-.09,11,7,E9.gold[0],E9.gold[1]);}bx(-.42,-.4,.12,.06,3,H,E9.jade);gb(-.46,-.44,.16,.1,H,10,E9.gold);
     tileRows(r,x,y,-.46,.16,-.44,.1,H,10,'rgba(90,60,20,.3)');
     bx(-.34,-.34,-.24,-.24,H+3,H+14,['#d9dfd8','#b6c0b8','#919c95']);if(magicWorking(r,i))smoke(r,x,y,-.29,-.29,H+16,i);
-    bx(.2,.22,.38,.36,3,9,['#7c8486','#5f6769','#4a5153']);
-    const stones=lvl>=3?2:1;for(let n=0;n<stones;n++){const bob=r.anim?Math.sin(r.anim/650+n*2+i)*2.5:0,u=.29-n*.14,v=.29-n*.02,z=16+n*9+bob;
+    bx(-.38,.2,-.18,.36,3,9,['#7c8486','#5f6769','#4a5153']);
+    const stones=lvl>=3?2:1;for(let n=0;n<stones;n++){const bob=r.anim?Math.sin(r.anim/650+n*2+i)*2.5:0,u=-.28+n*.14,v=.28+n*.04,z=16+n*9+bob;
       glow(r,q(u,v,z+4),14,'#ffb84a',.55*lit*(.6+.4*p));crystal(r,x,y,u,v,z,9,'#e9a93a');}
-    if(lvl>=2){bx(-.42,.14,-.12,.4,3,11,E9.jade);pyramid(r,x,y,-.45,.11,-.09,.43,11,7,E9.gold[0],E9.gold[1]);}
-    motes(r,x,y,.29,.29,12,'#ffe7a3',lit>.5&&magicWorking(r,i)?5:0,i,16);
+    motes(r,x,y,-.28,.28,12,'#ffe7a3',lit>.5&&magicWorking(r,i)?5:0,i,16);
     break;}
   case 'observatory':{
     bx(-.4,-.4,.4,.4,0,4,E9.jade);bx(-.24,-.24,.24,.24,4,30,E9.jade);

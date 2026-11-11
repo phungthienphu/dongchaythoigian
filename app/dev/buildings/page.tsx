@@ -22,7 +22,7 @@ function Cell({ k, lvl, preview = city, still = false, season = 0, tall = false 
   }, [k, lvl, preview, still, season]);
   return <canvas ref={ref} style={{ width: 150, height: tall ? 230 : 130, display: "block" }} />;
 }
-const TALL = new Set<BKey>(["manaspire", "awakeningtower", "fourspirits", "riverpalace", "observatory", "woodgrove", "spiritgate", "manarelay", "crystalworks", "essenceforge", "celestialforge", "harmonizer", "firealtar"] as BKey[]);
+const TALL = new Set<BKey>(["manaspire", "awakeningtower", "fourspirits", "riverpalace", "observatory", "woodgrove", "spiritgate", "manarelay", "crystalworks", "essenceforge", "celestialforge", "harmonizer", "firealtar", "mageacademy"] as BKey[]);
 
 function MagicGallery() {
   const [still, setStill] = useState(false), [season, setSeason] = useState(0);
