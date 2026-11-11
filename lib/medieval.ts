@@ -4,7 +4,7 @@ import type { Building, City, Def, Derived } from './engine';
 
 const HOUR=3_600_000, MIN=60_000, SEASON=6*HOUR;
 export const MEDIEVAL_BUILDINGS = {
-  grandstore: { n:'Đại kho',era:4,cost:{wood:1200,stone:1800,copper:300},sec:1800,storage:10000,up:true,drop:['food','wood','stone','copper','gold','diamond','coal'],d:'Cấp đầu chứa 10.000 mỗi loại. Nâng riêng ngăn lên 20.000 / 40.000; nhiều kho cộng dồn. Ngăn than mở từ Công nghiệp.' },
+  grandstore: { n:'Đại kho',era:4,cost:{wood:1200,stone:1800,copper:300},sec:1800,storage:10000,up:true,drop:['food','wood','stone','copper','gold','diamond','coal','aetherCrystal','rune'],d:'Cấp đầu chứa 10.000 mỗi loại. Nâng riêng ngăn lên 20.000 / 40.000; nhiều kho cộng dồn. Ngăn than mở từ Công nghiệp.' },
   tilehouse: { n:'Nhà ngói',era:4,cost:{wood:600,stone:1200,copper:120},sec:1800,house:18,up:true,d:'18 dân mỗi cấp. Chống ngập; không tự thay nhà cũ.' },
   well: { n:'Giếng làng',era:4,cost:{wood:250,stone:500},sec:600,max:3,d:'Trong 4 ô, giảm một nửa thiệt hại do hạn cho ruộng và cối nước. Một cấp, tối đa 3 giếng.' },
   reservoir: { n:'Hồ chứa',era:4,cost:{wood:500,stone:1800,copper:150},sec:2700,jobs:2,need:'water',d:'Cần kề sông/kênh có nước và 2 thợ. Đầy sau 6 giờ, trữ tối đa 12 giờ chống hạn trong 6 ô. Không tăng hiệu ứng khi chồng vùng.' },

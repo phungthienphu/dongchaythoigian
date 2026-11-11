@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {newCity,G,idx,MIN,HOUR,settle,stats,derive,type City} from './engine';
 function fixture(workers=2,level=1):City{
  const c=newCity(0,123);c.era=3;c.t.fill(G);c.seen.fill(1);c.camp=idx(20,20);c.b={[idx(19,20)]:{k:'storehouse',lvl:5,doneAt:null},[idx(22,20)]:{k:'wheel',lvl:level,doneAt:null}};
- c.people=c.people.slice(0,workers);c.army={};c.camps=[];c.herds=[];c.res={food:2000,wood:100,stone:500,copper:0,gold:0,diamond:0,coal:0};
+ c.people=c.people.slice(0,workers);c.army={};c.camps=[];c.herds=[];c.res={food:2000,wood:100,stone:500,copper:0,gold:0,diamond:0,coal:0,aetherCrystal:0,rune:0};
  for(const p of c.people){p.pos=idx(22,20);p.task={t:'work',at:idx(22,20)};}return c;
 }
 const close=(a:number,b:number)=>assert.ok(Math.abs(a-b)<1e-7,`${a} != ${b}`);

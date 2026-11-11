@@ -3,7 +3,7 @@ import {test,expect} from 'bun:test';
 import {newCity,G,R,H,idx,settle,applyAction,dockRelocationPlan,canPlace,derive,shipCapacity,shipsFree,isBuildingActive,type City} from './engine';
 const source=idx(14,12),target=idx(19,12);
 function fixture(){
- const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.people=[];c.pop=0;c.b={};c.camps=[];c.herds=[];c.era=2;c.transportShips=2;c.res={food:1000,wood:1000,stone:0,copper:0,gold:0,diamond:0,coal:0};
+ const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.people=[];c.pop=0;c.b={};c.camps=[];c.herds=[];c.era=2;c.transportShips=2;c.res={food:1000,wood:1000,stone:0,copper:0,gold:0,diamond:0,coal:0,aetherCrystal:0,rune:0};
  for(let y=0;y<H;y++)c.t[idx(20,y)]=R;
  c.b[source]={k:'dock',lvl:2,doneAt:null,shipQueue:[90000]};
  return c;

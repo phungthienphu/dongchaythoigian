@@ -1317,7 +1317,7 @@ export function drawTransportBoat(c:CanvasRenderingContext2D,x:number,y:number,s
 
 export function drawSoldier(r: Pick<RC, "c" | "v" | "anim"> & {deck?:ReadonlySet<number>}, u: UKey, fx: number, fy: number, face: 1 | -1, walking: boolean, seed: number, fighting = false, barbarian = false, heading?:Pt) {
   const [sx, sy] = P(r.v, fx, fy, r.deck?.has(idx(Math.floor(fx),Math.floor(fy)))?5*r.v.s:0);
-  drawSoldierArt(r.c, u, sx, sy, Math.max(r.v.s * 1.08, .52), { time: r.anim, face:heading?travelFace(r.v,...heading,cameraFace(r.v,face)):cameraFace(r.v,face), walking, seed, fighting, hostile: barbarian });
+  drawSoldierArt(r.c, u === "firemage" || u === "watermage" ? "bow" : u, sx, sy, Math.max(r.v.s * 1.08, .52), { time: r.anim, face:heading?travelFace(r.v,...heading,cameraFace(r.v,face)):cameraFace(r.v,face), walking, seed, fighting, hostile: barbarian });
 }
 
 function drawCampSite(r: RC, k: Camp) {

@@ -1,6 +1,6 @@
 'use client';
 import {useState,type Ref} from 'react';
-import {ERA_NAMES,RES,RN,SEASONS,busyBuilders,builders,troopCount,upkeepRates,type City,type Stats,type ResKey} from '@/lib/engine';
+import {ERA_NAMES,RES,RN,resourceUnlocked,SEASONS,busyBuilders,builders,troopCount,upkeepRates,type City,type Stats,type ResKey} from '@/lib/engine';
 import {recentResourceFlow} from '@/lib/resource-history';
 import type {GamePanelKey} from '@/lib/game-ui';
 import {Icon} from './GameIcon';
@@ -10,9 +10,9 @@ export default function GameHUD({city,stats,name,season,year,unread,ref,onPanel,
   return <header className="village-header" ref={ref}>
     <div className="village-heading"><button className="village-name" onClick={()=>onPanel('manage')}><span className="eyebrow">{ERA_NAMES[city.era]} · Năm {year} · {SEASONS[season]}</span><h1>{name}</h1></button><div className="header-actions"><button aria-label={unread?`Thông báo · ${unread} chưa đọc`:'Thông báo'} onClick={()=>onPanel('log')}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5zM10 20h4"/></svg><span className="header-button-label">Thông báo</span>{unread>0&&<span className="nav-count danger-count">{unread>99?'99+':unread}</span>}</button><button aria-label="Mở cách chơi" onClick={onHelp}>?</button></div></div>
     <div className="village-ledger" aria-label="Tài nguyên trong kho">
-      {RES.filter(r=>r!=='coal'||city.era>=5).map(r=>{const full=city.res[r]>=stats.storage[r],pct=Math.max(0,Math.min(100,city.res[r]/Math.max(1,stats.storage[r])*100));return <button key={r} className={`resource-pill${r==='food'||r==='wood'?' essential-resource':''}${full?' is-full':''}${r==='food'&&city.res.food<=0?' is-empty':''}`} onClick={()=>onResource(r)} title={`${RN[r]}: ${number(city.res[r])} / ${number(stats.storage[r])} · ${full?'Kho đầy':`${Math.floor(pct)}% kho`}`} aria-label={`${RN[r]}: ${number(city.res[r])} trên ${number(stats.storage[r])}${full?' · Kho đầy':''}. Xem chi tiết`}><Icon k={r}/><span className="resource-reading"><small>{RN[r]}</small><b>{number(city.res[r])}</b><span className="resource-meter" aria-hidden="true"><i style={{width:`${pct}%`}}/></span></span></button>;})}
+      {RES.filter(r=>resourceUnlocked(r,city.era)).map(r=>{const full=city.res[r]>=stats.storage[r],pct=Math.max(0,Math.min(100,city.res[r]/Math.max(1,stats.storage[r])*100));return <button key={r} className={`resource-pill${r==='food'||r==='wood'?' essential-resource':''}${full?' is-full':''}${r==='food'&&city.res.food<=0?' is-empty':''}`} onClick={()=>onResource(r)} title={`${RN[r]}: ${number(city.res[r])} / ${number(stats.storage[r])} · ${full?'Kho đầy':`${Math.floor(pct)}% kho`}`} aria-label={`${RN[r]}: ${number(city.res[r])} trên ${number(stats.storage[r])}${full?' · Kho đầy':''}. Xem chi tiết`}><Icon k={r}/><span className="resource-reading"><small>{RN[r]}</small><b>{number(city.res[r])}</b><span className="resource-meter" aria-hidden="true"><i style={{width:`${pct}%`}}/></span></span></button>;})}
       <button className="resource-pill population-pill" onClick={()=>onPanel('people')} aria-label={`Dân số ${city.people.length} trên ${stats.housing}`}><Icon k="pop"/><span><small>Dân làng</small><b>{city.people.length}<em>/{stats.housing}</em></b></span></button>
-      <button className="resource-more" onClick={()=>onResource()} aria-label="Tất cả tài nguyên và sức chứa">⋯<span>Tất cả{RES.some(r=>r!=='food'&&r!=='wood'&&(r!=='coal'||city.era>=5)&&city.res[r]>=stats.storage[r])?' · ●':''}</span></button>
+      <button className="resource-more" onClick={()=>onResource()} aria-label="Tất cả tài nguyên và sức chứa">⋯<span>Tất cả{RES.some(r=>r!=='food'&&r!=='wood'&&(resourceUnlocked(r,city.era))&&city.res[r]>=stats.storage[r])?' · ●':''}</span></button>
       <div className="village-capacity"><button onClick={()=>onPanel('shop')}><Icon k="build"/>{busyBuilders(city)}/{builders(city)} <span>thợ bận</span></button><button onClick={()=>onPanel('army')}><Icon k="army"/>{troopCount(city.army)} <span>quân ở nhà</span></button></div>
     </div>
   </header>;
@@ -24,7 +24,7 @@ export function ResourceDetails({city,stats,now,resource,onEconomy,onPeople,popu
   const waiting=city.people.filter(p=>p.haul?.resource===r&&p.haul.carried>0&&(p.haul.resting?stats.storage[r]-city.res[r]<p.haul.carried:p.haul.phase==='unload'&&stats.storage[r]-city.res[r]<=1e-9)).length;
   const rate=r==='wood'?stats.rate.wood-stats.woodUse:r==='stone'?stats.rate.stone-stats.stoneUse:r==='copper'?stats.copperRate:stats.rate[r];
   return <section className="resource-detail">
-    <div className="filter-chips" role="group" aria-label="Chọn tài nguyên">{RES.filter(key=>key!=='coal'||city.era>=5).map(key=><button key={key} aria-pressed={r===key} onClick={()=>setChosen(key)}><Icon k={key}/>{RN[key]}</button>)}</div>
+    <div className="filter-chips" role="group" aria-label="Chọn tài nguyên">{RES.filter(key=>resourceUnlocked(key,city.era)).map(key=><button key={key} aria-pressed={r===key} onClick={()=>setChosen(key)}><Icon k={key}/>{RN[key]}</button>)}</div>
     <div className="resource-total"><Icon k={r}/><div><h3>{RN[r]} trong kho</h3><strong>{number(city.res[r])}<small> / {number(stats.storage[r])}</small></strong></div></div>
     <progress aria-label={`Mức đầy kho ${RN[r]}`} max={Math.max(1,stats.storage[r])} value={city.res[r]}/>
     {waiting>0&&<div className="inline-warning"><b>{waiting} người đang chờ nộp</b><p>Dùng bớt tài nguyên hoặc nâng đúng ngăn kho. Người mang hàng sẽ tự tiếp tục khi có chỗ.</p></div>}

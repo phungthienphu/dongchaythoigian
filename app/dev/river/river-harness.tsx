@@ -9,7 +9,7 @@ function fixture(now:number,protectedBank=false){
  c.b[idx(45,48)]={k:'hall',lvl:2,doneAt:null};c.b[idx(47,48)]={k:'storehouse',lvl:3,doneAt:null};
  c.b[idx(45,51)]={k:'house',lvl:1,doneAt:null};
  if(protectedBank)c.b[idx(43,47)]={k:'levee',lvl:1,doneAt:null};
- c.transportShips=2;c.res={wood:1800,food:1500,stone:1000,copper:400,gold:200,diamond:10,coal:0};
+ c.transportShips=2;c.res={wood:1800,food:1500,stone:1000,copper:400,gold:200,diamond:10,coal:0,aetherCrystal:0,rune:0};
  c.wildernessAt=now+1e10;c.disaster={kind:'earthquake',at:now+1e10,level:0,center:c.camp};return c;
 }
 export default function RiverHarness(){

@@ -8,7 +8,7 @@ function setup(){const state:MagicProduction={minuteAt:0,knowledge:0,mana:{},fac
 const near=(actual:number,expected:number)=>assert.ok(Math.abs(actual-expected)<1e-8,`${actual} != ${expected}`);
 test('one-hour recipes conserve their own buffers and mana without consuming village stock',()=>{
  const {state,network}=setup();deliverMagicInput(state,'crystal','copper',120);deliverMagicInput(state,'crystal','gold',40);deliverMagicInput(state,'rune','wood',120);deliverMagicInput(state,'rune','aetherCrystal',12);deliverMagicInput(state,'academy','rune',6);stepMagicProduction(state,network,hour);
- near(state.factories.crystal.output.aetherCrystal!,24);near(state.factories.rune.output.rune!,12);near(state.knowledge,24);near(state.mana.well,40);near(collectMagicOutput(state,'crystal','aetherCrystal',100),24);near(collectMagicOutput(state,'crystal','aetherCrystal',100),0);
+ near(state.factories.crystal.output.aetherCrystal!,24);near(state.factories.rune.output.rune!,12);near(state.knowledge,24);near(state.mana.well,220);near(collectMagicOutput(state,'crystal','aetherCrystal',100),24);near(collectMagicOutput(state,'crystal','aetherCrystal',100),0);
 });
 test('full output buffers stop before paying inputs; late activation earns no earlier production',()=>{
  const {state,network}=setup();state.factories.crystal.activeSince=30000;deliverMagicInput(state,'crystal','copper',500);deliverMagicInput(state,'crystal','gold',500);stepMagicProduction(state,network,3*hour);near(state.factories.crystal.output.aetherCrystal!,48);near(state.factories.crystal.input.copper!,0);near(state.factories.crystal.input.gold!,0);assert.ok(state.factories.crystal.blocked);

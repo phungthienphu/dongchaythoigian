@@ -11,9 +11,13 @@ const BUILDINGS: Record<BKey, true> = {
   smelter: true, market: true, stonehouse: true, forge: true, wheel: true,
   hall: true, envoy: true, barracks: true, wall: true, gate: true,
   watchtower: true, temple: true, logistics: true, infirmary: true,
+  aetherwell:true, manarelay:true, crystalworks:true, runeworks:true, mageacademy:true, manaspire:true, rivershrine:true, wardcircle:true, spiritgarden:true, awakeningtower:true,
 };
-const UNITS: Record<UKey, true> = {crossbow:true,cavalry:true,musket:true,cannon:true,infantry:true,armor:true, club: true, sling: true, spear: true, bow: true, sword: true, elephant: true, wagon: true, medic: true };
+const UNITS: Record<UKey, true> = {firemage:true,watermage:true,crossbow:true,cavalry:true,musket:true,cannon:true,infantry:true,armor:true, club: true, sling: true, spear: true, bow: true, sword: true, elephant: true, wagon: true, medic: true };
 const RESOURCES = ['food', 'wood', 'stone', 'copper', 'gold', 'diamond','coal'] as const;
+/** Magic goods are optional in workforce/mix payloads so older clients stay valid. */
+const MAGIC_RESOURCES = ['aetherCrystal','rune'] as const;
+const RESEARCH = ['conduction','warcraft','lifecraft','elements','pact','gatecraft'];
 const MAP_SIDE = 96;
 const own = (object: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(object, key);
 const record = (value: unknown): value is Record<string, unknown> => {
@@ -26,7 +30,7 @@ const tile = (value: unknown) => integer(value, 0, MAP_SIDE * MAP_SIDE - 1);
 const point = (value: unknown) => record(value) && integer(value.x, 0, MAP_SIDE - 1) && integer(value.y, 0, MAP_SIDE - 1);
 const known = (table: object, value: unknown) => typeof value === 'string' && own(table, value);
 const orientation=(value:unknown)=>value==='auto'||value==='x'||value==='y';
-const soldierId=(value:unknown)=>typeof value==='string'&&/^(club|sling|spear|bow|sword|elephant|wagon|medic|crossbow|cavalry|musket|cannon|infantry|armor):\d{1,3}$/.test(value);
+const soldierId=(value:unknown)=>typeof value==='string'&&/^(club|sling|spear|bow|sword|elephant|wagon|medic|crossbow|cavalry|musket|cannon|infantry|armor|firemage|watermage):\d{1,3}$/.test(value);
 function task(value: unknown) {
   if (!record(value) || !own(value, 't')) return false;
   switch (value.t) {
@@ -59,7 +63,9 @@ export function isActionInput(value: unknown): value is Action {
     case 'zombiePatrol': return typeof value.on==='boolean';
     case 'build': return known(BUILDINGS, value.k) && point(value) && (!own(value,'confirmFinal')||typeof value.confirmFinal==='boolean') && (!own(value,'orientation')||(value.k==='wall'||value.k==='gate')&&orientation(value.orientation));
     case 'orientDefense': return point(value)&&orientation(value.orientation);
-    case 'upgradeStorage': return point(value) && RESOURCES.includes(value.resource as typeof RESOURCES[number]);
+    case 'upgradeStorage': return point(value) && ([...RESOURCES,...MAGIC_RESOURCES] as string[]).includes(value.resource as string);
+    case 'magicResearch': return typeof value.key==='string'&&RESEARCH.includes(value.key);
+    case 'cancelMagicResearch': return true;
     case 'plantTree': case 'toggleBuilding': case 'buildShip': case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'tendFarmGroup': case 'speedBuild': return point(value);
     case 'relocateDock': case 'connectBridge': return point(value) && tile(value.to);
     case 'moveSoldier': return soldierId(value.id) && point(value);
@@ -73,13 +79,15 @@ export function isActionInput(value: unknown): value is Action {
     case 'setWorkforce': {
       if(!record(value.counts)||!integer(value.scouts,0,10_000))return false;
       const counts=value.counts;
-      return [6,7].includes(Object.keys(counts).length) && RESOURCES.every(r=>r==='coal'&&!own(counts,r)||own(counts,r)&&integer(counts[r],0,10_000));
+      const optional=MAGIC_RESOURCES.filter(r=>own(counts,r));
+      return [6,7].includes(Object.keys(counts).length-optional.length) && optional.every(r=>integer(counts[r],0,10_000)) && RESOURCES.every(r=>r==='coal'&&!own(counts,r)||own(counts,r)&&integer(counts[r],0,10_000));
     }
     case 'setGuardPosts': return Array.isArray(value.posts) && value.posts.length <= 20 && value.posts.every(point);
     case 'auto': {
       if (typeof value.on !== 'boolean' || !record(value.mix)) return false;
       const mix = value.mix;
-      return [4,6,7].includes(Object.keys(mix).length) && Object.keys(mix).every(key => RESOURCES.includes(key as typeof RESOURCES[number])) && RESOURCES.every(key => (key==='gold'||key==='diamond'||key==='coal')&&!own(mix,key) || own(mix,key) && typeof mix[key] === 'number' && Number.isFinite(mix[key]) && mix[key] >= 0 && mix[key] <= 100);
+      const optional=MAGIC_RESOURCES.filter(r=>own(mix,r));
+      return [4,6,7].includes(Object.keys(mix).length-optional.length) && optional.every(r=>typeof mix[r]==='number'&&Number.isFinite(mix[r])&&mix[r]>=0&&mix[r]<=100) && Object.keys(mix).every(key => ([...RESOURCES,...MAGIC_RESOURCES] as string[]).includes(key)) && RESOURCES.every(key => (key==='gold'||key==='diamond'||key==='coal')&&!own(mix,key) || own(mix,key) && typeof mix[key] === 'number' && Number.isFinite(mix[key]) && mix[key] >= 0 && mix[key] <= 100);
     }
     default: return false;
   }

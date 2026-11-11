@@ -19,7 +19,7 @@ export const MODERN_BUILDINGS={
 export type PowerGroup='essential'|'housing'|'production';
 export type ModernState={enteredAt:number;priority:PowerGroup[];supply:number;demand:number;clean:number;allocation:Record<string,number>;generation:Record<string,number>;floodForecast?:{at:number;major:boolean};choice?:'dam'|'green';completedAt?:number;};
 export const powerGroup=(k:BKey):PowerGroup=>k==='hospital'?'essential':k==='apartment'?'housing':'production';
-export const operationJobs=(b:Building,d:Def)=>Math.ceil((d.jobs??0)*(['thermal','complex'].includes(b.k)?multiplier(b):1));
+export const operationJobs=(b:Building,d:Def)=>Math.ceil((d.jobs??0)*(['thermal','complex','aetherwell','manaspire','crystalworks','runeworks'].includes(b.k)?multiplier(b):1));
 export const operationScale=(b:Building)=>b.k==='hospital'||b.k==='university'?1:multiplier(b);
 export const powerFraction=(c:City,tile:number)=>c.modern?.allocation[tile]??0;
 export const completedWonder=(c:City,k:'dam'|'green')=>c.modern?.choice===k&&!!c.modern.completedAt&&Object.values(c.b).some(b=>b.k===k&&active(b));

@@ -62,7 +62,7 @@ try {
   for (let n = 0; n < 2; n++) {
     const c = newCity(Date.now(), 5 + n); c.t.fill(G); c.seen.fill(1); c.era = 2;
     c.b = { [idx(20, 20)]: { k: 'market', lvl: 1, doneAt: null }, [idx(22, 20)]: { k: 'barracks', lvl: 3, doneAt: null }, [idx(24, 20)]: { k: 'envoy', lvl: 1, doneAt: null } };
-    c.camp = idx(19, 20); c.res = { food: 1500, wood: 200, stone: 200, copper: 100, gold: 100, diamond: 20, coal: 0 };
+    c.camp = idx(19, 20); c.res = { food: 1500, wood: 200, stone: 200, copper: 100, gold: 100, diamond: 20, coal: 0,aetherCrystal:0,rune:0 };
     c.army = { club: 20, sword: 20 }; c.discoveries = [...cityIds]; c.visits = { [cityIds[1 - n]]: Date.now() + 86400000 }; delete c.shieldUntil;
     await cities.updateOne({ _id: cityIds[n], owner: ids[n] }, { $set: { state: c, score: score(c), era: 2, pop: c.pop, world: { x: 40 + n, y: 40 } }, $inc: { ver: 1 } });
   }

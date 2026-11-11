@@ -7,7 +7,7 @@ function mature(workers:boolean):City {
  const template=c.people[0];c.people=Array.from({length:50},(_,n)=>({...structuredClone(template),id:n+1,name:'Test',task:workers?{t:'work',at:idx(25+Math.floor(n/2)%5,25+Math.floor(Math.floor(n/2)/5))}:{t:'idle'},pos:c.camp}));c.pop=50;c.nextId=51;
  for(let n=0;n<25;n++)c.b[idx(25+n%5,25+Math.floor(n/5))]={k:workers?'gather':'house',lvl:3,doneAt:null};
  for(let n=0;n<25;n++)c.b[idx(40+n%5,25+Math.floor(n/5))]={k:'storehouse',lvl:3,doneAt:null};
- c.res={food:50000,wood:50000,stone:1000,copper:1000,gold:0,diamond:0,coal:0};
+ c.res={food:50000,wood:50000,stone:1000,copper:1000,gold:0,diamond:0,coal:0,aetherCrystal:0,rune:0};
  return c;
 }
 // Synthetic stress fixture only; no database or HTTP requests. Run with Node

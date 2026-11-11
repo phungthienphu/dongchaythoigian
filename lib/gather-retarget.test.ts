@@ -7,7 +7,7 @@ function fixture():City {
   const c=newCity(0,123);
   c.t.fill(G);c.seen.fill(1);c.b={};c.herds=[];c.camps=[];c.exps=[];
   c.camp=idx(20,20);c.people=c.people.slice(0,1);c.pop=1;c.popAcc=0;c.wildernessAt=1e15;
-  c.res={food:500,wood:0,stone:0,copper:0,gold:0,diamond:0,coal:0};
+  c.res={food:500,wood:0,stone:0,copper:0,gold:0,diamond:0,coal:0,aetherCrystal:0,rune:0};
   for(const p of c.people){p.pos=c.camp;p.task={t:'idle'};delete p.haul;}
   return c;
 }

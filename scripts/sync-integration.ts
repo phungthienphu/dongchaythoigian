@@ -42,7 +42,7 @@ function fixture(now:number,actor:Actor):City {
   };
   for(let i=0;i<5;i++)c.b[idx(18+i,26)]={k:'storehouse',lvl:3,doneAt:null};
   c.people.forEach(p=>{p.task={t:'idle'};p.pos=c.camp;});
-  c.res={food:5000,wood:5000,stone:3000,copper:1000,gold:500,diamond:50,coal:0};c.army={club:12,sword:6};
+  c.res={food:5000,wood:5000,stone:3000,copper:1000,gold:500,diamond:50,coal:0,aetherCrystal:0,rune:0};c.army={club:12,sword:6};
   c.discoveries=['sync-qa-a','sync-qa-b'].filter(id=>id!==cityId(actor));
   c.visits=Object.fromEntries(c.discoveries.map(id=>[id,now+86400000]));return c;
 }

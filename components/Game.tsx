@@ -12,7 +12,7 @@ import EraCivicPanel,{EraCivicBuilding} from './EraCivicPanel';
 import { ReadFlights } from "@/lib/read-flights";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  B, CAP, GATHER_SPEED, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
+  B, CAP, GATHER_SPEED, resourceUnlocked, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
   dockRelocationPlan, buildingJobs,storageCapacity, availableForQuickAssign, quickAssignBlockedReason, isScout, taskResource, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildCost, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
   armyCap, armyUsed, barracksCapacity, buildingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
   homeSoldiers, armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, farmAutoStatus, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
@@ -1319,7 +1319,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               </>}
               {sel.k === "market" && sel.lvl >= 1 && <button className="primary" onClick={()=>setPanel("market")}>Giao thương bằng đoàn xe</button>}
               {sel.k === "hall" && sel.lvl >= 1 && <button className="primary" onClick={() => setPanel("control")}>{control ? "Trung tâm điều khiển" : "Xem Đình làng"}</button>}
-              {["storehouse","grandstore"].includes(sel.k) && sel.lvl >= 1 && <div><p className="small">Nâng riêng từng ngăn. Kho thường thêm 1.000 chỗ; Đại kho tăng 10.000 → 20.000 → 40.000.</p>{RES.filter(r=>r!=="coal"||c.era>=5).map(r=>{
+              {["storehouse","grandstore"].includes(sel.k) && sel.lvl >= 1 && <div><p className="small">Nâng riêng từng ngăn. Kho thường thêm 1.000 chỗ; Đại kho tăng 10.000 → 20.000 → 40.000.</p>{RES.filter(r=>resourceUnlocked(r,c.era)).map(r=>{
                 const lv=storageLevel(sel,r), cap=levelCap(c,sel.k), locked=lv>=cap;
                 const reason=lv>=MAX_LVL?"Đã tối đa":locked?"Cần xây/nâng Đình làng":sel.doneAt?"Kho đang nâng cấp":sel.flooded||sel.burned?"Cần sửa Kho":"";
                 return <div key={r}><p>{RN[r]} · cấp {lv} · {fmt(storageCapacity(sel,r))} chỗ{sel.storageUpgrade===r?` · đang nâng (${fmtDur((sel.doneAt??t)-t)})`:""}</p><button disabled={busy||!!reason} onClick={()=>act({type:"upgradeStorage",...selected,resource:r})}>{reason||`Nâng ${RN[r]} lên cấp ${lv+1} · ${costText(levelCost(sel.k,lv+1,c.era))} · ${fmtDur(buildMs(sel.k,lv+1))}`}</button></div>;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { newCity, idx, G, F, HL, applyAction, settle, updateRefuges, refugePosition, stats, derive, type City } from './engine';
 function fixture():City {
  const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.b={};c.herds=[];c.camps=[];c.people=c.people.slice(0,2);c.camp=idx(10,10);
- c.b[idx(12,10)]={k:'house',lvl:1,doneAt:null};c.res={food:5000,wood:0,stone:0,copper:0, gold: 0, diamond:0,coal:0};
+ c.b[idx(12,10)]={k:'house',lvl:1,doneAt:null};c.res={food:5000,wood:0,stone:0,copper:0, gold: 0, diamond:0,coal:0,aetherCrystal:0,rune:0};
  c.t[idx(20,10)]=F;c.people[0].pos=idx(20,10);c.people[1].pos=idx(19,10);
  applyAction(c,{type:'assign',ids:[c.people[0].id],task:{t:'chop',at:idx(20,10)}},0);
  return c;

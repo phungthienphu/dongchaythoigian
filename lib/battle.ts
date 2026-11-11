@@ -18,7 +18,7 @@ export type BattleCommand = ({ type: 'move'; x: number; y: number } & BattleSele
 export type BattleStrike = { id: string; at: number; source: string; kind: 'arrow' | 'stone' | 'melee'|'bullet'|'shell'; from: {x:number;y:number}; to: {x:number;y:number} };
 export type BattleState = { towerSlotsReady?:boolean; defenseCenter?:number; strikes?: BattleStrike[]; defenderEra?:number; id: string; attackerId: string; defenderId: string; startedAt: number; lastTick: number; terrain: number[]; groups: BattleGroup[]; buildings: BattleBuilding[]; status: 'fighting' | 'retreating' | 'finished'; winner?: BattleSide; defenderOnline: boolean; initialPopulation: number; populationLoss: number; startingResources: Res; loot: Res; devastation: number };
 export type BattleResult = { winner: BattleSide; attackerSurvivors: Troops; defenderSurvivors: Troops; attackerCasualties: number; defenderCasualties: number; populationLoss: number; burnedTiles: number[]; loot: Res; devastation: number };
-const emptyRes = (): Res => ({ food: 0, wood: 0, stone: 0, copper: 0 , gold: 0, diamond:0,coal:0});
+const emptyRes = (): Res => ({ food: 0, wood: 0, stone: 0, copper: 0 , gold: 0, diamond:0,coal:0,aetherCrystal:0,rune:0});
 const dist = (a: {x:number;y:number}, b: {x:number;y:number}) => Math.hypot(a.x-b.x,a.y-b.y);
 const xy = (tile:number) => ({ x: tile % W + .5, y: Math.floor(tile / W) + .5 });
 const living = (g:BattleGroup) => g.count > 0 && !g.escaped;

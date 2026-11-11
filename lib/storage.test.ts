@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {newCity,G,idx,stats,derive,RES,applyAction,settle,storageLevel,buildMs} from './engine';
+import {isMagicResource} from './magic-data';
 function fixture(lvl=1){const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.people=[];c.b={};c.b[idx(10,10)]={k:'storehouse',lvl,doneAt:null};c.b[idx(15,15)]={k:'hall',lvl:5,doneAt:null};for(const r of RES)c.res[r]=1000;return c;}
 const caps=(c:ReturnType<typeof newCity>)=>stats(c,derive(c),c.last).storage;
 test('legacy capacities remain intact and only upgraded compartment increases',()=>{
@@ -26,7 +27,8 @@ test('diamond completion and a second compartment upgrade do not leak levels',()
 });
 test('legacy construction completes and independent limits clamp the right stock',()=>{
  const c=fixture(2),b=c.b[idx(10,10)];b.doneAt=1000;
- settle(c,1000);for(const r of RES)assert.equal(storageLevel(b,r),3);
+ // Magic compartments open separately at level 1 (era 7 spec 2.1).
+ settle(c,1000);for(const r of RES)assert.equal(storageLevel(b,r),isMagicResource(r)?1:3);
  b.storageLevels={wood:4};c.res.wood=7000;c.res.stone=7000;
  settle(c,2000);assert.equal(c.res.wood,7000);assert.equal(c.res.stone,6000);
 });

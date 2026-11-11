@@ -19,5 +19,5 @@ test('fallback debits one source and transfers one slot without double-spending'
 });
 test('a stopped relay disconnects consumers; bonuses change capacity without inventing sources',()=>{
  const sites=[site('s',1,1,'aetherwell'),{...site('relay',7,1),enabled:false},site('r',12,1,'mageacademy')];
- const graph=manaNetwork(sites,()=>true,{awakening:true,fourSpirits:true,regulated:new Set(['s'])});assert.equal(graph.bindings.r.primary,undefined);assert.deepEqual(graph.sources.s,{slots:6,used:0,capacity:360});
+ const graph=manaNetwork(sites,()=>true,{awakening:true,fourSpirits:true,regulated:new Set(['s'])});assert.equal(graph.bindings.r.primary,undefined);assert.deepEqual(graph.sources.s,{slots:6,used:0,capacity:1440});
 });

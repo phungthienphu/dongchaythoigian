@@ -1,18 +1,19 @@
 /** Shared data for the unreleased era 7–9 simulation. No engine imports: safe in native ESM/Workers. */
 export const MAGIC_RESOURCES=['aetherCrystal','rune','essence','celestialStone'] as const;
 export type MagicResource=typeof MAGIC_RESOURCES[number];
+export const isMagicResource=(r:string):r is MagicResource=>(MAGIC_RESOURCES as readonly string[]).includes(r);
 export type MagicGoods=Partial<Record<MagicResource|'food'|'wood'|'stone'|'copper'|'gold'|'coal',number>>;
 export type Element='fire'|'water'|'wood'|'earth';
 export type Contract='dragon'|'tortoise'|'phoenix';
 export type Research='conduction'|'warcraft'|'lifecraft'|'elements'|'pact'|'gatecraft';
 export type MagicBuildingDef={name:string;era:7|8|9;cost:MagicGoods;seconds:number;jobs:number;max?:number;upgrade?:boolean;source?:{perHour:number;capacity:number};relay?:boolean;mana?:number;input?:MagicGoods;output?:MagicGoods;knowledge?:number;research?:Research;support?:string[];elements?:Element[];seal?:Element;armySpace?:number;wonder?:boolean;priority?:'health'|'defense'|'input'|'output'|'other'};
 export const MAGIC_BUILDINGS={
- aetherwell:{name:'Giếng linh mạch',era:7,cost:{stone:4000,copper:1500,gold:500},seconds:3600,jobs:2,max:3,upgrade:true,source:{perHour:60,capacity:300}},
+ aetherwell:{name:'Giếng linh mạch',era:7,cost:{stone:4000,copper:1500,gold:500},seconds:3600,jobs:2,max:3,upgrade:true,source:{perHour:240,capacity:1200}},
  manarelay:{name:'Cột dẫn linh',era:7,cost:{stone:1000,copper:300},seconds:1800,jobs:0,max:18,relay:true},
  crystalworks:{name:'Xưởng kết tinh',era:7,cost:{stone:5000,copper:2000,gold:800},seconds:7200,jobs:4,upgrade:true,input:{copper:120,gold:40},output:{aetherCrystal:24},support:['forge'],priority:'input'},
  runeworks:{name:'Xưởng phù văn',era:7,cost:{stone:3000,wood:1000,gold:600},seconds:7200,jobs:4,upgrade:true,input:{wood:120,aetherCrystal:12},output:{rune:12},support:['artisan','machine'],priority:'input'},
  mageacademy:{name:'Học viện pháp thuật',era:7,cost:{stone:6000,copper:2000,rune:60},seconds:10800,jobs:4,max:2,input:{rune:6},mana:20,knowledge:24,armySpace:12,priority:'other'},
- manaspire:{name:'Tháp tụ linh',era:7,cost:{stone:4000,copper:1500,aetherCrystal:40,rune:20},seconds:7200,jobs:2,max:4,upgrade:true,input:{aetherCrystal:6},source:{perHour:120,capacity:600},research:'conduction'},
+ manaspire:{name:'Tháp tụ linh',era:7,cost:{stone:4000,copper:1500,aetherCrystal:40,rune:20},seconds:7200,jobs:2,max:4,upgrade:true,input:{aetherCrystal:6},source:{perHour:480,capacity:2400},research:'conduction'},
  rivershrine:{name:'Điện thờ Sông Mẹ',era:7,cost:{stone:5000,wood:1000,rune:60},seconds:10800,jobs:3,max:2,mana:0,priority:'health'},
  wardcircle:{name:'Pháp trận hộ thành',era:7,cost:{stone:3000,copper:1000,rune:40},seconds:7200,jobs:0,max:4,mana:0,priority:'defense'},
  spiritgarden:{name:'Vườn linh dược',era:7,cost:{wood:2000,stone:3000,aetherCrystal:30},seconds:7200,jobs:3,mana:20,research:'lifecraft',priority:'health'},
@@ -64,6 +65,8 @@ export const MAGIC_SPELLS={
  fireball:{name:'Hỏa cầu',era:7,mana:30,cooldown:20000,radius:1.5,targets:5,damage:60,splash:30,buildingScale:.5,research:'warcraft'},
  waterheal:{name:'Thủy hồi',era:7,mana:25,cooldown:25000,radius:2,targets:3,heal:50,research:'lifecraft'},
  roots:{name:'Trói rễ',era:7,mana:40,cooldown:45000,radius:3,targets:6,duration:6000,slow:.3,research:'warcraft',building:'wardcircle'},
+ lightpulse:{name:'Linh quang',era:7,mana:2,cooldown:10000,radius:4,targets:300,damage:10,slow:.4,duration:4000,building:'aetherwell'},
+ firecircle:{name:'Hỏa trận',era:7,mana:1,cooldown:2000,radius:6,targets:6,damage:40,building:'wardcircle'},
  purify:{name:'Thanh tẩy',era:7,mana:60,cooldown:1200000,radius:8,targets:4,research:'lifecraft',building:'rivershrine'},
  firestorm:{name:'Bão lửa',era:8,mana:120,goods:{essence:2},cooldown:180000,radius:3,targets:8,duration:8000,damage:10,buildingScale:.25,building:'firealtar'},
  cleanse:{name:'Tịnh hóa',era:8,mana:100,goods:{essence:2},cooldown:1800000,radius:10,targets:8,building:'watertemple'},
