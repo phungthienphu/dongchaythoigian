@@ -42,7 +42,7 @@ try {
   fs.writeFileSync(path.join(temp, 'package.json'), '{"type":"module"}');
   const { visibleTileBounds, fitView, camView, focusOn, pickBuilding, pickVillageTarget, pickHomeSoldier } = await import(pathToFileURL(path.join(temp, 'draw.js')).href);
   const { Crowd } = await import(pathToFileURL(path.join(temp, 'villagers.js')).href);
-  const { newCity, G, R, idx, homeSoldiers, applyAction, haulPosition, updateRefuges, refugePosition } = await import(pathToFileURL(path.join(temp, 'engine.js')).href);
+  const { newCity, G, R, W, idx, homeSoldiers, applyAction, haulPosition, updateRefuges, refugePosition } = await import(pathToFileURL(path.join(temp, 'engine.js')).href);
 // Shared art must not leak transforms/styles into the next actor or generate
 // invalid Canvas coordinates in mirrored, walking and attacking poses.
 const { drawSoldierArt, drawAnimalArt, drawFutureArt } = await import(pathToFileURL(path.join(temp, 'actor-art.js')).href);
@@ -170,6 +170,42 @@ assert.equal(farmActors.length,2);assert.ok(farmActors.every(v=>v.visible&&v.job
 assert.notDeepEqual([farmActors[0].fx,farmActors[0].fy],[farmActors[1].fx,farmActors[1].fy],'farmers must not overlap in one spot');
 assert.ok(farmActors.every(v=>Math.floor(v.fx)===20&&Math.floor(v.fy)===20),'working actors stay within their actual farm');
 console.log('PASS: two working farmers are visible, separated and remain inside their assigned field.');
+// Same-array task edits must refresh slots, without rescanning all people per farmer.
+const indexedFarms=structuredClone(farmers),indexedFarmCrowd=new Crowd();indexedFarmCrowd.sync(indexedFarms);
+indexedFarms.people.reverse();indexedFarmCrowd.update(indexedFarms,.016,1000);
+const stableSlots=new Map(indexedFarmCrowd.list.map(v=>[v.id,[v.fx,v.fy]]));
+assert.deepEqual(stableSlots.get(farmActors[0].id),[farmActors[0].fx,farmActors[0].fy]);
+indexedFarms.people.find(p=>p.id===farmActors[0].id).task={t:'idle',at:warehouseForSlot()};
+indexedFarmCrowd.update(indexedFarms,.016,1000);
+assert.deepEqual([indexedFarmCrowd.list.find(v=>v.id===farmActors[1].id).fx,indexedFarmCrowd.list.find(v=>v.id===farmActors[1].id).fy],stableSlots.get(farmActors[0].id));
+function warehouseForSlot(){return idx(24,20);}
+let fullScans=0;const realFilter=indexedFarms.people.filter;
+indexedFarms.people.filter=function(...args){fullScans++;return realFilter.apply(this,args);};
+indexedFarmCrowd.update(indexedFarms,.016,1000);assert.equal(fullScans,0,'farm visuals cannot filter the entire population per actor');
+delete indexedFarms.people.filter;
+console.log('PASS: farmer slots survive reordered snapshots and in-place task changes without per-actor population scans.');
+
+const idleVillage=newCity(0,123);idleVillage.t.fill(G);idleVillage.seen.fill(1);idleVillage.b={};idleVillage.camp=idx(10,20);idleVillage.raid=null;idleVillage.raidEncounter=undefined;idleVillage.zombies.actors=[];
+for(const x of [16,24,32])idleVillage.b[idx(x,20)]={k:'house',lvl:x===32?3:1,doneAt:null};
+const unreachableHome=idx(50,20);idleVillage.b[unreachableHome]={k:'house',lvl:3,doneAt:null};
+for(let y=19;y<=21;y++)for(let x=49;x<=51;x++)if(idx(x,y)!==unreachableHome)idleVillage.t[idx(x,y)]=R;
+idleVillage.people=Array.from({length:120},(_,i)=>({id:i+1,name:`Dân ${i+1}`,task:{t:'idle'},pos:idleVillage.camp}));idleVillage.pop=120;
+const savedIdle=JSON.stringify(idleVillage),idleCrowd=new Crowd();idleCrowd.sync(idleVillage);
+const assignedHomes=new Map(idleCrowd.list.map(v=>[v.id,v.home]));
+assert.equal(new Set(assignedHomes.values()).size,3,'reachable houses share idle residents');
+assert.ok(idleCrowd.list.every(v=>Math.abs(v.home%W-50)>2),'isolated houses cannot attract villagers across water');
+const largeHouseResidents=idleCrowd.list.filter(v=>Math.abs(v.home%W-32)<=1).length;
+assert.ok(largeHouseResidents>60&&largeHouseResidents<85,'larger residences receive proportionally more idle people');
+const cloneIdle=structuredClone(idleVillage);cloneIdle.people.reverse();idleCrowd.sync(cloneIdle);
+assert.deepEqual(new Map(idleCrowd.list.map(v=>[v.id,v.home])),assignedHomes,'ID-based homes survive reordered/cloned snapshots');
+for(let i=0;i<600;i++)idleCrowd.update(cloneIdle,.1,1000+i*100);
+assert.ok(new Set(idleCrowd.list.map(v=>Math.floor(v.fx/5))).size>=3,'idle people actually walk to several residential areas');
+assert.equal(JSON.stringify(idleVillage),savedIdle,'decorative dispersal never changes saved positions, orders, resources or simulation');
+cloneIdle.raid={at:30000,power:1};idleCrowd.update(cloneIdle,.1,25000);
+assert.ok(idleCrowd.list.every(v=>v.fx===10.5&&v.fy===20.5),'threats restore authoritative idle positions');
+const orderedIdle=structuredClone(idleVillage);orderedIdle.people[0].task={t:'idle',at:idx(12,25)};const orderedCrowd=new Crowd();orderedCrowd.sync(orderedIdle);
+assert.equal(orderedCrowd.list[0].home,idx(12,25),'manual standing orders are never redistributed');
+console.log('PASS: capacity-weighted idle homes are stable and reachable; threats/manual orders remain authoritative without state mutation.');
 // Waiting/blocked farmers at the warehouse must not hoe at their last position.
 const warehouse = idx(24, 20);
 for (const p of farmers.people) { delete p.haul; p.pos = warehouse; }

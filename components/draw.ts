@@ -17,6 +17,7 @@ import { B, CAP, GOLD, DIAMOND, COAL, CRYSTAL_ORE, RUNE_ORE, ESSENCE_ORE, isMagi
 import { placementTiles } from "@/lib/build-placement";
 import {hungerSpeech,villagersHungry} from "@/lib/villager-mood";
 import type { Fx, Villager } from "./villagers";
+import {planCrowd,type CrowdScene} from './crowd-scene';
 
 export type View = { TW: number; TH: number; ox: number; oy: number; width: number; height: number; s: number; rotation?: number };
 
@@ -2345,6 +2346,8 @@ export function pickVillageTarget(v:View,city:City,list:Villager[],anim:number,s
 }
 
 export type DrawOpts = {
+  focusedPerson?:number|null;
+  crowdScene?:{current:CrowdScene|null};
   focusedZombie?:number|null;
   bridgePreview?:{from:number;to:number|null};
   rules?: EngineRules;
@@ -2395,6 +2398,9 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   // Zoomed out no villagers are drawn; static objects come from a cached layer and
   // only moving objects (zombies, placement ghost) are drawn over it each frame.
   const staticOnly = o.layer === "static", cachedItems = !staticOnly && lod && !!o.items && typeof document !== "undefined";
+  let crowdScene:CrowdScene|null=null;
+  const previousCrowd=o.crowdScene?.current;
+  if(!staticOnly&&o.crowdScene)o.crowdScene.current=null;
   let ghostOk = false;
   if (!staticOnly) {
 
@@ -2714,11 +2720,19 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
         items.push({ d: viewDepth(v,a.fx,a.fy), f: () => drawAnimal(r, h.kind, a.fx, a.fy, a.face, a.graze, h.kind === "deer" && k === 0, hr(city.seed, h.id * 7 + k),future?.[k]?[future[k].fx-a.fx,future[k].fy-a.fy]:undefined) });
       });
     }
-    for (const vl of o.villagers) {
-      if (!vl.visible) continue;
+    const crowdPoints=[];
+    for(const vl of o.villagers){
+      if(!vl.visible)continue;
       const ti = idx(Math.max(0, Math.min(W - 1, Math.floor(vl.fx))), Math.max(0, Math.min(H - 1, Math.floor(vl.fy))));
-      if (!vis[ti]) continue;
+      if(!vis[ti])continue;
+      const [x,y]=P(v,vl.fx,vl.fy,deckHeight(r,vl.fx,vl.fy));crowdPoints.push({actor:vl,x,y});
+    }
+    crowdScene=planCrowd(crowdPoints,v,o.picked,o.focusedPerson??null,o.villagers,previousCrowd);
+    if(o.crowdScene)o.crowdScene.current=crowdScene;
+    let nameLabels=0;
+    for (const vl of crowdScene.actors) {
       const isPicked = vl.id !== null && o.picked.has(vl.id);
+      const showName=isPicked&&(vl.id===o.focusedPerson||nameLabels++<12);
       items.push({
         d: viewDepth(v,vl.fx,vl.fy),
         f: () => {
@@ -2728,7 +2742,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
           }
           if(vl.health?.down){const [sx,sy]=P(v,vl.fx,vl.fy);c.save();c.translate(sx,sy);c.rotate(-Math.PI/2);c.translate(-sx,-sy);drawVillager(r,vl);c.restore();}else drawVillager(r, vl);
           if(vl.health&&(vl.health.hp<100||vl.health.infected)){const [sx,sy]=P(v,vl.fx,vl.fy);const scale=Math.max(v.s,.65);c.fillStyle='#302d28';c.fillRect(sx-9*scale,sy-40*scale,18*scale,2.5*scale);c.fillStyle=vl.health.infected?'#b5ad61':'#d8896c';c.fillRect(sx-9*scale,sy-40*scale,18*scale*Math.max(0,vl.health.hp)/100,2.5*scale);if(vl.health.down||vl.health.infected){c.fillStyle=vl.health.down?'#ecb090':'#d8cd72';c.font=`bold ${Math.max(11,12*scale)}px sans-serif`;c.textAlign='center';c.fillText(vl.health.down?'+':'!',sx,sy-44*scale);}}
-          if (isPicked) {
+          if (showName) {
             const [sx, sy] = P(v, vl.fx, vl.fy,deckHeight(r,vl.fx,vl.fy)), s2 = Math.max(v.s * 1.45, 0.7);
             c.font = `600 ${Math.max(11, Math.round(8 * s2))}px system-ui, sans-serif`; c.textAlign = "center"; c.textBaseline = "bottom";
             const label=vl.name+(villagersHungry(city)?" · Đói":"");
@@ -2753,7 +2767,7 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
 
   // Hunger overlays use existing actor positions; a single speaker avoids a wall of bubbles.
   if(!lod&&villagersHungry(city)){
-    const hungry=o.villagers.filter(vl=>vl.id!==null&&vl.visible&&(()=>{const [x,y]=P(v,vl.fx,vl.fy);return x>=0&&x<=v.width&&y>=30&&y<=v.height;})());
+    const hungry=(crowdScene?.actors??o.villagers).filter(vl=>vl.id!==null&&vl.visible&&(()=>{const [x,y]=P(v,vl.fx,vl.fy);return x>=0&&x<=v.width&&y>=30&&y<=v.height;})());
     c.save();c.font='bold 11px system-ui, sans-serif';c.textAlign='center';c.textBaseline='middle';
     for(const vl of hungry){if(o.picked.has(vl.id!))continue;const [x,y]=P(v,vl.fx,vl.fy),dy=30*Math.max(v.s*1.45,.7);c.fillStyle='#6e2d20';c.fillRect(x-14,y-dy-14,28,14);c.fillStyle='#ffe6af';c.fillText('Đói',x,y-dy-7);}
     const speakers=hungry.filter(vl=>!vl.fleeing);
@@ -2809,6 +2823,26 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
       c.beginPath(); c.arc(px, py, 1.2 + (k % 3) * 0.4, 0, Math.PI * 2); c.fill();
     }
   }
+  if(crowdScene?.groups.length){
+    c.save();c.font='600 12px system-ui, sans-serif';c.textAlign='center';c.textBaseline='middle';
+    const placed:{left:number;top:number;width:number;height:number}[]=[];
+    for(const group of [...crowdScene.groups].sort((a,b)=>b.selected-a.selected||b.members.length-a.members.length)){
+      const text=`${group.members.length} dân${group.selected?` · ${group.selected} chọn`:''}${group.carrying?` · ${group.carrying} mang hàng`:''}${villagersHungry(city)?' · Đói':''}`;
+      group.width=Math.min(v.width-12,c.measureText(text).width+16);group.height=26;
+      group.left=group.x-group.width/2;group.top=group.y-36*Math.max(v.s,.65);
+      // Never move a label away from its painted representative. Hide crowded
+      // or clipped labels instead of inventing a cluster on empty ground.
+      if(group.left<6||group.left+group.width>v.width-6||group.top<6||group.top+group.height>v.height-6||placed.some(p=>group.left<p.left+p.width+4&&group.left+group.width+4>p.left&&group.top<p.top+p.height+4&&group.top+group.height+4>p.top)){
+        group.width=0;continue;
+      }
+      placed.push(group);
+      c.strokeStyle='rgba(35,48,30,.85)';c.lineWidth=3;c.lineJoin='round';
+      c.strokeText(text,group.left+group.width/2,group.top+13,group.width-12);
+      c.fillStyle=group.selected?'#a9efff':'#fff1cb';c.fillText(text,group.left+group.width/2,group.top+13,group.width-12);
+    }
+    c.restore();
+  }
+
 }
 
 /** Small preview of a building for the build menu. */

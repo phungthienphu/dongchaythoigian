@@ -204,7 +204,8 @@ test('split, reloaded and single settlement agree with essence, seals, a mana ou
  const a=era8();a.res.essence=200;a.res.aetherCrystal=2000;a.res.coal=2000;
  place(a,'machine',26,22);place(a,'essenceforge',24,22,5);const well=place(a,'aetherwell',24,24,2);
  station(a,'earthtemple',26,26);place(a,'golemworks',28,26);place(a,'wardcircle',22,26);
- eraStaff(a,a.camp,20);a.army={golem:1};
+ // Keep the scripted mana-outage fixture defended against modern wave pressure.
+ eraStaff(a,a.camp,20);a.army={golem:1,armor:8};a.guardPosts=[{x:23,y:23},{x:27,y:25}];
  stepMagic(a,MIN);a.magic!.mana[id(well)]=600;
  activateZombies(a,0);a.zombies!.nextAt=25*MIN;a.zombies!.warning=idx(24,28);
  let b=JSON.parse(JSON.stringify(a)) as City;

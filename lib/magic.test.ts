@@ -149,7 +149,8 @@ test('purification and gardens act at minute boundaries from bound sources',()=>
 
 test('online and split/reloaded settlement agree with mana, research and zombie waves',()=>{
  const a=era7();a.b[idx(25,25)]={k:'university',lvl:1,doneAt:null};place(a,'aetherwell',30,30,2);place(a,'mageacademy',32,30,4);place(a,'wardcircle',30,33);
- eraStaff(a,a.camp,20);a.res.rune=200;a.magic!.knowledge=200;
+ // Defend the scripted research/mana fixture while modern waves are active.
+ eraStaff(a,a.camp,20);a.army={armor:8};a.guardPosts=[{x:23,y:23},{x:30,y:31}];a.res.rune=200;a.magic!.knowledge=200;
  activateZombies(a,0);a.zombies!.nextAt=20*MIN;a.zombies!.warning=idx(31,35);// first wave rises inside the ward circle's reach
  assert.equal(applyAction(a,{type:'magicResearch',key:'conduction'},0,RULES),null);
  let b=JSON.parse(JSON.stringify(a)) as City;

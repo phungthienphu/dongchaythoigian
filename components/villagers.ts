@@ -41,6 +41,7 @@ export type Villager = {
   hits: number; // spear throws / axe strikes this trip
   cool: number; // seconds until next strike or throw
   swing: number; // 0..1 strike animation, 1 = just struck
+  authoritativeIdle?:boolean;
 };
 
 /** Short-lived visual effects: thrown spears and flying chips. */
@@ -68,11 +69,11 @@ function passable(city: City, j: number, to: number, water: boolean, deck: Reado
 }
 
 /** 8-direction BFS (no corner cutting), then straightened so people walk diagonally instead of in steps. */
-function findPath(city: City, from: number, to: number, water: boolean, deck:ReadonlySet<number>): [number, number][] | null {
+function findPath(city: City, from: number, to: number, water: boolean, deck:ReadonlySet<number>,exploredOnly=false): [number, number][] | null {
   if (isRock(city.t[to])) {
     const x = to % W, y = Math.floor(to / W);
     const paths = DIRS.filter(([dx,dy]) => inb(x+dx,y+dy) && passable(city,idx(x+dx,y+dy),-1,water,deck))
-      .map(([dx,dy]) => findPath(city,from,idx(x+dx,y+dy),water,deck)).filter((p): p is [number,number][] => p !== null);
+      .map(([dx,dy]) => findPath(city,from,idx(x+dx,y+dy),water,deck,exploredOnly)).filter((p): p is [number,number][] => p !== null);
     return paths.sort((a,b) => a.length-b.length)[0] ?? null;
   }
   if (from === to) return [center(to)];
@@ -87,7 +88,7 @@ function findPath(city: City, from: number, to: number, water: boolean, deck:Rea
     for (const [dx, dy] of DIRS) {
       if (!inb(x + dx, y + dy)) continue;
       const j = idx(x + dx, y + dy);
-      if (seen[j] || !passable(city, j, to, water, deck)) continue;
+      if (seen[j] || exploredOnly&&!city.seen[j] || !passable(city, j, to, water, deck)) continue;
       if (dx && dy && (!passable(city, idx(x + dx, y), to, water, deck) || !passable(city, idx(x, y + dy), to, water, deck))) continue;
       seen[j] = 1; prev[j] = i; q.push(j);
     }
@@ -96,29 +97,29 @@ function findPath(city: City, from: number, to: number, water: boolean, deck:Rea
   const tiles: number[] = [];
   for (let i = to; i !== -1; i = prev[i]) tiles.push(i);
   tiles.reverse();
-  return smooth(city, tiles.map(center), to, water, deck);
+  return smooth(city, tiles.map(center), to, water, deck,exploredOnly);
 }
 
-function clearSegment(city: City, a: [number, number], b: [number, number], to: number, water: boolean, deck: ReadonlySet<number>) {
+function clearSegment(city: City, a: [number, number], b: [number, number], to: number, water: boolean, deck: ReadonlySet<number>,exploredOnly=false) {
     const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * 4);
     for (let k = 1; k < n; k++) {
       const x = a[0] + ((b[0] - a[0]) * k) / n, y = a[1] + ((b[1] - a[1]) * k) / n;
       // keep a little clearance from blocked tiles
       for (const [ox, oy] of [[0, 0], [0.22, 0.22], [-0.22, 0.22], [0.22, -0.22], [-0.22, -0.22]]) {
         const tx = Math.floor(x + ox), ty = Math.floor(y + oy);
-        if (!inb(tx, ty) || !passable(city, idx(tx, ty), to, water, deck)) return false;
+        if (!inb(tx, ty) || exploredOnly&&!city.seen[idx(tx,ty)] || !passable(city, idx(tx, ty), to, water, deck)) return false;
       }
     }
     return true;
 }
 
 /** Drop waypoints while the straight line to a later one stays on passable ground. */
-function smooth(city: City, pts: [number, number][], to: number, water: boolean, deck: ReadonlySet<number>) {
+function smooth(city: City, pts: [number, number][], to: number, water: boolean, deck: ReadonlySet<number>,exploredOnly=false) {
   const out: [number, number][] = [pts[0]];
   let i = 0;
   while (i < pts.length - 1) {
     let j = pts.length - 1;
-    while (j > i + 1 && !clearSegment(city, pts[i], pts[j], to, water, deck)) j--;
+    while (j > i + 1 && !clearSegment(city, pts[i], pts[j], to, water, deck,exploredOnly)) j--;
     out.push(pts[j]);
     i = j;
   }
@@ -156,17 +157,81 @@ function describe(city: City, p: Person): { job: Job; work: number; carry: ResKe
   }
 }
 
+const CARDINAL_DIRS=DIRS.slice(0,4);
+
 export class Crowd {
   list: Villager[] = [];
   fx: Fx[] = [];
   chopping = new Set<number>(); // tiles with an axe swinging right now
   private paths = new BoundedCache<string, [number, number][] | null>(128, 16384, path=>path?.length??1);
   private homes: number[] = [];
+  private idleChoices = new Map<number,{tile:number;capacity:number}[]>();
+  private idleRegions = new Uint16Array(W*H);
+  private idleTotals = new Map<number,number>();
+
+  private indexIdleHomes(city:City) {
+    const regions=this.idleRegions;regions.fill(0);let region=0;
+    for(let start=0;start<W*H;start++)if(city.seen[start]&&!regions[start]&&passable(city,start,-1,false,this.deck)){
+      const queue=[start];regions[start]=++region;
+      for(let head=0;head<queue.length;head++){
+        const i=queue[head],x=i%W,y=Math.floor(i/W);
+        for(const [dx,dy]of CARDINAL_DIRS)if(inb(x+dx,y+dy)){
+          const j=idx(x+dx,y+dy);
+          if(city.seen[j]&&!regions[j]&&passable(city,j,-1,false,this.deck)){regions[j]=region;queue.push(j);}
+        }
+      }
+    }
+    this.idleChoices.clear();
+    for(const home of this.homes){
+      const b=city.b[home],seen=new Set<number>();
+      for(const [dx,dy]of CARDINAL_DIRS){
+        const x=home%W+dx,y=Math.floor(home/W)+dy;if(!inb(x,y))continue;
+        const tile=idx(x,y),key=regions[tile];if(!key||seen.has(key)||!city.seen[tile])continue;seen.add(key);
+        const choices=this.idleChoices.get(key)??[];
+        choices.push({tile,capacity:Math.max(1,(B[b.k].house??1)*b.lvl)});this.idleChoices.set(key,choices);
+      }
+    }
+    this.idleTotals.clear();
+    for(const [key,choices]of this.idleChoices){let total=0;for(const h of choices){total+=h.capacity;h.capacity=total;}this.idleTotals.set(key,total);}
+  }
+
+  private idleHome(city:City,p:Person) {
+    const origin=p.pos??city.camp,x=origin%W,y=Math.floor(origin/W);
+    let region=this.idleRegions[origin];
+    if(!region)for(const [dx,dy]of CARDINAL_DIRS)if(inb(x+dx,y+dy)&&this.idleRegions[idx(x+dx,y+dy)]){region=this.idleRegions[idx(x+dx,y+dy)];break;}
+    const choices=this.idleChoices.get(region);if(!choices?.length)return origin;
+    const slot=(Math.imul(p.id,2654435761)>>>0)%this.idleTotals.get(region)!;
+    let low=0,high=choices.length-1;
+    while(low<high){const mid=(low+high)>>>1;if(slot<choices[mid].capacity)high=mid;else low=mid+1;}
+    return choices[low].tile;
+  }
+
+  private goIdle(v:Villager,city:City) {
+    const from=tileOf(v.fx,v.fy),key=`idle:${from}>${v.home}`;
+    let path=this.paths.get(key);
+    if(path===undefined){path=findPath(city,from,v.home,false,this.deck,true);this.paths.set(key,path);}
+    if(!path){v.state='rest';v.t=3;return;}
+    v.path=path.length>1?path.slice(1):path.slice();v.pi=0;v.state='toHome';v.run=false;
+  }
   private people = new Map<number,Person>();
   private peopleSource?: City['people'];
   private peopleCount = 0;
+  private farmSlots = new Map<number,number>();
+
+  private indexFarmSlots(city:City) {
+    this.farmSlots.clear();
+    const groups=new Map<number,number[]>();
+    for(const p of city.people)if(p.task.t==='work'&&['farm','estate'].includes(city.b[p.task.at]?.k)){
+      const ids=groups.get(p.task.at);if(ids)ids.push(p.id);else groups.set(p.task.at,[p.id]);
+    }
+    for(const ids of groups.values()){
+      ids.sort((a,b)=>a-b);
+      ids.forEach((id,slot)=>this.farmSlots.set(id,slot%4));
+    }
+  }
   private waterMask = new Uint8Array(W * H);
   private obstacles = "";
+  private exploredMask = new Uint8Array(W*H);
   private hasTopology = false;
   private deck:ReadonlySet<number>=new Set();
 
@@ -175,6 +240,8 @@ export class Crowd {
     let changed = !this.hasTopology;
     this.deck=bridgeDeck(city);
     for (let i = 0; i < W * H; i++) {
+      const explored=Number(!!city.seen[i]);
+      if(this.exploredMask[i]!==explored){this.exploredMask[i]=explored;changed=true;}
       const water = city.t[i] === R && !this.deck.has(i) ? 1 : isRock(city.t[i]) ? 2 : 0;
       if (this.waterMask[i] !== water) { this.waterMask[i] = water; changed = true; }
     }
@@ -209,9 +276,12 @@ export class Crowd {
   sync(city: City) {
     // Each new snapshot replaces Person references even when IDs are unchanged.
     this.syncPeople(city);
+    this.indexFarmSlots(city);
     const topologyChanged = this.syncTopology(city);
     const entries = buildings(city);
     this.homes = entries.filter(([, b]) => HOMES.has(b.k) && b.lvl >= 1 && !b.flooded && !b.burned).map(([i]) => i);
+    this.indexIdleHomes(city);
+    const danger=!!(city.raid||city.raidEncounter||city.battleId||city.zombies?.actors.some(z=>z.hp>0&&z.until>city.last));
     const homeByTarget = new Map<number,number>();
     let offices: number[] | undefined;
     const old = new Map(this.list.map((v) => [v.key, v]));
@@ -222,13 +292,17 @@ export class Crowd {
       const target = d.work >= 0 ? d.work : city.camp;
       let home = d.job === "idle" && d.work >= 0 ? d.work : homeByTarget.get(target);
       if (home === undefined) { home = this.nearestHome(city,target); homeByTarget.set(target,home); }
+      const freeIdle=p.task.t==='idle'&&p.task.at===undefined&&!p.haul&&!p.refuge&&!p.vital?.paused&&p.vital?.infectedAt===undefined&&(p.vital?.hp??100)>=100;
+      if(freeIdle)home=danger?(p.pos??city.camp):this.idleHome(city,p);
       if (prev) {
+        const homeChanged=prev.home!==home;
         if (prev.sig !== d.sig) {
           Object.assign(prev, d, { home });
           if (!p.haul && (p.task.t === "idle" || p.task.t === "explore")) this.start(prev, city, true);
         }
         prev.home = home;
-        if (!p.haul && (p.task.t === "idle" || p.task.t === "explore") && topologyChanged && (prev.state === "toHome" || prev.state === "toWork")) {
+        if(freeIdle&&!danger&&(homeChanged||topologyChanged))this.goIdle(prev,city);
+        if (!freeIdle && !p.haul && (p.task.t === "idle" || p.task.t === "explore") && topologyChanged && (prev.state === "toHome" || prev.state === "toWork")) {
           this.go(prev, city, tileOf(prev.fx, prev.fy), prev.state === "toHome" ? home : prev.work, prev.state, prev.run);
         }
         next.push(prev);
@@ -277,6 +351,7 @@ export class Crowd {
     if (v.job === "explore") { v.state = "explore"; v.run = false; return; }
     if (v.job === "idle") {
       if (v.work >= 0 && ordered) { this.go(v, city, here, v.work, "toWork", true); return; }
+      if(v.work<0&&here!==v.home){this.goIdle(v,city);return;}
       v.state = "wander"; v.tx = v.fx; v.ty = v.fy; return;
     }
     this.go(v, city, here, v.work, "toWork", ordered);
@@ -307,11 +382,14 @@ export class Crowd {
     const tnow = performance.now();
     this.fx = this.fx.filter((f) => tnow - f.t0 < f.dur * 1000);
     this.chopping.clear();
+    // State may mutate in place between snapshots; rebuild once, never per actor.
+    this.indexFarmSlots(city);
 
     // Normal frames reuse the index. Array replacement or population changes
     // also work for callers advancing a mutable city between explicit syncs.
     if (this.peopleSource !== city.people || this.peopleCount !== city.people.length) this.syncPeople(city);
     const people = this.people;
+    const danger=!!(city.raid||city.raidEncounter||city.battleId||city.zombies?.actors.some(z=>z.hp>0&&z.until>now));
     for (const v of this.list) {
       v.visible = true;
       v.moving = false;
@@ -332,6 +410,12 @@ export class Crowd {
       if(v.id===null && (city.battleId || city.raid || city.raidEncounter)){v.visible=false;continue;}
       if(person?.vital?.paused){const vital=person.vital;const dx=(vital.x??v.fx)-v.fx,dy=(vital.y??v.fy)-v.fy;v.fx=vital.x??v.fx;v.fy=vital.y??v.fy;v.moving=Math.hypot(dx,dy)>.001;v.run=v.moving;v.state='rest';v.swing=0;v.visible=vital.shelter===undefined&&!(vital.care&&now>=vital.care.arrive);if(Math.abs(dx-dy)>.001)v.face=dx-dy>=0?1:-1;continue;}
       if (person?.haul) { this.haulVisual(v, city, person, dt, now, tnow); continue; }
+      if(person?.task.t==='idle'&&person.task.at===undefined){
+        if(danger||person.vital?.infectedAt!==undefined||(person.vital?.hp??100)<100){
+          [v.fx,v.fy]=center(person.pos??city.camp);v.state='rest';v.moving=false;v.swing=0;v.authoritativeIdle=true;continue;
+        }
+        if(v.authoritativeIdle){delete v.authoritativeIdle;this.start(v,city,false);}
+      }
       if (person && person.task.t !== "idle" && person.task.t !== "explore") {
         // A newly assigned worker waits for the engine's first haul tick; no decorative income cycle.
         v.state = "rest"; v.moving = false; v.run = false; v.swing = 0;
@@ -385,7 +469,7 @@ export class Crowd {
               v.run = false;
               if (v.job === "idle") { v.state = "wander"; v.tx = v.fx; v.ty = v.fy; v.t = 1; }
               else { v.state = "work"; v.t = 7 + v.seed * 5; v.hits = 0; v.cool = 0.5; }
-            } else { v.state = "rest"; v.t = 2 + v.seed * 3; }
+            } else { v.state = "rest"; v.t = 2 + v.seed * 3; if(v.job==="idle"){v.tx=v.fx;v.ty=v.fy;} }
           }
           break;
         }
@@ -398,7 +482,7 @@ export class Crowd {
             for (let k = 0; k < 6; k++) {
               const nx = hx + (Math.random() - 0.5) * rad, ny = hy + (Math.random() - 0.5) * rad;
               const j = tileOf(nx, ny);
-              if (inb(Math.floor(nx), Math.floor(ny)) && city.t[j] !== R && !city.b[j]) { v.tx = nx; v.ty = ny; break; }
+              if (inb(Math.floor(nx), Math.floor(ny)) && city.seen[j] && passable(city,j,-1,false,this.deck) && !city.b[j] && clearSegment(city,[v.fx,v.fy],[nx,ny],-1,false,this.deck,true)) { v.tx = nx; v.ty = ny; break; }
             }
             v.t = 1 + Math.random() * 3;
           } else {
@@ -434,8 +518,7 @@ export class Crowd {
     // Distinct places in the front crop rows, only while actually farming.
     if (farming && p.task.t === "work") {
       const tile=p.task.at;
-      const workers=city.people.filter(q=>q.task.t==="work"&&q.task.at===tile).sort((a,b)=>a.id-b.id);
-      const slot=workers.findIndex(q=>q.id===p.id)%4;
+      const slot=this.farmSlots.get(p.id)??0;
       const offsets=[[-.14,.32],[.32,-.14],[-.3,.05],[.05,-.3]];
       v.fx += offsets[slot][0]; v.fy += offsets[slot][1];
     }

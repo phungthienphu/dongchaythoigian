@@ -2,6 +2,7 @@
 import {zombiePresence,locateNextZombie,zombieName} from '@/lib/zombie-view';
 import ZombiePanel from './ZombiePanel';
 import DeferredDetails from './DeferredDetails';
+import {crowdViewKey,pickCrowdGroup,type CrowdScene,type CrowdGroup} from './crowd-scene';
 import {RenderQuality,mapDetailLow} from '@/lib/render-quality';
 import {FrameProfile} from '@/lib/frame-profile';
 import FrameProfilePanel from './FrameProfilePanel';
@@ -422,6 +423,9 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [assignN, setAssignN] = useState(1);
   const [send, setSend] = useState<Troops>({});
   const [panel, setPanel] = useState<Panel | null>(null);
+  const [crowdScope,setCrowdScope]=useState<{key:string;ids:Set<number>}|null>(null);
+  const [focusedPerson,setFocusedPerson]=useState<number|null>(null);
+  const crowdSceneRef=useRef<CrowdScene|null>(null);
   const [shopEra, setShopEra] = useState(0);
   const [shopFocus,setShopFocus]=useState<BKey|null>(null);
   const [resourceFocus,setResourceFocus]=useState<ResKey|null>(null);
@@ -487,8 +491,9 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   renderPausedRef.current=worldOpen || !!battleOpen || helpOpen;
   const bridgePreview=bridgeFrom!==null?{from:bridgeFrom,to:bridgeTarget?idx(bridgeTarget.x,bridgeTarget.y):null}:undefined;
   const [focusedZombie,setFocusedZombie]=useState<number|null>(null);
-  const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation, focusedZombie });
-  viewRef.current = { hover: hoverRef.current, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation, focusedZombie };
+  const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation, focusedZombie,focusedPerson });
+  viewRef.current = { hover: hoverRef.current, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation, focusedZombie,focusedPerson };
+  useEffect(()=>{if(panel!=='people')setCrowdScope(null);},[panel]);
   const setHover = (cell: Cell | null, lazy = false) => {
     hoverRef.current = cell; viewRef.current.hover = cell;
     clearTimeout(hoverTimer.current);
@@ -850,7 +855,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         const v=camView(fitRef.current,camRef.current);
         lowDetail=mapDetailLow(v.TW,lowDetail);
         if(profile)profile.view=`TW=${v.TW.toFixed(1)} DPR=${dpr} detail=${lowDetail?'low':'full'} trees=${!!trees}`;
-        drawCity(ctx, c, D, { v, now: now(), anim: rm ? 0 : t, villagers: crowd.list, fx: crowd.fx, chopping: crowd.chopping, ...view, rules, ground, items, dpr, lowDetail, trees: v.TW >= 24 && v.TW <= 60 ? trees : undefined });
+        drawCity(ctx, c, D, { v, now: now(), anim: rm ? 0 : t, villagers: crowd.list, fx: crowd.fx, chopping: crowd.chopping, ...view, crowdScene:crowdSceneRef, rules, ground, items, dpr, lowDetail, trees: v.TW >= 24 && v.TW <= 60 ? trees : undefined });
         const turn=rotationFadeRef.current;
         if(turn&&!paintMapTurn(ctx,turn,t,fitRef.current.width,fitRef.current.height))rotationFadeRef.current=null;
         if(!vis)drawSelectionBox(ctx,selectionDrag.current);
@@ -1008,6 +1013,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if (c) focusOn(f, camRef.current, (c.camp % W) + 0.5, Math.floor(c.camp / W) + 0.5, Math.min(MAX_ZOOM, 60 / f.TW));
   };
   const focusPerson = (p:Person) => {
+    setFocusedPerson(p.id);
     setRegionMode(null);setPickedSoldiers(new Set());setPickedSoldier(null);
     const actor=crowdRef.current.list.find(v=>v.id===p.id),tile=p.pos??cityRef.current?.camp??0;
     setPicked(new Set([p.id]));
@@ -1022,7 +1028,16 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     });
 
   const trackCaravan = (id:string) => { setMarketTarget(id);setPanel("market");setWorldOpen(false); };
-  const openPanel = (p: Panel | null) => setPanel((cur) => (cur === p ? null : p));
+  const openPanel = (p: Panel | null) => {setCrowdScope(null);setPanel((cur) => (cur === p ? null : p));};
+  const openCrowdGroup=(group:CrowdGroup)=>{
+    const current=new Set(cityRef.current?.people.map(p=>p.id));
+    setCrowdScope({key:group.key,ids:new Set(group.members.filter(v=>v.id!==null&&current.has(v.id)).map(v=>v.id!))});
+    setPeopleTab('directory');setPanel('people');setSelected(null);setHerdSel(null);
+  };
+  const visibleCrowd=()=>{
+    const scene=crowdSceneRef.current;
+    return scene?.source===crowdRef.current.list&&scene.signature===crowdViewKey(view())?scene.actors:[];
+  };
   const locateZombie=(id?:number)=>{
     const c=cityRef.current;if(!c)return;
     const {active,pending}=zombiePresence(c,now()),actor=id===undefined?locateNextZombie(c,now(),focusedZombie):[...active,...pending].find(z=>z.id===id);
@@ -1041,11 +1056,15 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     const c = cityRef.current;
     if (!c) return;
     const p = local(e);
+    if(!tool&&!planting&&!guardEditing&&bridgeFrom===null&&dockMove===null&&!pickedSoldier&&(!regionMode||regionMode==='people'&&!picked.size)){
+      const group=pickCrowdGroup(crowdSceneRef.current,view(),crowdRef.current.list,p.x,p.y);
+      if(group){openCrowdGroup(group);return;}
+    }
     if(regionMode){
       const cell=cellAt(e);if(!cell)return;
       if(e.shiftKey||!(regionMode==='soldiers'?pickedSoldiers.size:picked.size)){
         if(regionMode==='soldiers'){const s=pickHomeSoldier(view(),c,now(),p.x,p.y);if(s&&(!soldierType||s.u===soldierType))setPickedSoldiers(old=>{const next=new Set(e.shiftKey?old:[]);if(e.shiftKey&&next.has(s.id))next.delete(s.id);else next.add(s.id);return next;});}
-        else {const target=pickVillageTarget(view(),c,crowdRef.current.list,performance.now(),p.x,p.y,true);if(target?.type==='person'&&target.person.id!==null&&!target.person.fleeing)togglePick(target.person.id,e.shiftKey);}
+        else {const target=pickVillageTarget(view(),c,visibleCrowd(),performance.now(),p.x,p.y,true);if(target?.type==='person'&&target.person.id!==null&&!target.person.fleeing)togglePick(target.person.id,e.shiftKey);}
         return;
       }
       if(regionMode==='soldiers'){
@@ -1085,7 +1104,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       setPickedSoldier(soldier.id);setPicked(new Set());setSelected(null);setPanel(null);
       setMsg({text:`Đã chọn ${UNITS[soldier.u].n}. Bấm ô đất để điều quân. Esc để bỏ chọn.`});return;
     }
-    const target = pickVillageTarget(view(),c,crowdRef.current.list,performance.now(),p.x,p.y,e.shiftKey||e.ctrlKey||e.metaKey,hit);
+    const target = pickVillageTarget(view(),c,visibleCrowd(),performance.now(),p.x,p.y,e.shiftKey||e.ctrlKey||e.metaKey,hit);
     const vl = target?.type==="person" ? target.person : null;
     if (vl && vl.id !== null) {
       togglePick(vl.id, e.shiftKey || e.ctrlKey || e.metaKey);
@@ -1303,6 +1322,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         <button onClick={focusHome} aria-label="Về trại" title="Về trại">⌂</button>
         <button onClick={() => { rotationFadeRef.current=null; camRef.current = { zoom: 1, px: 0, py: 0, rotation:camRef.current.rotation }; }} aria-label="Xem toàn bản đồ" title="Xem toàn bản đồ">⤢</button>
         {c.magic&&<ManaOverlayButton/>}
+        {!visiting&&<button className="crowd-toggle" onClick={()=>{
+          const scene=crowdSceneRef.current;
+          const group=(scene?.source===crowdRef.current.list&&scene.signature===crowdViewKey(view())?scene.groups:[]).reduce<CrowdGroup|null>((best,g)=>!best||g.members.length>best.members.length?g:best,null);
+          if(group)openCrowdGroup(group);else setMsg({text:'Không có cụm dân đông trong góc nhìn hiện tại.'});
+        }}>Chọn cụm dân đông</button>}
       </div></details>
 
       {!panel && herd && herdTask && (
@@ -1632,10 +1656,13 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
             )}
 
             {panel === "people" && <>
+              {crowdScope&&<div className="inline-warning crowd-scope" role="status"><p>Đang xem {c.people.filter(p=>crowdScope.ids.has(p.id)).length} người trong cụm đã chọn.</p><button onClick={()=>{
+                setFocusedPerson(null);setPicked(new Set(c.people.filter(p=>crowdScope.ids.has(p.id)).map(p=>p.id)));setPanel(null);
+              }}>Chọn cả cụm để giao việc</button><button onClick={()=>setCrowdScope(null)}>Xem toàn bộ dân làng</button></div>}
               <p className="panel-intro">{c.people.length} dân · {idle.length} có thể nhận việc<span>{populationStatus}</span></p>
               <div className="tabs" role="group" aria-label="Quản lý dân làng">{([['assign','Phân công'],['directory','Từng người']] as const).map(([key,label])=><button key={key} className={'tab'+(peopleTab===key?' on':'')} aria-pressed={peopleTab===key} onClick={()=>setPeopleTab(key)}>{label}</button>)}</div>
               {picked.size>0&&<button className="primary" onClick={()=>setPanel(null)}>Giao việc cho {picked.size} người trên bản đồ →</button>}
-              <div hidden={peopleTab!=='assign'}><button disabled={!idle.length} onClick={()=>{setPicked(new Set(idle.map(p=>p.id)));setPanel(null);}}>Chọn {idle.length} người có thể nhận việc</button><WorkforcePanel c={c} busy={busy} act={act} pickGroup={ids=>{setPicked(new Set(ids));setPickedSoldier(null);setTool(null);setPanel(null);setMsg({text:`Đã chọn ${ids.length} người. Bấm bản đồ để giao việc.`});}}/></div>{peopleTab==='directory'&&<PeopleDirectory city={c} picked={picked} label={p=>taskLabel(c,p)} detail={p=>haulDetail(p,t,st.storage,c.res,c)} onPick={togglePick} onLocate={p=>{focusPerson(p);setPanel(null);}}/>}
+              <div hidden={peopleTab!=='assign'}><button disabled={!idle.length} onClick={()=>{setPicked(new Set(idle.map(p=>p.id)));setPanel(null);}}>Chọn {idle.length} người có thể nhận việc</button><WorkforcePanel c={c} busy={busy} act={act} pickGroup={ids=>{setPicked(new Set(ids));setPickedSoldier(null);setTool(null);setPanel(null);setMsg({text:`Đã chọn ${ids.length} người. Bấm bản đồ để giao việc.`});}}/></div>{peopleTab==='directory'&&<PeopleDirectory key={crowdScope?.key??'all'} scope={crowdScope?.ids} city={c} picked={picked} label={p=>taskLabel(c,p)} detail={p=>haulDetail(p,t,st.storage,c.res,c)} onPick={togglePick} onLocate={p=>{focusPerson(p);setPanel(null);}}/>}
               <details className="ui-details"><summary>Khẩu phần & phân công</summary><p>Mỗi dân dùng {upkeep.civilian.food/6} thực/10 phút và {upkeep.civilian.wood} gỗ/giờ, kể cả khi rảnh. Người giữ nhóm khám phá hoặc đứng theo lệnh không bị điều sang việc khác.</p></details>
             </>}
 

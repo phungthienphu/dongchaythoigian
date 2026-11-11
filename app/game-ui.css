@@ -68,7 +68,7 @@
 .panel-intro>span { display:block; font:400 12px/1.6 var(--body); color:var(--ui-muted); margin-top:3px; }
 .menu-links { display:grid; gap:0; }
 .ui-game .menu-links>button { display:flex; width:100%; align-items:center; text-align:left; gap:12px; padding:14px 0; border:0; border-bottom:1px solid #52665070; background:none; border-radius:0; }
-.menu-links>button>span:not(.ic) { flex:1; }
+.menu-links>button>span:not(.ic):not(.menu-symbol) { flex:1; min-width:0; overflow-wrap:anywhere; }
 .menu-links small { display:block; font-size:12px; color:var(--ui-muted); margin-top:5px; font-weight:400; line-height:1.45; }
 .menu-links .ic,.menu-symbol { width:28px; height:28px; flex:none; background:none; }
 .menu-symbol { display:grid; place-items:center; border:1px solid var(--ui-line); border-radius:50%; }
@@ -287,3 +287,9 @@
 .magic-dock .assign { display:flex; flex-wrap:wrap; gap:8px; align-items:end; }
 .magic-dock label { display:grid; gap:4px; }
 .magic-panel progress, .magic-card progress { accent-color:#7fc4ff; height:10px; }
+
+/* Text actions must not inherit the 44px icon button width. */
+.ui-game .camera-tools .zoom .crowd-toggle { grid-column:1 / -1; width:100%; height:auto; min-height:44px; padding:8px; font-size:12px; line-height:1.4; white-space:normal; overflow-wrap:anywhere; }
+.crowd-scope { display:flex; flex-wrap:wrap; gap:8px; }
+.crowd-scope p { flex-basis:100%; }
+.crowd-scope button { flex:1 1 140px; min-width:0; max-width:100%; height:auto; white-space:normal; overflow-wrap:anywhere; }

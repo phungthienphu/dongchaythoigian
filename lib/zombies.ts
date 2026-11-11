@@ -11,16 +11,22 @@ export type Zombie={id:number;kind:ZombieKind;hp:number;maxHp:number;x:number;y:
 export type ZombieGuard={id:string;u:UKey;x:number;y:number;hp:number;nextHit:number;anchor:number;orderAt?:number;path?:number[];walking?:boolean;castAt?:number};
 export type ZombieState={activatedAt:number;last:number;nextAt:number;index:number;warning?:number;actors:Zombie[];guards:ZombieGuard[];peaks:{at:number;pop:number}[];population:number;patrol:boolean;healthAt:number;idleUntil?:number;idlePopulation?:number;resumeAt?:number;survivorsAt?:number;report:{waves:number;killed:number;lost:number;infected:number;destroyed:number};};
 export function zombieStats(kind:ZombieKind,era:number){
- if(kind==='super')return {hp:era>=6?260:160,speed:era>=6?.9:.8,damage:era>=6?10:6,civilianDamage:era>=6?4:3,attackMs:1500,civilianAttackMs:2000,building:1};
+ if(era>=6){const growth=Math.max(0,Math.min(3,era-6));
+  if(kind==='super')return {hp:720+120*growth,speed:1.05,damage:18+3*growth,civilianDamage:4,attackMs:1500,civilianAttackMs:2000,building:1};
+  if(kind==='breaker')return {hp:1100+180*growth,speed:.4,damage:24+4*growth,civilianDamage:12,attackMs:2500,civilianAttackMs:2500,building:2};
+  return {hp:240+60*growth,speed:.6,damage:12+2*growth,civilianDamage:8,attackMs:2000,civilianAttackMs:2000,building:1};
+ }
+ if(kind==='super')return {hp:160,speed:.8,damage:6,civilianDamage:3,attackMs:1500,civilianAttackMs:2000,building:1};
  if(kind==='breaker')return {hp:240,speed:.25,damage:12,civilianDamage:12,attackMs:2500,civilianAttackMs:2500,building:2};
- return {hp:era>=6?90:era>=3?55:25,speed:era>=6?.35:era>=3?.3:.25,damage:era>=6?8:era>=3?5:2,civilianDamage:era>=6?8:era>=3?5:2,attackMs:2000,civilianAttackMs:2000,building:1};
+ return {hp:era>=3?55:25,speed:era>=3?.3:.25,damage:era>=3?5:2,civilianDamage:era>=3?5:2,attackMs:2000,civilianAttackMs:2000,building:1};
 }
 export function zombiePressure(c:City,at=c.last){const s=c.zombies;return Math.max(c.people.length,...(s?.peaks??[]).filter(p=>p.at>at-6*HOUR).map(p=>p.pop));}
 export const WEEK=7*24*HOUR;
 /** Whole weeks since activation, on server timestamps: identical online and offline. */
 export const zombieWeeks=(s:Pick<ZombieState,'activatedAt'>,at:number)=>Math.max(0,Math.floor((at-s.activatedAt)/WEEK));
-/** I(P,w)=max(15,60−5·floor(P/100)−5·w) minutes; N(P)=max(1,ceil(P/40)). */
-export function zombieWave(pop:number,era:number,index:number,weeks=0){const total=Math.max(1,Math.ceil(pop/40)),superCount=era<4?0:total===1?(index%3===0?1:0):Math.max(1,Math.floor(total/6)),breaker=era>=5?Math.floor(total/5):0;return {total,normal:total-superCount-breaker,super:superCount,breaker,interval:Math.max(15,60-5*Math.floor(pop/100)-5*Math.max(0,Math.floor(weeks)))*MINUTE};}
+/** Modern-era waves scale from 2× to 2.75× the early population curve.
+ * Keep the existing warning, first-wave grace and interval floor. */
+export function zombieWave(pop:number,era:number,index:number,weeks=0){const scale=era>=6?2+.25*Math.min(3,era-6):1,total=Math.max(era>=6?8:1,Math.ceil(pop/40*scale)),superCount=era<4?0:total===1?(index%3===0?1:0):Math.max(1,Math.floor(total/6)),breaker=era>=5?Math.floor(total/5):0;return {total,normal:total-superCount-breaker,super:superCount,breaker,interval:Math.max(15,60-5*Math.floor(pop/100)-5*Math.max(0,Math.floor(weeks)))*MINUTE};}
 export const ZOMBIE_ACTIVATION_NOTICE='Zombie sẽ trồi sau 5 phút. Tuyển lính, đặt vị trí bảo vệ và dựng lều cứu thương. Công trình bị phá mất vĩnh viễn!';
 /** Shared by new villages, explicit activation and the one-time existing-village rollout. */
 export function initialZombieState(at:number,population:number,patrol=false):ZombieState {
@@ -60,6 +66,21 @@ export function zombiePath(c:City,from:number,to:number,known:NonNullable<Zombie
  }
  if(goal<0)return null;const result=[goal];while(result[result.length-1]!==from)result.push(prev.get(result[result.length-1])!);return result.reverse();
 }
+/** A failed local A* must not strand an attacker on an unreachable target.
+ * Search the real connected ground once, stopping at the first attackable
+ * structure (including walls/gates on the frontier). No water/rock shortcuts. */
+function reachableStructure(c:City,from:number,deck:ReadonlySet<number>){
+ const seen=new Uint8Array(W*H),queue=[from],prev=new Int32Array(W*H);seen[from]=1;
+ for(let n=0;n<queue.length;n++){
+  const tile=queue[n];
+  for(const [dx,dy]of N4){const x=tile%W+dx,y=Math.floor(tile/W)+dy;if(x<0||x>=W||y<0||y>=H)continue;const next=y*W+x;
+   if(c.b[next]){const path=[tile];while(path[path.length-1]!==from)path.push(prev[path[path.length-1]]);return {tile:next,path:path.reverse()};}
+   if(seen[next]||!passable(c,next,deck))continue;seen[next]=1;prev[next]=tile;queue.push(next);
+  }
+ }
+ return undefined;
+}
+
 function move(actor:{x:number;y:number;path?:number[];walking?:boolean},speed:number){actor.walking=false;let left=speed;while(actor.path?.length){const q=point(actor.path[0]),d=distance(actor,q);if(d>.001){const travel=Math.min(left,d);actor.x+=(q.x-actor.x)*travel/d;actor.y+=(q.y-actor.y)*travel/d;left-=travel;actor.walking=travel>0;if(left<=.001)return;}actor.path.shift();}}
 function occupiedTiles(c:City,at:number){const result=new Set(c.people.map(p=>{const pos=position(c,p,at);return tileOf(pos.x,pos.y);}));if(UKEYS.some(u=>(c.army[u]??0)>0))for(const g of homeSoldiers(c,at))result.add(tileOf(g.x,g.y));return result;}
 function spawnChoices(c:City,at:number){const occupied=occupiedTiles(c,at),result:number[]=[];for(let i=0;i<c.t.length;i++)if(c.seen[i]&&!c.b[i]&&c.t[i]===0&&!occupied.has(i))result.push(i);return result;}
@@ -85,7 +106,7 @@ function spawn(c:City,at:number){const s=c.zombies!,w=zombieWave(zombiePressure(
   // Keep the first emergence on the marker; shuffle the connected neighbours.
   for(let n=tiles.length-1;n>1;n--){const other=1+Math.floor(random()*n);[tiles[n],tiles[other]]=[tiles[other],tiles[n]];}
   const counts={normal:w.normal,super:w.super,breaker:w.breaker};let id=0,emergesAt=at;
-  while(id<w.total){for(const kind of ['normal','super','normal','breaker'] as const)if(counts[kind]>0){counts[kind]--;const spec=zombieStats(kind,c.era),origin=tiles[id%tiles.length];s.actors.push({id:s.index*10000+id++,emergesAt,kind,hp:spec.hp,maxHp:spec.hp,...point(origin),era:c.era,until:at+15*MINUTE,nextHit:emergesAt+spec.attackMs,repath:at});emergesAt+=1400+Math.floor(random()*1201);}}
+  while(id<w.total){for(const kind of ['normal','super','normal','breaker'] as const)if(counts[kind]>0){counts[kind]--;const spec=zombieStats(kind,c.era),origin=tiles[id%tiles.length];s.actors.push({id:s.index*10000+id++,emergesAt,kind,hp:spec.hp,maxHp:spec.hp,...point(origin),era:c.era,until:at+15*MINUTE,nextHit:emergesAt+spec.attackMs,repath:at});emergesAt+=c.era>=6?250+Math.floor(random()*401):1400+Math.floor(random()*1201);}}
   notice(c,at,`${w.total} zombie đã trồi! ${w.super?`${w.super} Super; `:''}${w.breaker?`${w.breaker} phá hoại; `:''}trồi rải quanh ổ nứt; lính bảo vệ đang ứng chiến.`);s.report.waves++;}
  delete s.warning;s.nextAt=at+w.interval;
 }
@@ -136,8 +157,9 @@ function combat(c:City,at:number){const s=c.zombies!,deck=bridgeDeck(c);let dirt
  const towers=buildings(c).filter(([,b])=>b.k==='watchtower'&&active(b)).map(([tile,b])=>({tile,lvl:b.lvl}));const enabled=selectTowerTiles(towers,c.era,c.camp);
  for(const tower of towers)if(enabled.has(tower.tile)){const weapon=towerStats(tower.lvl);if(Math.floor((at-SECOND)/weapon.attackMs)===Math.floor(at/weapon.attackMs))continue;const target=s.actors.find(z=>z.hp>0&&(z.emergesAt??0)<=at&&distance(z,point(tower.tile))<=weapon.range);if(target){target.hp-=weapon.damage;target.hitAt=at;}}
  magicStructureDefense(c,at,s.actors,s.guards);
- const reach=s.patrol&&c.magic?patrolReach(c):{radius:10,speed:1};
+ const reach=s.patrol&&c.magic?patrolReach(c):{radius:10,speed:1};let guardEngaged=false;
  for(const g of s.guards){const home=soldiers.find(h=>h.id===g.id);if(home?.moving){g.x=home.x;g.y=home.y;g.walking=true;continue;}if(g.u==='watermage'&&g.hp>0&&g.nextHit<=at&&mageAction(c,g,undefined,at,s.actors,s.guards)){g.nextHit=Math.max(g.nextHit,at-(UNITS[g.u].attackMs??1000))+(UNITS[g.u].attackMs??1000);continue;}const spec=UNITS[g.u],range=spec.range??(g.u==='bow'?5:g.u==='sling'?4:1.1);const target=s.actors.filter(z=>z.hp>0&&(z.emergesAt??0)<=at&&distance(g,z)<= (s.patrol?reach.radius:range)&&(!s.patrol||distance(point(g.anchor),z)<=reach.radius)).sort((a,b)=>distance(g,a)-distance(g,b)||a.id-b.id)[0];if(!target){if(distance(g,point(g.anchor))>1.1){if(!g.path?.length||at%2000===0)g.path=zombiePath(c,tileOf(g.x,g.y),g.anchor,[],100,true,deck)??undefined;move(g,(spec.speed??1)*1.9);}else g.walking=false;continue;}
+  guardEngaged=true;
   if(distance(g,target)<=range){if(g.nextHit<=at){if(!mageAction(c,g,target,at,s.actors,s.guards)){target.hp-=spec.atk*(spec.attackMs??1000)/1000;target.hitAt=at;beastStrike(g,target,at,s.actors);}g.nextHit=Math.max(g.nextHit,at-(spec.attackMs??1000))+(spec.attackMs??1000);}}
   else if(s.patrol){if(!g.path?.length||at%2000===0)g.path=zombiePath(c,tileOf(g.x,g.y),tileOf(target.x,target.y),[],100,true,deck)??undefined;move(g,(spec.speed??1)*1.9*reach.speed);}}
  const people=c.people.map(p=>({p,...position(c,p,at)}));const bells=buildings(c).filter(([,b])=>b.k==='warningbell'&&active(b)).map(([tile])=>point(tile));const structures=buildings(c),localPeople=spatial(people,p=>p),localStructures=spatial(structures,p=>point(p[0]));const pursuits=new Map<string,number>(),contacts=new Map<number,number>(),melee=new Map<string,number>(),occupancy=new Map<number,number>();for(const z of s.actors)if((z.emergesAt??0)<=at){const tile=tileOf(z.x,z.y);occupancy.set(tile,(occupancy.get(tile)??0)+1);}
@@ -152,7 +174,7 @@ function combat(c:City,at:number){const s=c.zombies!,deck=bridgeDeck(c);let dirt
    if(kind==='b'&&c.b[+key])held={...point(+key),id:z.target,tile:+key};
    if(kind==='p'){const person=people.find(item=>item.p.id===+key);if(person&&!person.p.vital?.downAt&&!person.p.vital?.care&&!person.p.vital?.shelter&&(contacts.get(+key)??0)<2&&distance(z,person)<=14)held={...person,id:z.target};}
    if(kind==='g'){const g=s.guards.find(g=>'g:'+g.id===z.target);if(g&&g.hp>0&&distance(z,g)<=4&&(pursuits.get(z.target)??0)<4)held={...g,id:z.target,g};}
-   if(held&&(at<(z.targetUntil??0)||!target||distance(z,held)<=distance(z,target)+3))target=held;
+   if(held&&(at<(z.targetUntil??0)||!target||held.tile!==undefined&&!!z.path?.length||distance(z,held)<=distance(z,target)+3))target=held;
   }
   // Distant spawns advance toward the settlement instead of idling outside 18 tiles.
   if(!target){const b=closest(structures,z,entry=>point(entry[0]),entry=>!!c.b[entry[0]],entry=>entry[0]);if(b)target={...point(b[0]),id:'b:'+b[0],tile:b[0]};}
@@ -171,7 +193,8 @@ function combat(c:City,at:number){const s=c.zombies!,deck=bridgeDeck(c);let dirt
    const route=zombiePath(c,from,goal,z.known,z.hp,false,deck,spread);
    z.path=route?(lead!==undefined?route:route.length>1?route.slice(1):route):undefined;z.repath=at+2000;
 
-   if(!z.path){const barriers=localStructures(z,12).filter(([i,b])=>c.b[i]&&['wall','gate'].includes(b.k)&&distance(z,point(i))<12).sort((a,b)=>distance(point(a[0]),z)-distance(point(b[0]),z));for(const [tile]of barriers){const route=zombiePath(c,tileOf(z.x,z.y),tile,z.known,z.hp,false,deck,{seed:c.seed^z.id,crowd:occupancy});if(route){z.path=route.length>1?route.slice(1):route;z.target='b:'+tile;break;}}}}
+   if(!z.path){const fallback=reachableStructure(c,tileOf(z.x,z.y),deck);if(fallback){z.path=fallback.path.length>1?fallback.path.slice(1):fallback.path;z.target='b:'+fallback.tile;z.pathGoal=fallback.tile;z.targetUntil=at+5000;}}}
+
   if(!z.path&&c.magic?.walls?.length&&hitMagicWall(c,z,at,spec.damage*spec.building,spec.attackMs)){z.walking=false;continue;}
   // A blocking wall is a real combat target until it is breached.
   if(z.target?.startsWith('b:')){const tile=Number(z.target.slice(2)),b=c.b[tile];if(b&&distance(z,point(tile))<=1.1&&z.nextHit<=at){b.zombieDamage=(b.zombieDamage??0)+spec.damage*spec.building;z.nextHit=Math.max(z.nextHit,at-spec.attackMs)+spec.attackMs;z.hitAt=at;if(buildingIntegrity(b)<=0){destroy(c,tile,at);dirty=true;}continue;}}
@@ -183,7 +206,7 @@ function combat(c:City,at:number){const s=c.zombies!,deck=bridgeDeck(c);let dirt
  const localActors=spatial(s.actors.filter(z=>(z.emergesAt??0)<=at),z=>z);
  // People flee along actual topology, preserving carried cargo and work intent.
  for(const item of people){const p=item.p;if(p.vital?.care||p.vital?.downAt||p.vital?.rescuing!==undefined)continue;if(p.vital?.shelter&&!c.b[p.vital.shelter]){delete p.vital.shelter;}const near=localActors(item,8).filter(z=>distance(z,item)<6||bells.some(b=>distance(b,z)<=8&&distance(b,item)<=8));if(near.length){const v=p.vital??={hp:100,last:at};if(!v.paused)dirty=true;v.x=item.x;v.y=item.y;v.paused=true;const from=tileOf(item.x,item.y);const shelters=structures.filter(([tile,b])=>b.k==='refuge'&&active(b)&&distance(item,point(tile))<=6&&c.people.filter(q=>q.vital?.shelter===tile).length<[0,6,10,14][b.lvl]);let shelterRoute:number[]|null=null;let shelterTile:number|undefined;for(const [tile]of shelters){const route=zombiePath(c,from,tile,[],100,true,deck);if(route){shelterRoute=route;shelterTile=tile;break;}}if(shelterTile!==undefined){if(distance(item,point(shelterTile))<=1.1){v.shelter=shelterTile;Object.assign(v,point(shelterTile));continue;}const actor={x:item.x,y:item.y,path:shelterRoute??undefined};move(actor,1.2);v.x=actor.x;v.y=actor.y;continue;}const candidates=N4.map(([dx,dy])=>from+dx+dy*W).filter(i=>Math.abs(i%W-from%W)+Math.abs(Math.floor(i/W)-Math.floor(from/W))===1&&passable(c,i,deck,true));candidates.sort((a,b)=>Math.min(...near.map(z=>distance(point(b),z)))-Math.min(...near.map(z=>distance(point(a),z)))||a-b);if(candidates.length){const q=point(candidates[0]),d=distance(item,q)||1;v.x+=(q.x-item.x)*Math.min(1,1.2/d);v.y+=(q.y-item.y)*Math.min(1,1.2/d);}}else if(p.vital?.paused&&!(p.vital.infectedAt!==undefined&&at-p.vital.infectedAt>=2*HOUR)){p.pos=tileOf(p.vital.x??item.x,p.vital.y??item.y);p.vital.paused=false;delete p.vital.shelter;resumeCargo(p,at);dirty=true;}}
- if(s.actors.every(z=>!z.target)&&!s.guards.some(g=>g.walking)&&!c.people.some(p=>p.vital?.paused&&!p.vital.care&&!p.vital.downAt&&p.vital.rescuing===undefined)){s.idleUntil=Math.min(at+4*SECOND,...s.actors.filter(z=>(z.emergesAt??0)>at).map(z=>z.emergesAt!));s.idlePopulation=c.people.length;}else delete s.idleUntil;
+ if(!guardEngaged&&s.actors.every(z=>!z.target)&&!s.guards.some(g=>g.walking)&&!c.people.some(p=>p.vital?.paused&&!p.vital.care&&!p.vital.downAt&&p.vital.rescuing===undefined)){s.idleUntil=Math.min(at+4*SECOND,...s.actors.filter(z=>(z.emergesAt??0)>at).map(z=>z.emergesAt!));s.idlePopulation=c.people.length;}else delete s.idleUntil;
  return dirty;
 }
 export function stepZombies(c:City,at:number){const s=c.zombies;if(!s||at<=s.last)return false;let dirty=false;const elapsed=at-s.last;s.last=at;

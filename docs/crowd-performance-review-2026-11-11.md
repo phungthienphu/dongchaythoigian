@@ -1,6 +1,6 @@
 # Nghiên cứu dân tụ cùng chỗ
 
-Trạng thái: đề xuất, chưa triển khai. Nghiên cứu sau khi đã release UI + sinh than `572923a`.
+Trạng thái: đã triển khai ba mục đầu; xem kết quả bên dưới. Baseline trước thay đổi: `e396249`.
 
 ## Bằng chứng trong code
 
@@ -24,3 +24,23 @@ Trạng thái: đề xuất, chưa triển khai. Nghiên cứu sau khi đã rele
 - Đo riêng update, draw, frame p95, độ trễ click/scroll, long tasks và bộ nhớ; không suy ra cải thiện FPS chỉ từ ít draw calls.
 - Kiểm tra mọi hướng camera, zoom qua ngưỡng gom, desktop/mobile; chọn một/chọn vùng/tất cả, định vị người, badge tổng khớp số người thật, bệnh/đói/chiến đấu/cargo không mất dấu.
 - Simulation và số tài nguyên phải khớp trước/sau; client animation không được tự cộng tài nguyên hay đổi lệnh.
+
+## Kết quả triển khai
+
+- Index slot nông dân một lượt mỗi frame; lookup O(1) thay filter/sort toàn bộ dân cho từng actor. Đổi task tại chỗ và snapshot đảo thứ tự vẫn đúng.
+- Cụm từ 9 người tương thích dùng 3 ID đại diện ổn định, ngưỡng rời cụm là 5. Giữ đủ ID thật, chọn vùng dùng toàn bộ người; badge và nút điều khiển mở danh sách phân trang. Người được định vị, bị thương/nhiễm bệnh/ngã/trú ẩn và thợ xây không bị gom. Tối đa 12 tên được chọn, ngoại lệ người đang định vị.
+- Nhãn không có nền đen. Neo vào một đại diện đang vẽ, bỏ nhãn chồng/clipped thay vì đẩy ra đất trống. Hit test dùng đúng chữ nhật đã vẽ và từ chối camera/source cũ. Không vẽ badge khi zoom xa đã bỏ sprite.
+- Dân rảnh không có lệnh phân bố theo ID và sức chứa nhà trong vùng đất đã khám phá nối được. Đường đi không bơi/xuyên tường; đổi fog/topology làm mới cache. Không sửa save/economy. Khi có raid/battle/zombie hoặc bị thương, hiển thị dùng vị trí authoritative.
+- Sửa nút chọn cụm bị thừa hưởng chiều rộng icon 44px; các nút trong scope tự xuống dòng. Menu hướng dẫn giữ icon ? 28px, không giãn ép chữ.
+
+CPU Node v24.14.1, cùng fixture nông dân, warm 5 frame, median 9 nhóm x 10 frame. Không phải FPS browser hoặc CPU Cloudflare:
+
+| Dân | Update trước ms | Update sau ms | Giảm thời gian |
+| --- | ---: | ---: | ---: |
+| 300 | 1.246 | 0.161 | 87.1% |
+| 1.200 | 8.349 | 0.356 | 95.7% |
+| 3.000 | 53.007 | 0.794 | 98.5% |
+
+Fixture mọi người cùng tọa độ/cùng trạng thái: 300/1.200/3.000 sprite còn 3, giảm 99.0%/99.75%/99.9% số sprite dân. Người phân tán hoặc khác trạng thái vẫn cần vẽ; không suy ra giảm tổng frame cùng tỷ lệ.
+
+Kiểm chứng: TypeScript, renderer regression và 7 crowd tests đạt; lượt full trước test neo nhãn bổ sung: 581 tests / 95 files đạt. Browser local fixture 1.200 dân desktop và 390x844: nhãn không nền, click mở directory, chọn cụm 88 người giữ đủ 88 ID; đường đi/nhà cách nước/threat/manual order có regression. Mức FPS và độ trễ production chưa có A/B. Cache sprite còn là đề xuất.

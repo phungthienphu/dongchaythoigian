@@ -36,3 +36,51 @@ Released together with catch-up routing optimization in `c9ec755`: Web/API relea
 - Drawing interpolates the previous simulated second without predicting future movement. Wilderness renewal protects live zombie positions and paths.
 - The local `/dev/magic-ui` harness includes “Thử định vị zombie”: two emerged actors and one pending actor, without production account data. Desktop and 390px mobile checks covered banner location, target cycling, red marker and disabled recenter after death.
 - Economic resource/crafting test fixtures postpone zombie waves beyond their simulated window, so the new long-range attacks do not destroy unrelated production fixtures.
+
+## Unreachable-target recovery (local, not released)
+
+When bounded A* fails, zombie pursuit now searches connected walkable ground for
+an attackable structure. The first reachable building or blocking wall/gate
+becomes the new target, with a route constructed by that same search. This
+fallback is bounded by the 96×96 map and does not chain A* once per building.
+A reachable building target is retained while its route is active, preventing
+immediate switches back to the closer but unreachable original target.
+
+Water, rocks and magical barriers retain their movement rules. An isolated
+actor stays on its bank and retries after the existing two-second cooldown;
+opening a crossing allows pursuit to resume. Regression tests cover a closer
+building across a river with an accessible alternative, enclosed buildings,
+reopening a crossing, and save/reload equivalence. No production data is edited.
+
+## Modern-era pressure rebalance (local, not released)
+
+From era 6, population-scaled wave size is multiplied by 2 / 2.25 / 2.5 /
+2.75 for eras 6–9, rounded up, with a minimum of eight actors. For 680 people:
+17 before, versus 34 / 39 / 43 / 47 respectively. Variant shares still come out
+of that total. Era 1–5 wave sizes and stats are unchanged.
+
+New modern actors emerge every 250–650 ms instead of 1,400–2,600 ms. Warning
+lead time, the five-minute first-wave grace, fifteen-minute minimum interval,
+and existing scheduled timestamps remain unchanged.
+
+Era 6 HP is 240 normal / 720 Super / 1,100 breaker, increasing by 60 / 120 /
+180 per later era through era 9. A 200-damage armor shell therefore needs at
+least 2 / 4 / 6 hits respectively at era 6. Speeds are .6 / 1.05 / .4 tiles/s.
+Guard damage starts at 12 / 18 / 24 per hit and increases 2 / 3 / 4 per later
+era; breaker building damage remains doubled. Civilian bite damage is unchanged.
+Existing actors keep saved HP; new HP/count/emergence timing apply on future
+spawns. Combat stats are read by the engine for existing actors on their next
+tick. No retroactive waves or production save edits are applied.
+
+These are simulation baselines, not a claim of completed live balance testing.
+Regression checks cover shell survivability, variant roles, wave totals, dense
+emergence, unreachable-target recovery, and deterministic save/reload replay.
+
+Validation: 580 game tests passed in the shared workspace, including 29 focused
+zombie tests; TypeScript and render checks passed. Actual armor combat verifies
+240 HP survives the first 200-damage shell and dies on the second. This also
+covers a fixed idle shortcut: guards waiting on attack cooldown must keep
+combat ticking rather than sleeping through the next scheduled shot. Magic
+integration fixtures now stage armor support so scripted research/mana-outage
+checks retain their intended protected production infrastructure under the
+stronger modern waves.
