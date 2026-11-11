@@ -5,10 +5,11 @@ import {active,multiplier,pollutionRemovalCapacity,staffCounts} from '@/lib/indu
 import {finalWonderError,powerFraction,type PowerGroup} from '@/lib/modern';
 import PollutionPanel from './PollutionPanel';
 import FinalWonderRequirements from './FinalWonderRequirements';
+import {isMagicBuilding} from '@/lib/magic';
 const number=(n:number)=>Number(n.toFixed(1)).toLocaleString('vi-VN');
 const groups:Record<PowerGroup,string>={essential:'Thiết yếu: bệnh viện',housing:'Dân sinh: chung cư',production:'Sản xuất: đại học và xưởng'};
 export function EraCivicBuilding({city,building:b,tile,now}:{city:City;building:Building;tile:number;now:number}){
- if(B[b.k].era<4)return null;
+ if(B[b.k].era<4||isMagicBuilding(b.k)&&!B[b.k].prod)return null;// Magic buildings: MagicBuildingCard
  const d=B[b.k],jobs=buildingJobs(b),staff=staffCounts(city).get(tile)??0,water=city.medieval?.water[tile]??0;
  const resource=RES.find(r=>d.prod?.[r]);
  const output=resource?(d.prod?.[resource]??0)*multiplier(b)*(b.k==='estate'?GATHER_SPEED:1):0;
@@ -24,6 +25,13 @@ export function EraCivicBuilding({city,building:b,tile,now}:{city:City;building:
  {(b.k==='dam'||b.k==='green')&&<p>{b.lvl>0?'Kỳ quan đã khánh thành; khi hư hại cần sửa để khôi phục hiệu ứng.':finalWonderError(city,b.k,now)??'Đủ điều kiện khởi công.'}</p>}
  </section>;
 }
+/** Era 7–9 operating goals: the start-up chain of each magic era, then its wonder. */
+function magicQuests(c:City,has:(k:string)=>boolean):[string,boolean][]{
+ const g=c.magic,done=(k:string)=>!!g?.researched.includes(k as never),sources=Object.values(c.b).filter(b=>(b.k==='aetherwell'||b.k==='manaspire')&&active(b)).length;
+ if(c.era===7)return [['Xây Giếng linh mạch',has('aetherwell')],['Xây Xưởng kết tinh',has('crystalworks')],['Xây Xưởng phù văn',has('runeworks')],['Học viện tạo tri thức',has('mageacademy')&&(g?.knowledge??0)>0],['Nghiên cứu Dẫn linh',done('conduction')],['Có ít nhất 2 nguồn mana',sources>=2],['Hoàn thành Tháp Khai Nguyên',has('awakeningtower')]];
+ if(c.era===8)return [['Xây Lò tinh chất',has('essenceforge')],['Nghiên cứu Tứ nguyên',done('elements')],['Có đủ bốn trạm ấn',['firealtar','watertemple','woodgrove','earthtemple'].every(has)],['Nghiên cứu Khế ước',done('pact')],['Chọn chuyên tu',!!g?.specialization?.element||!!g?.specialization?.pending],['Hoàn thành Đại Trận Tứ Linh',has('fourspirits')]];
+ return [['Xây Lò thiên luyện',has('celestialforge')],['Nghiên cứu Khai giới',done('gatecraft')],['Xây Đài khế ước và chọn khế ước',has('covenantaltar')&&!!g?.contract?.active],['Mở Cổng Linh giới',has('spiritgate')],['Chuẩn bị một gói đại phép',!!g?.packages?.length],['Hoàn thành Thiên Cung Sông Mẹ',has('riverpalace')],['Chọn lãnh địa',!!g?.domain?.chosen]];
+}
 export default function EraCivicPanel({city:c,now,busy,act,onLocate,view='all'}:{city:City;now:number;busy:boolean;act:(a:Action)=>unknown;onLocate?:(tile:number)=>void;view?:'all'|'development'|'operations'}){
  if(c.era<4)return null;
  const has=(k:string)=>Object.values(c.b).some(b=>b.k===k&&active(b));
@@ -32,7 +40,8 @@ export default function EraCivicPanel({city:c,now,busy,act,onLocate,view='all'}:
   ['Xây Đại kho',has('grandstore')],['Xây giếng hoặc hồ',has('well')||has('reservoir')],['Bảo vệ ít nhất một ruộng',Object.entries(c.b).some(([i,b])=>['farm','estate'].includes(b.k)&&waterProtection(c,+i)>0)],['Nâng Đình 4',Object.values(c.b).some(b=>b.k==='hall'&&b.lvl>=4)],['Xây Trường làng',has('school')],['Hoàn thành Văn Miếu',has('academy')],
  ]:c.era===5?[
   ['Có nguồn than',has('coalmine')||has('charcoal')],['Nộp than vào kho',(s?.coalDelivered??0)>0],['Vận hành xưởng công nghiệp',!!s?.processed],['Xây trạm xử lý nước',has('treatment')],['Đưa ô nhiễm dưới 30',(s?.pollution??0)<30],['Hoàn thành Cầu Sắt Đại Hà',has('ironbridge')],
- ]:[['Phát điện',(m?.supply??0)>0],['Cấp điện cho thiết bị',Object.values(m?.allocation??{}).some(f=>f>0)],['Vận hành dịch vụ đô thị',has('hospital')||has('university')],['Chọn và hoàn thành kỳ quan cuối',!!m?.completedAt]];
+ ]:c.era===6?[['Phát điện',(m?.supply??0)>0],['Cấp điện cho thiết bị',Object.values(m?.allocation??{}).some(f=>f>0)],['Vận hành dịch vụ đô thị',has('hospital')||has('university')],['Chọn và hoàn thành kỳ quan cuối',!!m?.completedAt]]
+ :magicQuests(c,has);
  return <section className="civic-panel">
  {view!=='operations'&&<><h3>Mục tiêu thời đại</h3><ol className="era-checklist">{quests.filter(([,done])=>!done).map(([label])=><li key={String(label)}>○ {label}</li>)}</ol>{quests.every(([,done])=>done)&&<p className="ok">Đã hoàn thành các mục tiêu vận hành của thời đại.</p>}<details className="ui-details"><summary>Đã đạt · {quests.filter(([,done])=>done).length}/{quests.length}</summary><ol>{quests.filter(([,done])=>done).map(([label])=><li key={String(label)}>✓ {label}</li>)}</ol></details></>}
  {view!=='development'&&<>
@@ -44,7 +53,7 @@ export default function EraCivicPanel({city:c,now,busy,act,onLocate,view='all'}:
  {!!Object.keys(m.allocation).length&&<ul>{Object.entries(m.allocation).map(([tile,f])=><li key={tile}>{B[c.b[tile].k].n} ({+tile%96+1},{Math.floor(+tile/96)+1}): {number(f*100)}% điện</li>)}</ul>}
  </details></>}
  </>}
- {m&&view!=='operations'&&<>
+ {m&&c.era===6&&view!=='operations'&&<>
  <h4>Hai hướng hoàn thành</h4><p><b>Đập Sông Mẹ:</b> +150 MW sạch, bảo vệ toàn làng khỏi hạn/ngập; phù sa ruộng chỉ còn ×1,5.</p><p><b>Thành Phố Sông Xanh:</b> giảm 50% phát thải sản xuất, chống hạn, bảo vệ ngập trong vùng hồ điều hòa, giữ phù sa ×2; tiếp tục tự cung cấp điện.</p>
  {(['dam','green'] as const).map(k=><details key={k}><summary>{B[k].n} · {finalWonderError(c,k,now)?'Xem điều kiện còn thiếu':'Đủ điều kiện công trình'}</summary><FinalWonderRequirements city={c} kind={k} now={now} onLocate={onLocate}/></details>)}
  {m.completedAt!==undefined&&<div role="status" className="ok"><h3>🏆 Khánh thành {B[m.choice!].n}</h3><p>Thành phố đã hoàn thành nhánh phát triển. Anh vẫn có thể xây dựng, giao thương và tham gia thế giới.</p></div>}

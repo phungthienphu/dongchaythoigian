@@ -255,3 +255,28 @@
   .ui-game .hud-card { max-height:calc(100dvh - var(--hud-top-height,90px) - 100px); }
 }
 @media(prefers-reduced-motion:reduce) { .ui-game * { scroll-behavior:auto!important; animation:none!important; transition:none!important; } }
+/* Era 7–9 magic panels and building cards. */
+.magic-list { list-style:none; margin:6px 0; padding:0; display:grid; gap:0; }
+.magic-row { padding:10px 0; border-bottom:1px solid #52665070; min-width:0; }
+.magic-row p { margin:4px 0; overflow-wrap:anywhere; }
+.magic-row-head { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; justify-content:space-between; }
+.magic-chip { font-size:11px; padding:2px 7px; border:1px solid var(--ui-line); border-radius:4px; color:var(--ui-muted); white-space:nowrap; }
+.magic-row.status-ready .magic-chip { color:#ffe0a0; border-color:var(--ui-gold); }
+.magic-row.status-done .magic-chip { color:#a9d8a0; border-color:#6f9a66; }
+.magic-row.status-running .magic-chip { color:#9fd4ff; border-color:#5d8db3; }
+.magic-needs { list-style:none; margin:4px 0 10px; padding:0; font-size:12.5px; line-height:1.6; }
+.magic-needs li { padding:2px 0; overflow-wrap:anywhere; }
+.magic-needs li.ok>span { color:#a9d8a0; } .magic-needs li.err>span { color:var(--danger); }
+.magic-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; margin:8px 0; }
+.ui-game .magic-options button { display:grid; gap:4px; text-align:left; padding:10px; align-content:start; }
+.magic-options button small { font-size:11.5px; color:var(--ui-muted); line-height:1.45; }
+.magic-options button[aria-pressed=true] { border-color:var(--ui-gold); background:#d6b47820; }
+.magic-choice { padding:8px 0 12px; border-bottom:1px solid #52665070; }
+.magic-card h4 { margin:12px 0 4px; font-size:13px; }
+.magic-attack { display:grid; gap:6px; margin:8px 0; }
+.magic-attack label { display:grid; gap:4px; }
+.magic-attack select { max-width:100%; }
+.magic-attack fieldset { border:1px solid var(--ui-line); border-radius:5px; padding:6px 10px; margin:0; }
+.magic-dock .assign { display:flex; flex-wrap:wrap; gap:8px; align-items:end; }
+.magic-dock label { display:grid; gap:4px; }
+.magic-panel progress, .magic-card progress { accent-color:#7fc4ff; height:10px; }

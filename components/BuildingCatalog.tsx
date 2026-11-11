@@ -1,7 +1,7 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
 import {B,BKEYS,ERA_NAMES,RES,RN,W,buildMs,buildingCost,buildingName,type BKey,type City,type Derived} from '@/lib/engine';
-import {ERAS,type EngineRules} from '@/lib/eras';
+import {erasUpTo,type EngineRules} from '@/lib/eras';
 import {buildAvailability} from '@/lib/build-availability';
 import {placementHint} from '@/lib/build-placement';
 import {BUILD_GROUPS,buildingGroup,searchText,type BuildGroup} from '@/lib/game-ui';
@@ -37,7 +37,7 @@ export default function BuildingCatalog({city,D,rules,initialEra,initialKind=nul
   </section>;
   return <section className="building-catalog">
     <label className="search-field">Tìm công trình<input type="search" placeholder="Tên hoặc công dụng…" value={query} onChange={e=>{setQuery(e.target.value);setPage(0);}}/></label>
-    <div className="catalog-filter"><label>Thời đại<select value={era} onChange={e=>{setEra(+e.target.value);setPage(0);}}><option value={0}>Đã mở</option>{ERAS.map(e=><option key={e.id} value={e.id}>{e.name}{e.id>rules.maxEra?' · Sắp ra mắt':e.id>city.era?' · Chưa mở':''}</option>)}</select></label><label>Công dụng<select value={group} onChange={e=>{setGroup(e.target.value as BuildGroup);setPage(0);}}>{BUILD_GROUPS.map(g=><option key={g}>{g}</option>)}</select></label></div>
+    <div className="catalog-filter"><label>Thời đại<select value={era} onChange={e=>{setEra(+e.target.value);setPage(0);}}><option value={0}>Đã mở</option>{erasUpTo(Math.max(6,rules.maxEra)).map(e=><option key={e.id} value={e.id}>{e.name}{e.id>rules.maxEra?' · Sắp ra mắt':e.id>city.era?' · Chưa mở':''}</option>)}</select></label><label>Công dụng<select value={group} onChange={e=>{setGroup(e.target.value as BuildGroup);setPage(0);}}>{BUILD_GROUPS.map(g=><option key={g}>{g}</option>)}</select></label></div>
     {!!pending.length&&<details className="ui-details"><summary>Đang xây / nâng cấp · {pending.length}</summary>{pending.map(([tile,b])=><button key={tile} className="menu-link" onClick={()=>onLocate(+tile)}>{buildingName(city,b.k)} <span>({+tile%W}, {Math.floor(+tile/W)}) →</span></button>)}</details>}
     <p className="small muted">{rows.length} công trình · Chọn để xem giá và điều kiện</p>
     {!rows.length&&<p>Không có công trình phù hợp. <button onClick={()=>{setQuery('');setGroup('Tất cả');setEra(0);}}>Bỏ bộ lọc</button></p>}

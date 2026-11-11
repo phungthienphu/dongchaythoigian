@@ -23,7 +23,7 @@ import {captureMapTurn,paintMapTurn,type MapTurn} from "./map-transition";
 import { projectWorld, rotateCam, screenToWorld, MAX_ZOOM, camView, clampCam, drawCity, fitView, focusOn, pickHomeSoldier, pickVillageTarget, screenToCell, zoomAt, type Cam, type View } from "./draw";
 import {drawSelectionBox,inSelection,selectionMoved,type SelectionDrag} from './map-selection';
 import { Crowd } from "./villagers";
-import { ERAS as ERA_ROADMAP, RELEASED_ERA } from "@/lib/eras";
+import { erasUpTo, RELEASED_ERA } from "@/lib/eras";
 import { expeditionReadiness } from "@/lib/expedition-readiness";
 import ExpeditionReadiness from "./ExpeditionReadiness";
 import WorldMap from "./WorldMap";
@@ -73,6 +73,8 @@ import GamePanel from "./GamePanel";
 import ContextCard from "./ContextCard";
 import BuildingCatalog from "./BuildingCatalog";
 import EraRequirements from "./EraRequirements";
+import MagicPanel,{ManaOverlayButton,type MagicTab} from "./MagicPanel";
+import MagicBuildingCard from "./MagicBuildingCard";
 import PeopleDirectory from "./PeopleDirectory";
 import UnitPortrait from "./UnitPortrait";
 import VillageAttention from "./VillageAttention";
@@ -399,6 +401,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [peopleTab,setPeopleTab]=useState<'assign'|'directory'>('assign');
   const [armyTab,setArmyTab]=useState<'home'|'recruit'|'march'>('home');
   const [eraTab,setEraTab]=useState<'development'|'operations'>('development');
+  const [magicTab,setMagicTab]=useState<MagicTab>('research');
   const [largeText,setLargeText]=useState(false);
   useEffect(()=>{try{setLargeText(localStorage.getItem('dong-ui-large-text')==='true');}catch{}},[]);
   useEffect(()=>{try{localStorage.setItem('dong-ui-large-text',String(largeText));}catch{}},[largeText]);
@@ -1193,6 +1196,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
         <span className="map-bearing" aria-live="polite" aria-label={`Góc nhìn ${mapRotation*90} độ`}>{mapRotation*90}°</span>
         <button onClick={focusHome} aria-label="Về trại" title="Về trại">⌂</button>
         <button onClick={() => { rotationFadeRef.current=null; camRef.current = { zoom: 1, px: 0, py: 0, rotation:camRef.current.rotation }; }} aria-label="Xem toàn bản đồ" title="Xem toàn bản đồ">⤢</button>
+        {c.magic&&<ManaOverlayButton/>}
       </div></details>
 
       {!panel && herd && herdTask && (
@@ -1273,7 +1277,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                 {c.era<4 && farmRemaining(sel)<=0 && <p className="err small">Ruộng bạc màu. Người đã giao đang nghỉ, cần cải tạo để tiếp tục thu hoạch.</p>}
               </>}
               {["farm","estate"].includes(sel.k) && <FarmWorkers city={c} tile={selI} storage={st.storage}/>}
-              <EraCivicBuilding city={c} building={sel} tile={selI} now={t}/>{B[sel.k].jobs && !["farm","estate"].includes(sel.k) ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{buildingJobs(sel)}</b>. {workersAt(c,selI) ? !B[sel.k].prod ? "Nhân viên vận hành dịch vụ tại đây; không mang hàng về kho." : "Gom đủ một chuyến rồi mang về nộp; chỉ khi nộp xong kho mới tăng." : "Chưa có người làm nên chưa tạo tài nguyên. Bấm Giao người rảnh bên dưới."}</p> : null}
+              <EraCivicBuilding city={c} building={sel} tile={selI} now={t}/><MagicBuildingCard city={c} tile={selI} now={t} busy={busy} act={act} onLocate={locateTile} onOpenMagic={tab=>{setMagicTab(tab);setPanel('magic');}}/>{B[sel.k].jobs && !["farm","estate"].includes(sel.k) ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{buildingJobs(sel)}</b>. {workersAt(c,selI) ? !B[sel.k].prod ? "Nhân viên vận hành dịch vụ tại đây; không mang hàng về kho." : "Gom đủ một chuyến rồi mang về nộp; chỉ khi nộp xong kho mới tăng." : "Chưa có người làm nên chưa tạo tài nguyên. Bấm Giao người rảnh bên dưới."}</p> : null}
             </>
           ) : (
             <>
@@ -1408,11 +1412,11 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
           warError={war.error}
           onRetryWar={()=>void war.refresh()}
           feedback={msg}
-          onAttack={async (id, troops) => {
+          onAttack={async (id, troops, magic) => {
             if (busy) return;
             setBusy(true);
             try {
-              const res = await externalCity(()=>fetch("/api/battles", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target: id, troops }) }));
+              const res = await externalCity(()=>fetch("/api/battles", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target: id, troops, ...(magic?.manaSource&&(troops.firemage||troops.watermage)?{manaSource:magic.manaSource}:{}), ...(magic?.spells?.length?{spells:magic.spells}:{}) }) }));
               const data = await res.json();
               if (!res.ok) throw new Error(data.error ?? "Không xuất quân được.");
               setMsg({ text: "Đoàn quân đã lên đường." });
@@ -1435,6 +1439,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
 
       {panel && (
         <GamePanel feedback={msg?.err?msg.text:undefined} onDismissFeedback={()=>setMsg(null)} title={PANEL_LABELS[panel]} onClose={()=>setPanel(null)} onBack={panelGroup(panel)!==panel?()=>setPanel(panelGroup(panel) as Panel):undefined}>
+            {panel==='magic'&&<MagicPanel key={magicTab} city={c} now={t} busy={busy} act={act} maxEra={Math.min(rules.maxEra,9)} initialTab={magicTab} onLocate={locateTile}/>}
             {panel==='zombies'&&<ZombiePanel city={c} now={t} busy={busy} act={act} onLocate={locateTile}/>}
             {panel==='manage'&&<>
               <p className="panel-intro">{name}<span>{ERA_NAMES[c.era]} · {populationStatus}</span></p>
@@ -1442,6 +1447,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                 <button onClick={()=>setPanel('attention')}><Icon k="log"/><span>Cần chú ý<small>{attention.length} việc · ưu tiên vấn đề đang ảnh hưởng làng</small></span><b>›</b></button>
                 <button onClick={()=>setPanel('resources')}><Icon k="food"/><span>Tài nguyên & thu chi<small>Trong kho, thực nhận và sức chứa</small></span><b>›</b></button>
                 <button onClick={()=>setPanel('era')}><Icon k="era"/><span>Phát triển & vận hành<small>Lên đời, nước, điện, ô nhiễm và kỳ quan</small></span><b>›</b></button>
+                {c.magic&&<button onClick={()=>setPanel('magic')}><Icon k="rune"/><span>Ma pháp<small>{c.magic.research?'Đang nghiên cứu · ':''}Nghiên cứu, mạng mana, lựa chọn và phép</small></span><b>›</b></button>}
                 {hallLv>0&&<button onClick={()=>setPanel('control')}><Icon k="build"/><span>Đình làng<small>Nhóm việc, tự động và kẻng báo động</small></span><b>›</b></button>}
                 <button onClick={()=>setPanel('log')}><Icon k="log"/><span>Thông báo<small>{unreadCount?`${unreadCount} tin chưa đọc`:'Lịch sử làng, ngoại giao và trận đánh'}</small></span><b>›</b></button>
                 <button onClick={()=>setPanel('rank')}><Icon k="rank"/><span>Xếp hạng<small>So sánh các làng</small></span><b>›</b></button>
@@ -1551,7 +1557,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               </>
             ))}
             <EraCivicPanel city={c} now={t} busy={busy} act={act} view="development" onLocate={locateTile}/>
-            <details className="ui-details"><summary>Lộ trình các thời đại</summary><div className="era-roadmap">{ERA_ROADMAP.map(e=><p key={e.id}><b>{e.name}</b> · {e.id>rules.maxEra?"Sắp ra mắt":e.id===c.era?"Thời hiện tại":e.id<c.era?"Đã mở":"Chưa mở"}<br/><small>{e.theme}</small></p>)}</div></details>
+            {c.magic&&<button className="wide" onClick={()=>{setMagicTab('research');setPanel('magic');}}>Mở Ma pháp · nghiên cứu, mana và phép →</button>}
+            <details className="ui-details"><summary>Lộ trình các thời đại</summary><div className="era-roadmap">{erasUpTo(Math.max(6,rules.maxEra)).map(e=><p key={e.id}><b>{e.name}</b> · {e.id>rules.maxEra?"Sắp ra mắt":e.id===c.era?"Thời hiện tại":e.id<c.era?"Đã mở":"Chưa mở"}<br/><small>{e.theme}</small></p>)}</div></details>
 </>}
 
             {panel === "log" && (

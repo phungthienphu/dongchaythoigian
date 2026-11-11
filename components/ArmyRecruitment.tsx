@@ -3,6 +3,8 @@ import {useEffect,useRef,useState} from 'react';
 import {B,ERA_NAMES,MAX_TRAIN_BATCH,UKEYS,UNITS,W,buildingName,costText,trainingLanes,trainingPlan,type Action,type City,type UKey} from '@/lib/engine';
 import type {EngineRules} from '@/lib/eras';
 import UnitPortrait from './UnitPortrait';
+import {magicArmyView} from '@/lib/magic-view';
+import {CONTRACT_NAMES} from '@/lib/magic-myth';
 
 const duration=(ms:number)=>{const seconds=Math.max(0,Math.ceil(ms/1000));return seconds>=3600?`${Math.floor(seconds/3600)} giờ ${Math.floor(seconds%3600/60)} phút`:seconds>=60?`${Math.floor(seconds/60)} phút ${seconds%60} giây`:`${seconds} giây`;};
 type Props={city:City;now:number;busy:boolean;act:(action:Action)=>Promise<boolean>;rules:EngineRules};
@@ -29,6 +31,16 @@ function RecruitUnit({city,now,busy,act,rules,u}:Props&{u:UKey}){
  </li>;
 }
 
+/** Magic army space and beast slots: both count into the one army cap, beasts also into a side cap of 4. */
+function MagicArmyNote({city}:{city:Props['city']}){
+ const v=magicArmyView(city);if(!v)return null;
+ return <details className="ui-details"><summary>Chỗ quân ma pháp · +{v.total}{city.era>=9?` · thần thú ${v.beasts}/${v.beastSlots}`:''}</summary>
+  <p className="small">Học viện mở 12 chỗ, Xưởng tượng linh 24, Vườn linh thú 12, Cổng Linh giới 24; cộng vào chung trần quân. Nhà bị phá không xóa quân, chỉ chặn tuyển vượt trần. Phí mana trả một lần khi bắt đầu, lấy từ nguồn nối với nơi tuyển.</p>
+  {v.space.map(s=><p key={s.name} className="small">{s.name}: +{s.space} chỗ</p>)}
+  {city.era>=9&&<p className="small">Thần thú: mỗi con 12 chỗ quân + 2 chỗ thần thú, tối đa 2 con. Khế ước đang dùng: {v.contract?CONTRACT_NAMES[v.contract]:'chưa có'}.</p>}
+  {v.mages>0&&<p className="small muted">{v.mages} pháp sư ở nhà dùng mana của nguồn trong 6 ô hoặc pháp trận gần đó; ngoài mạng chỉ bắn thường.</p>}
+ </details>;
+}
 export default function ArmyRecruitment(props:Props){
  const lanes=trainingLanes(props.city),next=Math.min(...props.city.queue.map(q=>q.doneAt)),last=Math.max(...props.city.queue.map(q=>q.doneAt));
  const [chosen,setChosen]=useState<UKey|null>(null);
@@ -42,6 +54,7 @@ export default function ArmyRecruitment(props:Props){
    })}
   </section>}
   {!lanes.length&&<p className="small muted">Chưa có quân đang tuyển.</p>}
+  <MagicArmyNote city={props.city}/>
   {chosen&&<ul ref={form} tabIndex={-1} aria-label={`Tuyển ${UNITS[chosen].n}`} className="units train recruit-form"><RecruitUnit key={chosen} {...props} u={chosen}/></ul>}
   <div className="recruitment-types" role="group" aria-label="Chọn loại quân để tuyển">{UKEYS.filter(u=>UNITS[u].era<=props.rules.maxEra).sort((a,b)=>UNITS[a].era-UNITS[b].era).map(u=><button key={u} aria-pressed={chosen===u} onClick={()=>setChosen(chosen===u?null:u)}><UnitPortrait unit={u}/><span>{UNITS[u].n}</span><small>{UNITS[u].era>props.city.era?`Mở ở ${ERA_NAMES[UNITS[u].era]}`:`${props.city.army[u]??0} ở nhà · ${UNITS[u].space} chỗ/quân`}</small></button>)}</div>
   <details className="ui-details"><summary>Cách tuyển & hàng đợi</summary><p className="small">Mỗi trại có hàng tuyển riêng; cấp 1/2/3 tuyển với tốc độ ×1/×1,5/×2. Hậu cần và quân y tuyển tại cơ sở riêng. Tài nguyên trừ khi nhận lệnh; quân chờ tuyển vẫn chiếm chỗ và có khẩu phần.</p></details>

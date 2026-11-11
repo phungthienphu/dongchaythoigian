@@ -3,12 +3,12 @@ import {B, type BKey} from './engine';
 export const PANEL_LABELS = {
   shop:'Xây dựng', people:'Dân làng', army:'Quân đội', worldmenu:'Thế giới', manage:'Quản lý',
   zombies:'Zombie & cứu hộ', era:'Phát triển & vận hành', log:'Thông báo', rank:'Xếp hạng', control:'Đình làng',
-  friends:'Bạn bè & tài khoản', market:'Chợ', resources:'Tài nguyên & thu chi', attention:'Cần chú ý',
+  friends:'Bạn bè & tài khoản', market:'Chợ', resources:'Tài nguyên & thu chi', attention:'Cần chú ý', magic:'Ma pháp',
 } as const;
 export type GamePanelKey = keyof typeof PANEL_LABELS;
 export function panelGroup(panel:GamePanelKey|null){
   if(panel==='friends'||panel==='market')return 'worldmenu';
-  if(panel==='zombies'||panel==='era'||panel==='log'||panel==='rank'||panel==='control'||panel==='resources'||panel==='attention')return 'manage';
+  if(panel==='zombies'||panel==='era'||panel==='log'||panel==='rank'||panel==='control'||panel==='resources'||panel==='attention'||panel==='magic')return 'manage';
   return panel;
 }
 export const BUILD_GROUPS = ['Tất cả','Nhà ở','Lương thực','Khai thác','Quân sự','Hạ tầng','Văn hóa'] as const;
