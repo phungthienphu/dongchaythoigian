@@ -98,3 +98,5 @@ Giảm vừa phải đời 6–9, giữ sửa đường đi, sát thương, tố
 Mẫu đời 7, áp lực 1.717 dân: 97→84 con; tổng máu đợt 56.360→40.070, giảm 28,9%. HP normal 300→255, super 840→690, breaker 1.280→1.040. Số lượng/maxHp mới áp dụng khi sinh đợt mới; không chỉnh trực tiếp actor hoặc dữ liệu production. Các bộ đếm thiệt hại là lũy kế, không quy toàn bộ cho release vừa rồi.
 
 TypeScript và 62 tests zombie/spread/magic integration đạt; test mới khóa mẫu quy mô Bến Vân Đồng và chu kỳ 15 phút.
+
+Hotfix đã lên Web/API production: source `df29589`, release `zombie-soften-df29589`, Cloudflare version `79bf26ed-ec20-45f0-b2aa-734d4416a52c`. Build đạt, health ready đúng release, 8 JS/CSS asset public khớp SHA256; hai route dev trả 404. Combat Worker giữ nguyên.
