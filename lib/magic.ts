@@ -71,10 +71,6 @@ export function stepMagic(c:City,nt:number){
  refreshNetwork(c,entries);
  const tiles=new Map<string,number>();
  reconcileMagicFactories(m,entries.filter(([,b])=>PRODUCTION.has(b.k)).map(([tile,b])=>{tiles.set(magicSiteId(b),tile);return {id:magicSiteId(b),kind:b.k as MagicBuilding,level:b.lvl,workers:staff.get(tile)??0,enabled:operating(b),activeSince:b.builtAt??m.enteredAt};}));
- // Staffed receivers draw their two-hour input buffers from village stock; the
- // debit is exact and single, so a packet is never both stocked and buffered.
- for(const f of Object.values(m.factories)){const input=magicDef(f.kind).input;if(!input||!f.enabled||!f.workers)continue;
-  for(const r of Object.keys(input) as (keyof MagicGoods)[]){if(!isStock(r))continue;const accepted=deliverMagicInput(m,f.id,r,c.res[r]);if(accepted>0){c.res[r]-=accepted;recordResourceFlow(c,to,'spent',r,accepted);}}}
  stepMagicProduction(m,m.network,to);
  // Gardens that actually paid mana this minute shorten nearby care.
  const boosted=new Set<number>();
@@ -86,6 +82,20 @@ export function stepMagic(c:City,nt:number){
  if(purify(c,to,entries))changed=true;
  return changed;
 }
+/** Two-hour input buffers are filled only by carriers (see engine stepSupply).
+ * Goods already on the way reserve space, so a buffer never overfills. */
+const levelScale=(lvl:number)=>[0,1,1.6,2.4][Math.max(1,Math.min(3,lvl))];
+export function magicInTransit(c:City,tile:number,r:string){let n=0;for(const p of c.people)if(p.haul?.supply===tile&&p.haul.resource===r)n+=p.haul.carried||p.haul.capacity;return n;}
+export function magicSupplyNeed(c:City,tile:number,load:number):{resource:ResKey;amount:number}|null{
+ const m=c.magic,b=c.b[tile];if(!m||!operating(b)||!PRODUCTION.has(b.k))return null;
+ const f=m.factories[magicSiteId(b)],input=magicDef(b.k as MagicBuilding).input;if(!f||!input)return null;
+ for(const [r,rate]of (Object.entries(input) as [keyof MagicGoods,number][]).sort((a,b)=>a[0].localeCompare(b[0]))){
+  if(!isStock(r)||c.res[r]<=0)continue;const capacity=rate*2*levelScale(b.lvl),free=capacity-(f.input[r]??0)-magicInTransit(c,tile,r);
+  if(free>=capacity/2-1e-9)return {resource:r,amount:Math.min(load,free)};
+ }
+ return null;
+}
+export function deliverMagicSupply(c:City,tile:number,r:ResKey,amount:number){const b=c.b[tile];return c.magic&&operating(b)&&PRODUCTION.has(b.k)?deliverMagicInput(c.magic,magicSiteId(b),r as keyof MagicGoods,amount):0;}
 const isStock=(r:keyof MagicGoods):r is keyof MagicGoods&ResKey=>r==='food'||r==='wood'||r==='stone'||r==='copper'||r==='gold'||r==='coal'||r==='aetherCrystal'||r==='rune';
 
 /** Thanh tẩy: one village cooldown, scheduled when at least two sick villagers are in range. */

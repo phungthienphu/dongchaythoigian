@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {applyAction,armyCap,buildMs,canPlace,derive,ERA_REQ,HOUR,idx,MIN,reqMet,RES,settle,stats,UNITS,type City,type Building} from './engine';
 import {RELEASE_RULES} from './eras';
 import {eraFixture,eraStaff} from './era-fixtures.test-utils';
-import {initializeMagic,stepMagic,magicSiteId,mageAction,magicStructureDefense,zombieSlow} from './magic';
+import {initializeMagic,stepMagic,magicSiteId,deliverMagicSupply,mageAction,magicStructureDefense,zombieSlow} from './magic';
 import {activateZombies,stepZombies,zombieCanEngage,type Zombie,type ZombieGuard} from './zombies';
 import {advanceBattle,createBattle} from './battle';
 const RULES={maxEra:7};
@@ -48,11 +48,12 @@ test('era 7 buildings stay locked in production rules and respect research and r
 
 test('aether well yields 240 mana/h up to 1200; the academy turns 6 runes and 20 mana into 24 knowledge',()=>{
  const c=era7(),well=place(c,'aetherwell',30,30,2),academy=place(c,'mageacademy',32,30,4);c.res.rune=100;
- for(let at=MIN;at<=HOUR;at+=MIN)stepMagic(c,at);
+ stepMagic(c,MIN);assert.equal(deliverMagicSupply(c,idx(32,30),'rune',50),12);
+ for(let at=2*MIN;at<=HOUR+MIN;at+=MIN)stepMagic(c,at);
  const m=c.magic!;assert.equal(m.network.bindings[magicSiteId(academy)].primary,magicSiteId(well));
- assert.ok(Math.abs(m.mana[magicSiteId(well)]-(240-20))<1e-6);assert.ok(Math.abs(m.knowledge-24)<1e-6);
- // Two-hour input buffer came from village stock exactly once.
- assert.ok(Math.abs(c.res.rune+m.factories[magicSiteId(academy)].input.rune!+6-100)<1e-6);
+ assert.ok(Math.abs(m.mana[magicSiteId(well)]-(244-20))<1e-6);assert.ok(Math.abs(m.knowledge-24)<1e-6);
+ // The minute step never draws from village stock; only carriers fill buffers.
+ assert.equal(c.res.rune,100);assert.ok(Math.abs(m.factories[magicSiteId(academy)].input.rune!-6)<1e-6);
  for(let at=HOUR+MIN;at<=8*HOUR;at+=MIN)stepMagic(c,at);
  assert.ok(m.mana[magicSiteId(well)]>1199&&m.mana[magicSiteId(well)]<=1200);
 });
@@ -156,4 +157,20 @@ test('online and split/reloaded settlement agree with mana, research and zombie 
  settle(b,3*HOUR);
  assert.ok(a.zombies!.report.waves>=1);assert.ok(a.zombies!.report.killed>=1);assert.ok(a.magic!.mana.m1<3*240-3*20);assert.deepEqual(a.magic!.researched,['conduction']);assert.ok(a.magic!.knowledge>200-120);
  assert.deepEqual(b.magic,a.magic);assert.deepEqual(b.zombies,a.zombies);assert.deepEqual(b.res,a.res);assert.deepEqual(b.people,a.people);
+});
+
+test('carriers walk runes and crystals from the store into academy and spire buffers; loads in transit reserve space',()=>{
+ const c=era7();c.magic!.researched.push('conduction');place(c,'aetherwell',26,22,2);const academy=place(c,'mageacademy',24,20,4),spire=place(c,'manaspire',24,23,2);
+ c.res.rune=100;c.res.aetherCrystal=100;let carried=0;
+ for(let at=10_000;at<=HOUR;at+=10_000){settle(c,at);const m=c.magic!;
+  for(const [site,tile,r,cap] of [[academy,idx(24,20),'rune',12],[spire,idx(24,23),'aetherCrystal',12]] as const){
+   const f=m.factories[magicSiteId(site)];if(!f)continue;const transit=c.people.reduce((n,p)=>n+(p.haul?.supply===tile&&p.haul.resource===r?p.haul.carried||p.haul.capacity:0),0);
+   if(transit)carried++;assert.ok((f.input[r]??0)+transit<=cap+1e-9);
+  }}
+ const m=c.magic!,a=m.factories[magicSiteId(academy)].input.rune!,s=m.factories[magicSiteId(spire)].input.aetherCrystal!;
+ assert.ok(carried>0);assert.ok(a>0&&s>0);
+ const inHand=(r:string)=>c.people.reduce((n,p)=>n+(p.haul?.resource===r?p.haul.carried:0),0);
+ // Conservation: stock + buffer + cargo + what the buildings consumed equals the start.
+ assert.ok(Math.abs(c.res.rune+a+inHand('rune')+m.knowledge/4-100)<1e-6);
+ assert.ok(c.res.aetherCrystal+s+inHand('aetherCrystal')<100);
 });

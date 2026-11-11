@@ -1,7 +1,7 @@
 import {ZOMBIE_BUILDINGS} from './zombie-buildings';
 import {MAGIC_ERA7_BUILDINGS,MAGIC_ERA7_UNITS} from './magic-buildings';
 import {MAGIC_ERA_REQUIREMENTS,MAGIC_HALL_UPGRADES,isMagicResource} from './magic-data';
-import {initializeMagic,stepMagic,skipMagicTo,magicBuildError,magicSupportError,magicTrainingError,payMagicTraining,magicArmySpace,magicAction,assignMagicUid,type MagicState,type MagicAction} from './magic';
+import {magicSupplyNeed,deliverMagicSupply,initializeMagic,stepMagic,skipMagicTo,magicBuildError,magicSupportError,magicTrainingError,payMagicTraining,magicArmySpace,magicAction,assignMagicUid,type MagicState,type MagicAction} from './magic';
 import {activateZombies,stepZombies,zombieBusy,buildingIntegrity,type ZombieState,type Vital} from './zombies';
 import {assignFormation,formationSlots} from './formation';
 import {isFortification,type DefenseOrientation} from './fortifications';
@@ -238,6 +238,8 @@ export type Haul = {
   resource?: ResKey; carried: number; capacity: number; resting?: boolean;
   source?: { kind: "tile" | "herd" | "building"; key: number };
   taskKey: string; workRate?: number; drop?: number;
+  /** Magic input run: carry `resource` from store `drop` into this building's buffer. */
+  supply?: number;
 };
 export type Refuge = { route: number[]; at: number; arrive: number; pausedAt: number; x: number; y: number; building?: number; returnAt?: number; back?: number; returnProgress?: number };
 export type Person = { vital?:Vital; assignment?: "manual" | "scout"; gatherRetryAt?: number; refuge?: Refuge; id: number; name: string; task: Task; pos?: number; haul?: Haul }; // pos: tile they last headed to
@@ -1732,6 +1734,7 @@ function beginHaul(c: City, p: Person, at: number, ctx: HaulContext) {
     job = haulingJob(c, p, at, ctx);
   }
   if (!job) {
+    if (p.task.t === "work" && c.magic && beginSupply(c, p, at, ctx)) return;
     const target = p.task.t === "idle" ? p.task.at : p.task.t === "work" && isBuildingActive(c.b[p.task.at]) ? p.task.at : undefined;
     const from = p.pos ?? c.camp;
     if (target !== undefined && from !== target) {
@@ -1745,6 +1748,49 @@ function beginHaul(c: City, p: Person, at: number, ctx: HaulContext) {
   const travel = Math.ceil(routeLength(path)/transportSpeed(c,p.task.t==='work'?p.task.at:job.tile,ctx.transport)) * HAUL_TILE_MS, capacity=job.resource==='diamond'?1:job.resource==='gold'?5:job.resource==='food'?HAUL_CAPACITY*foodEraScale(c,at):HAUL_CAPACITY;
   p.haul = { phase: travel ? "travel" : "work", at, nextAt: at + (travel || Math.ceil(capacity / job.rate * HOUR / HAUL_TILE_MS) * HAUL_TILE_MS), tile: from,
     route: path, routeStart: at, resource: job.resource, carried: 0, capacity, source: job.source, taskKey: taskKey(p), workRate: job.rate };
+}
+/** Magic buffers are filled by the workers of that building, walking to the
+ * nearest reachable store and back like any other haul. The planned load is
+ * reserved in `capacity`; stock is debited only at pickup. */
+function beginSupply(c: City, p: Person, at: number, ctx: HaulContext) {
+  if (p.task.t !== "work") return false;
+  const target = p.task.at, need = magicSupplyNeed(c, target, HAUL_CAPACITY);
+  if (!need) return false;
+  const from = p.pos ?? c.camp;
+  let best: number[] | null = null, drop = -1, length = Infinity;
+  for (const tile of [...buildings(c).filter(([i]) => i !== c.camp && activeDrop(c, i, need.resource)).map(([i]) => i), c.camp]) {
+    if (tile === c.camp && best) continue;
+    const path = haulPath(c, from, tile, ctx), d = path ? routeLength(path) : Infinity;
+    if (path && d < length) { best = path; drop = tile; length = d; }
+  }
+  if (!best) return false;
+  p.haul = { phase: "travel", at, nextAt: at + Math.max(HAUL_TILE_MS, Math.ceil(length / transportSpeed(c, target, ctx.transport)) * HAUL_TILE_MS), tile: from, route: best, routeStart: at,
+    resource: need.resource, carried: 0, capacity: need.amount, taskKey: taskKey(p), drop, supply: target };
+  return true;
+}
+function stepSupply(c: City, p: Person, at: number, ctx: HaulContext) {
+  const h = p.haul!, target = h.supply!, resource = h.resource!;
+  const abandon = () => {
+    delete h.supply;
+    if (h.carried > 1e-9) { h.phase = "unload"; h.route = [h.tile]; h.at = at; h.nextAt = at + HAUL_TILE_MS; delete h.drop; returnCargo(c, p, at, ctx); }
+    else { p.pos = h.tile; delete p.haul; beginHaul(c, p, at, ctx); }
+  };
+  if (taskKey(p) !== h.taskKey || (h.phase !== "travel" && h.phase !== "return")) return abandon();
+  if (h.nextAt > at) return;
+  h.tile = h.route[h.route.length - 1]; p.pos = h.tile;
+  if (h.phase === "travel") {
+    if (h.drop === undefined || !activeDrop(c, h.drop, resource)) return abandon();
+    const amount = Math.max(0, Math.min(h.capacity, c.res[resource]));
+    const path = amount > 0 ? haulPath(c, h.tile, target, ctx) : null;
+    if (!path) return abandon();
+    c.res[resource] -= amount; recordResourceFlow(c, at, 'spent', resource, amount); h.carried = amount;
+    h.phase = "return"; h.route = path; h.at = at; h.routeStart = at;
+    h.nextAt = at + Math.max(HAUL_TILE_MS, Math.ceil(routeLength(path) / transportSpeed(c, target, ctx.transport)) * HAUL_TILE_MS);
+    return;
+  }
+  h.carried -= deliverMagicSupply(c, target, resource, h.carried);
+  if (h.carried > 1e-9) return abandon();
+  delete p.haul; beginHaul(c, p, at, ctx);
 }
 function takeCargo(c: City, h: Haul, at: number): number {
   if (!h.source) return 0;
@@ -1829,6 +1875,7 @@ function stepHauling(c: City, at: number, ctx: HaulContext, storage: Res, smelt:
     if(p.refuge||p.vital?.paused||p.vital?.downAt)continue;
     if (!p.haul) { beginHaul(c, p, at, ctx); continue; }
     const h = p.haul;
+    if (h.supply !== undefined) { stepSupply(c, p, at, ctx); continue; }
     if (h.resting) {
       if(h.nextAt>at) continue;
       h.tile=h.route[h.route.length-1];p.pos=h.tile;h.route=[h.tile];h.phase="unload";h.at=at;
