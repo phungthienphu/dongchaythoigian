@@ -795,6 +795,13 @@ export const repairCost = (k: BKey, lvl = 1, burned = false, era = 1): Partial<R
   for (const r of RES) if (base[r]) out[r] = Math.ceil(base[r]! * rate);
   return def(k).era>=4||k==="hall"&&lvl>=4?out:eraCost(out, era, 2);
 };
+/** Restore zombie HP for the missing fraction of the current level's build cost. */
+export function maintenanceCost(b:Building,era=1):Partial<Res>{
+  const max=buildingIntegrity({...b,zombieDamage:0});
+  const fraction=Math.min(1,Math.max(0,b.zombieDamage??0)/max),base=levelCost(b.k,Math.max(1,b.lvl),era),cost:Partial<Res>={};
+  for(const r of RES)if(base[r]&&fraction>0)cost[r]=Math.ceil(base[r]!*fraction);
+  return cost;
+}
 /** Resource value used to weigh building damage in multiplayer battles. */
 export const buildingValue = (b: Building) => RES.reduce((sum, r) => sum + (levelCost(b.k, Math.max(1, b.lvl))[r] ?? 0), 0);
 const canAfford = (c: City, cost: Partial<Res>) => RES.every((r) => (cost[r] ?? 0) <= c.res[r]);
@@ -2928,6 +2935,7 @@ export type Action =
   | { type: "upgradeStorage"; resource: ResKey; x: number; y: number }
   | { type: "upgrade"; x: number; y: number }
   | { type: "repair"; x: number; y: number }
+  | { type: "maintain"; x: number; y: number }
   | { type: "buildShip"; x: number; y: number }
   | { type: "relocateBuilding"; x:number; y:number; to:number }
   | { type: "relocateDock"; x: number; y: number; to: number }
@@ -3199,6 +3207,16 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
     for (const p of c.people) if (p.task.t === "work" && p.task.at === i) setTask(c, p, {t:"idle"}, now);
     if (b.k === "levee") replanProtectedCourse(c, now);
     log(c, now, `Đã phá ${buildingName(c,b.k)}, hoàn ${quote.percent}%: ${costText(quote.refund) || "0 tài nguyên"}.${Object.keys(quote.overflow).length ? ` Kho không đủ chỗ, mất ${costText(quote.overflow)}.` : ""}`, "warn");
+    return null;
+  }
+  if(a.type==='maintain'){
+    if(c.battleId)return 'Chờ trận chiến kết thúc để bảo trì công trình.';
+    if(b.doneAt||b.lvl<1)return 'Chờ xây dựng hoàn tất để bảo trì.';
+    if(buildingIntegrity(b)<=0)return 'Công trình đã bị phá hủy; cần xây mới.';
+    if((b.zombieDamage??0)<=0)return 'Công trình đã đầy HP, không cần bảo trì.';
+    const cost=maintenanceCost(b,c.era),error=missing(c,cost);if(error)return error;
+    pay(c,cost);delete b.zombieDamage;
+    log(c,now,`Đã bảo trì ${buildingName(c,b.k)}, hồi đầy HP; chi phí ${costText(cost)||'0 tài nguyên'}.`,'good');
     return null;
   }
   if (a.type === "repair") {

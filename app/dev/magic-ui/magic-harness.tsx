@@ -2,13 +2,15 @@
 /** Local-only era 7–9 UI fixture: the real Game with mocked APIs and maxEra 9. No account, no server data. */
 import {useEffect,useRef,useState} from 'react';
 import {medicalFixture} from '../medical-ui/fixture';
+import {zombieBuildingHp} from '@/lib/zombies';
 import Game from '@/components/Game';
 import {eraPreview} from '@/lib/era-preview';
 import {applyAction,G,RES,W,settle,type Action,type BKey,type City} from '@/lib/engine';
 import {initializeMagic,magicSiteId,stepMagic} from '@/lib/magic';
 const RULES={maxEra:9};
 function fixture(era:number){
- if(new URLSearchParams(location.search).get('medical')==='1')return medicalFixture(Date.now());
+ const params=new URLSearchParams(location.search);
+ if(params.get('medical')==='1'||params.get('maintenance')==='1'){const c=medicalFixture(Date.now());if(params.get('maintenance')==='1'){const b=Object.values(c.b).find(b=>b.k==='hospital')!;b.zombieDamage=zombieBuildingHp(b)*.5;for(const r of RES)c.res[r]=10000;c.people=c.people.filter(p=>p.vital?.downAt===undefined);c.pop=c.people.length;}return c;}
  const now=Date.now(),c=eraPreview(6,now);c.era=era;
  for(const b of Object.values(c.b))if(b.k==='hall')b.lvl=era;
  initializeMagic(c,now);const m=c.magic!;

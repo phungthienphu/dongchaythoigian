@@ -3,7 +3,7 @@ import test from 'node:test';
 import { isActionInput } from './action-input';
 import { applyAction, BKEYS, newCity, UKEYS, type Action } from './engine';
 test('all supported action variants accept their valid JSON forms',()=>{
- const values:unknown[]=[...BKEYS.map(k=>({type:'build',k,x:0,y:95})),...UKEYS.map(u=>({type:'train',u,n:1})),...['upgrade','repair','demolish'].map(type=>({type,x:95,y:0})),{type:'advance'},{type:'alarm'},{type:'recall',exp:1},{type:'attack',camp:1,units:{club:3,elephant:0}},{type:'assign',ids:[1,2],task:{t:'idle'}},{type:'assignN',n:50,task:{t:'chop',at:9215}},{type:'setGuardPosts',posts:[{x:0,y:0},{x:95,y:95}]},{type:'auto',on:true,mix:{food:40,wood:30,stone:20,copper:10, gold: 0, diamond: 0}}];
+ const values:unknown[]=[...BKEYS.map(k=>({type:'build',k,x:0,y:95})),...UKEYS.map(u=>({type:'train',u,n:1})),...['upgrade','repair','maintain','demolish'].map(type=>({type,x:95,y:0})),{type:'advance'},{type:'alarm'},{type:'recall',exp:1},{type:'attack',camp:1,units:{club:3,elephant:0}},{type:'assign',ids:[1,2],task:{t:'idle'}},{type:'assignN',n:50,task:{t:'chop',at:9215}},{type:'setGuardPosts',posts:[{x:0,y:0},{x:95,y:95}]},{type:'auto',on:true,mix:{food:40,wood:30,stone:20,copper:10, gold: 0, diamond: 0}}];
  for(const value of values)assert.equal(isActionInput(value),true,JSON.stringify(value));
  for(const task of [{t:'move',to:0},{t:'explore',to:9215},{t:'hunt',herd:1},{t:'mine',at:0},{t:'work',at:9215}])assert.equal(isActionInput({type:'assign',ids:[1],task,pos:{1:3}}),true);
 });

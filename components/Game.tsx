@@ -3,6 +3,7 @@ import MedicalPanel from './MedicalPanel';
 import {medicalMissions,ambulancePosition} from '@/lib/medical';
 import {zombiePresence,locateNextZombie,zombieName} from '@/lib/zombie-view';
 import ZombiePanel from './ZombiePanel';
+import {buildingIntegrity,zombieBuildingHp} from '@/lib/zombies';
 import DeferredDetails from './DeferredDetails';
 import {crowdViewKey,pickCrowdGroup,type CrowdScene,type CrowdGroup} from './crowd-scene';
 import {RenderQuality,mapDetailLow} from '@/lib/render-quality';
@@ -22,7 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   B, CAP, GATHER_SPEED, resourceUnlocked, LVL_MULT, HOUR, POP_GROWTH_PER_HOUR, ERA_NAMES, ERA_REQ, F, HL, MAX_LVL, O, RES, RN, R, SEASONS, SEASON_MS, TERRAIN, UKEYS, UNITS, W, G,
   buildingRelocationPlan, relocationAllowed, hasRelocationOffice, buildingJobs,storageCapacity, availableForQuickAssign, quickAssignBlockedReason, isScout, taskResource, raidPhase, civiliansInDanger, gatherFoodPerHour, storageLevel, upkeepRates, isRock, mineralResource, depositCapacity, speedBuildQuote, envoyCount, envoysAway, ENVOY_NAMES, ERA_NAMES as ERAS, buildingName, campStrength, MAX_LVL as TOP_LVL, campById, hallLevel, hasControl, levelCap,
-  armyCap, armyUsed, barracksCapacity, buildingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost,
+  armyCap, armyUsed, barracksCapacity, buildingCost, builders, busyBuilders, buildMs, canPlace, cheb, costText, derive, idx, levelCost, marchMs, repairCost, maintenanceCost,
   homeSoldiers, armyStagingTiles, expeditionPlan, marchSupplies, marchLogistics, farmCapacity, farmRemaining, farmTendCost, farmAutoStatus, reqMet, seasonIndexAt, settle, stamp, stats, troopCount, troopPower, workersAt,
   type Action, type BKey, type City, type Derived, type Person, type ResKey, type TaskInput, type Troops, type UKey,
 } from "@/lib/engine";
@@ -1405,6 +1406,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
               {sel.doneAt && <p className="small">{sel.relocation ? "Đang di dời" : sel.k==='ironbridge'&&sel.bridge&&!sel.bridge.ready ? "Đang nối nhịp cầu" : sel.lvl === 0 ? "Đang xây" : sel.storageUpgrade ? `Đang nâng ngăn ${RN[sel.storageUpgrade]}` : `Đang nâng lên cấp ${sel.lvl + 1}`}: còn {fmtDur(sel.doneAt - t)}</p>}
               {c.cropDamage?.tile===selI && c.cropDamage.until>t && <p className="err small">Ruộng bị thú rừng giẫm: năng suất còn 50%, phục hồi sau {fmtDur(c.cropDamage.until-t)}.</p>}
 
+              {sel.lvl>0&&<p>Độ bền: {Math.ceil(buildingIntegrity(sel))}/{zombieBuildingHp(sel)} HP</p>}
+              {(sel.zombieDamage??0)>0&&(()=>{const cost=maintenanceCost(sel,c.era),short=RES.some(r=>c.res[r]<(cost[r]??0));return <div><button className="primary" disabled={busy||!!sel.doneAt||!!c.battleId||buildingIntegrity(sel)<=0||short} onClick={()=>act({type:'maintain',...selected})}>Bảo trì · hồi đầy HP ({costText(cost)||'miễn phí'})</button><p className="small muted">Phí theo tỷ lệ HP đã mất, làm tròn lên từng vật liệu.{c.battleId?' Chờ trận chiến kết thúc.':''}{short?' Chưa đủ vật liệu.':''} Cháy/ngập cần sửa riêng.</p></div>;})()}
               {(sel.flooded || sel.burned) && <p className="err small">{sel.damageCause==='earthquake'?"Hư hại do động đất, cần sửa để hoạt động lại.":sel.burned ? "Bị cháy, cần sửa để hoạt động lại." : "Bị ngập, không hoạt động."}</p>}
               {["farm","estate"].includes(sel.k) && <>
                 <p className={farmRemaining(sel)<=0?"err small":"small"}>Dinh dưỡng: {Math.ceil(farmRemaining(sel))}/{farmCapacity(sel)} · giảm theo lượng lương thực thực sự thu hoạch.</p>

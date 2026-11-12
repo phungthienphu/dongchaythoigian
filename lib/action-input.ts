@@ -85,7 +85,7 @@ export function isActionInput(value: unknown): value is Action {
     case 'magicDockPair': return point(value)&&tile(value.to);
     case 'magicTeleport': return point(value)&&typeof value.resource==='string'&&STOCK.includes(value.resource)&&integer(value.amount,1,60);
     case 'magicDomain': return typeof value.domain==='string'&&DOMAINS.includes(value.domain);
-    case 'plantTree': case 'toggleBuilding': case 'buildShip': case 'upgrade': case 'repair': case 'demolish': case 'tendFarm': case 'tendFarmGroup': case 'speedBuild': return point(value);
+    case 'plantTree': case 'toggleBuilding': case 'buildShip': case 'upgrade': case 'repair': case 'maintain': case 'demolish': case 'tendFarm': case 'tendFarmGroup': case 'speedBuild': return point(value);
     case 'relocateBuilding': case 'relocateDock': case 'connectBridge': return point(value) && tile(value.to);
     case 'moveSoldier': return soldierId(value.id) && point(value);
     case 'moveSoldiers': return Array.isArray(value.ids)&&value.ids.length>0&&value.ids.length<=360&&value.ids.every(soldierId)&&new Set(value.ids).size===value.ids.length&&point(value);
