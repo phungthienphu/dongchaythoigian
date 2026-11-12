@@ -67,6 +67,18 @@ test('ordinary mutations and old receipts cannot bypass pending recovery', async
   await expect(withCity('mine', () => { mutated = true; }, { requestId: 'old-action' })).rejects.toThrow(CityRecoveringError);
   expect(mutated).toBe(false); expect(doc.citySync!.ack).toBe(4);
 });
+test('a returning owner checkpoints a short absence and receives the final slice without an extra HTTP request', async () => {
+  reset();
+  settle(doc.state, now - 90_000);
+  const expected = structuredClone(doc.state); settle(expected, now);
+  const ledger = structuredClone(doc.citySync), receipts = structuredClone(doc.actionReceipts);
+  const response = await GET(), data = await response.json();
+  expect(response.status).toBe(200);
+  expect(doc.state.last).toBe(now);
+  expect(JSON.parse(JSON.stringify(data.state))).toEqual(JSON.parse(JSON.stringify(expected)));
+  expect(doc.citySync).toEqual(ledger); expect(doc.actionReceipts).toEqual(receipts);
+  expect(data.sync.ack).toBe(4);
+});
 test('only a signed account without a city gets the naming form', async () => {
   reset(); authenticated = false; expect((await GET()).status).toBe(401); expect(writes).toBe(0);
   authenticated = true; user.cityId = null;

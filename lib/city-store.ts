@@ -47,10 +47,16 @@ export async function withCity<T>(pid: string, mutate: (c: City, now: number) =>
     if (doc.state.ver !== ENGINE_VER) throw new UnsupportedCityVersionError();
     const now = Date.now();
     normalizeResources(doc.state);
-    if (!doc.state.battleId && (doc.state.catchUp || now - doc.state.last > RECOVERY_THRESHOLD_MS)) {
+    // Owner reads otherwise project from the same old persisted state on every
+    // visit. Checkpoint sooner to avoid repeatedly replaying nearly 30 minutes.
+    const recoveryThreshold = opts.readOnlyFallback ? 60_000 : RECOVERY_THRESHOLD_MS;
+    if (!doc.state.battleId && (doc.state.catchUp || now - doc.state.last > recoveryThreshold)) {
       // One bounded slice per request, committed before progress is returned.
       // Never execute the caller's mutation or advance its command receipt here.
       const progress = await recoverCity(col, doc, now);
+      // The final persisted slice is ready: reload its revision in this request
+      // instead of returning 100% and making the browser reconnect to Mongo.
+      if (progress?.percent === 100 && opts.readOnlyFallback && attempt < 4) continue;
       throw new CityRecoveryPending(progress);
     }
     const receipt = opts.requestId && doc.actionReceipts?.find((r) => r.id === opts.requestId);
