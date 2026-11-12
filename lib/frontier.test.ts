@@ -1,3 +1,4 @@
+import {zombiePath} from './zombies';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {newCity,G,F,R,HL,GOLD,DIAMOND,W,H,MIN,HOUR,idx,settle,derive,applyAction,renewWilderness,wildernessKeep,expansionRisk,WILDERNESS_MS,FRONTIER_WARNING_MS,type City} from './engine';
@@ -61,4 +62,13 @@ test('earthquake warnings, bounded damage and resource-paid repairs; levees stil
  for(let y=30;y<50;y++)c.t[idx(39,y)]=R;c.b[idx(40,41)]={k:'levee',lvl:1,doneAt:null};assert.equal(derive(c).prot[center],true);
  c.disaster={kind:'flood',at:2000,level:3,center};settle(c,2000);assert.equal(!!c.b[center].flooded,false);assert.ok(c.log.some(l=>l.msg.includes('Lũ tràn bờ')));
  assert.equal(WILDERNESS_MS,30*MIN);assert.equal(FRONTIER_WARNING_MS,5*MIN);assert.equal(c.t.length,W*H);
+});
+
+test('an earthquake damages a wall line without removing segments or opening a zombie passage',()=>{
+ const c=fixture();c.zombies!.nextAt=10*HOUR;c.wildernessAt=10*HOUR;
+ for(let y=0;y<H;y++)c.b[idx(40,y)]={k:y===40?'gate':'wall',lvl:2,doneAt:null};
+ c.disaster={kind:'earthquake',at:MIN,level:2,center:idx(40,40)};settle(c,MIN);
+ assert.ok(c.b[idx(40,40)].burned);assert.ok(c.b[idx(40,39)].burned);assert.equal(c.b[idx(40,40)].lvl,2);
+ assert.equal(zombiePath(c,idx(39,40),idx(41,40)),null);
+ assert.equal(Object.keys(c.b).length,H);assert.ok(c.disasterNotices?.some(n=>n.phase==='impact'&&n.msg.includes('vĩnh viễn 0')));
 });

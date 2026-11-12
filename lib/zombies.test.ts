@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {newCity,idx,canPlace,derive,applyAction,homeSoldiers,settle,F,UNITS,type City} from './engine';
 import {createBattle} from './battle';
-import {zombiePath,zombieWave,zombieWeeks,zombieStats,stepZombies,zombiePressure} from './zombies';
+import {zombiePath,zombieWave,zombieWaveDelay,zombieWeeks,zombieStats,stepZombies,zombiePressure} from './zombies';
 function city(){const c=newCity(0,123);c.t.fill(0);c.seen.fill(1);c.b={};return c;}
 test('population scales waves and unlocks variants without increasing the total',()=>{
- assert.deepEqual(zombieWave(680,5,1),{total:17,normal:12,super:2,breaker:3,interval:30*60000});
+ assert.deepEqual(zombieWave(680,5,1),{total:17,normal:12,super:2,breaker:3,interval:60*60000});
  assert.equal(zombieWave(1,3,3).super,0);assert.equal(zombieWave(1,4,3).super,1);
- assert.equal(zombieWave(1100,6,1).interval,15*60000);
+ assert.equal(zombieWave(1100,6,1).interval,35*60000);
  assert.equal(zombieStats('super',4).civilianDamage,3);
 });
 test('observed defensive fire changes path while walls remain impassable',()=>{
@@ -79,14 +79,14 @@ test('infection reduces actual gathering deliveries while preserving the old car
  settle(healthy,120000);settle(sick,120000);assert.ok(healthy.res.wood>sick.res.wood);assert.ok(sick.res.wood>0);
 });
 
-test('wave interval shrinks five minutes per whole week since activation, floored at fifteen',()=>{
- assert.equal(zombieWave(40,1,2,0).interval,60*60000);assert.equal(zombieWave(40,1,2,1).interval,55*60000);
- assert.equal(zombieWave(450,7,2,2).interval,30*60000);assert.equal(zombieWave(450,7,2,9).interval,15*60000);assert.equal(zombieWave(1100,7,2,3).interval,15*60000);
+test('minimum rest shrinks with population and age but never below thirty minutes',()=>{
+ assert.equal(zombieWave(40,1,2,0).interval,90*60000);assert.equal(zombieWave(40,1,2,1).interval,85*60000);
+ assert.equal(zombieWave(450,7,2,2).interval,60*60000);assert.equal(zombieWave(450,7,2,9).interval,30*60000);assert.equal(zombieWave(1100,7,2,3).interval,30*60000);
  assert.equal(zombieWeeks({activatedAt:1000},1000+7*24*3600000-1),0);assert.equal(zombieWeeks({activatedAt:1000},1000+7*24*3600000),1);
  // The interval is fixed when the wave spawns, from the activation timestamp alone.
  const c=city();c.people=c.people.slice(0,3);c.pop=3;const s=c.zombies!;const at=s.activatedAt+15*24*3600000;s.nextAt=at;s.last=at-1000;s.peaks=[{at:at-1000,pop:3}];s.population=3;
  const reloaded=JSON.parse(JSON.stringify(c));stepZombies(c,at);stepZombies(reloaded,at);
- assert.equal(c.zombies!.nextAt,at+50*60000);assert.deepEqual(reloaded.zombies,c.zombies);
+ assert.equal(c.zombies!.nextAt,at+zombieWaveDelay(c.seed,c.zombies!.index,80*60000));assert.deepEqual(reloaded.zombies,c.zombies);
 });
 
 test('legacy rollout starts in the present without retroactive waves and never resets an active village',async()=>{
@@ -124,10 +124,24 @@ test('a modern normal zombie survives the first actual armor shot and dies to th
  stepZombies(c,3000);assert.equal(c.zombies!.actors.length,0);assert.equal(c.zombies!.report.killed,1);
 });
 
-test('modern pressure hotfix reduces wave HP moderately at Van Dong population without changing interval',()=>{
+test('modern pressure hotfix reduces wave HP moderately at Van Dong population with a thirty-minute minimum rest',()=>{
  const wave=zombieWave(1717,7,1);
- assert.equal(wave.total,84);assert.equal(wave.interval,15*60000);
+ assert.equal(wave.total,84);assert.equal(wave.interval,30*60000);
  const hp=wave.normal*zombieStats('normal',7).hp+wave.super*zombieStats('super',7).hp+wave.breaker*zombieStats('breaker',7).hp;
  const previous=62*300+16*840+19*1280;
  assert.ok(hp/previous>.65&&hp/previous<.8);
+});
+
+test('wave rests vary deterministically within one to two times the minimum',()=>{
+ const delays=Array.from({length:24},(_,i)=>zombieWaveDelay(123,i+1,30*60000));
+ assert.ok(new Set(delays).size>10);assert.ok(delays.every(ms=>ms>=30*60000&&ms<=60*60000));
+ assert.deepEqual(delays,Array.from({length:24},(_,i)=>zombieWaveDelay(123,i+1,30*60000)));
+});
+
+test('guard snapshots omit absent order timestamps during long rests between waves',()=>{
+ const c=city();c.era=6;c.people=[];c.army={armor:1};c.camp=idx(20,20);c.zombies!.nextAt=1000000;
+ const guard=homeSoldiers(c,1000,undefined,false)[0];c.zombies!.actors=[{id:1,kind:'normal',era:6,hp:1,maxHp:1,x:guard.x+3,y:guard.y,until:100000,nextHit:100000,repath:0}];
+ stepZombies(c,1000);assert.equal(c.zombies!.actors.length,0);
+ assert.equal(Object.hasOwn(c.zombies!.guards[0],'orderAt'),false);
+ assert.deepEqual(c.zombies,JSON.parse(JSON.stringify(c.zombies)));
 });

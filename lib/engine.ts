@@ -2044,7 +2044,7 @@ function scheduleDisaster(c:City,at:number){
   c.disaster={kind:r()<.5?'flood':'earthquake',at:at+risk.interval,level:risk.level,center:targets[0]?.[0]??c.camp};
 }
 export const MAGIC_DEPOSIT_CHANCE=.02;
-export const DISASTER_RESOURCE_CHANCE={earthquake:.2,flood:.1};
+export const DISASTER_RESOURCE_CHANCE={earthquake:.05,flood:.02};
 function rareDeposit(c:City,random:()=>number){
   const options=[CRYSTAL_ORE,CRYSTAL_ORE,CRYSTAL_ORE,RUNE_ORE,...(c.era>=8?[ESSENCE_ORE]:[]),...(c.era>=9?[CELESTIAL_ORE]:[])];
   return c.era>=7?options[Math.min(options.length-1,Math.floor(random()*options.length))]:null;
@@ -2094,7 +2094,8 @@ export function seedOpenLand(c:City,at:number,random:()=>number){
 /** Permanent loss uses a dedicated event stream, independent of the damage
  * roll. Carried goods survive, but training/construction and investments do not. */
 export function disasterResource(c:City,tile:number,kind:'earthquake'|'flood',at:number,random:()=>number){
-  const b=c.b[tile];if(!b||at<(c.frontierResourcesStartsAt??-Infinity)||random()>=DISASTER_RESOURCE_CHANCE[kind])return false;
+  // Defensive segments may need repair after a disaster, but never turn into deposits.
+  const b=c.b[tile];if(!b||b.k==='wall'||b.k==='gate'||at<(c.frontierResourcesStartsAt??-Infinity)||random()>=DISASTER_RESOURCE_CHANCE[kind])return false;
   delete c.b[tile];c.queue=c.queue.filter(q=>q.source!==tile);
   if(c.magic&&b.uid!==undefined){const id=`m${b.uid}`;delete c.magic.factories[id];delete c.magic.mana[id];c.magic.topology='';}
   // River tiles must retain their channel; a destroyed waterside structure

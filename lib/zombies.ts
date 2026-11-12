@@ -27,7 +27,13 @@ export const WEEK=7*24*HOUR;
 export const zombieWeeks=(s:Pick<ZombieState,'activatedAt'>,at:number)=>Math.max(0,Math.floor((at-s.activatedAt)/WEEK));
 /** Modern-era waves scale from 1.75× to 2.35× the early population curve.
  * Keep the existing warning, first-wave grace and interval floor. */
-export function zombieWave(pop:number,era:number,index:number,weeks=0){const scale=era>=6?1.75+.2*Math.min(3,era-6):1,total=Math.max(era>=6?8:1,Math.ceil(pop/40*scale)),superCount=era<4?0:total===1?(index%3===0?1:0):Math.max(1,Math.floor(total/6)),breaker=era>=5?Math.floor(total/5):0;return {total,normal:total-superCount-breaker,super:superCount,breaker,interval:Math.max(15,60-5*Math.floor(pop/100)-5*Math.max(0,Math.floor(weeks)))*MINUTE};}
+export function zombieWave(pop:number,era:number,index:number,weeks=0){const scale=era>=6?1.75+.2*Math.min(3,era-6):1,total=Math.max(era>=6?8:1,Math.ceil(pop/40*scale)),superCount=era<4?0:total===1?(index%3===0?1:0):Math.max(1,Math.floor(total/6)),breaker=era>=5?Math.floor(total/5):0;return {total,normal:total-superCount-breaker,super:superCount,breaker,interval:Math.max(30,90-5*Math.floor(pop/100)-5*Math.max(0,Math.floor(weeks)))*MINUTE};}
+/** A seeded 1–2× rest period; saved nextAt remains authoritative on reload.
+ * Separate from emergence RNG so adding spawn visuals cannot change cadence. */
+export function zombieWaveDelay(seed:number,index:number,minimum:number){
+ const random=rng(seed^Math.imul(index,0x6c8e9cf5));
+ return minimum+Math.floor(random()*(minimum/MINUTE+1))*MINUTE;
+}
 export const ZOMBIE_ACTIVATION_NOTICE='Zombie sẽ trồi sau 5 phút. Tuyển lính, đặt vị trí bảo vệ và dựng lều cứu thương. Công trình bị phá mất vĩnh viễn!';
 /** Shared by new villages, explicit activation and the one-time existing-village rollout. */
 export function initialZombieState(at:number,population:number,patrol=false):ZombieState {
@@ -109,7 +115,7 @@ function spawn(c:City,at:number){const s=c.zombies!,w=zombieWave(zombiePressure(
   const counts={normal:w.normal,super:w.super,breaker:w.breaker};let id=0,emergesAt=at;
   while(id<w.total){for(const kind of ['normal','super','normal','breaker'] as const)if(counts[kind]>0){counts[kind]--;const spec=zombieStats(kind,c.era),origin=tiles[id%tiles.length];s.actors.push({id:s.index*10000+id++,emergesAt,kind,hp:spec.hp,maxHp:spec.hp,...point(origin),era:c.era,until:at+15*MINUTE,nextHit:emergesAt+spec.attackMs,repath:at});emergesAt+=c.era>=6?250+Math.floor(random()*401):1400+Math.floor(random()*1201);}}
   notice(c,at,`${w.total} zombie đã trồi! ${w.super?`${w.super} Super; `:''}${w.breaker?`${w.breaker} phá hoại; `:''}trồi rải quanh ổ nứt; lính bảo vệ đang ứng chiến.`);s.report.waves++;}
- delete s.warning;s.nextAt=at+w.interval;
+ delete s.warning;s.nextAt=at+zombieWaveDelay(c.seed,s.index,w.interval);
 }
 function destroy(c:City,tile:number,at:number){const b=c.b[tile];if(!b)return;notice(c,at,`${B[b.k].n} bị zombie phá hủy vĩnh viễn. Phải xây mới, không thể sửa.`);delete c.b[tile];c.queue=c.queue.filter(q=>q.source!==tile);c.zombies!.report.destroyed++;for(const p of c.people)if(p.task.t==='work'&&p.task.at===tile){p.task={t:'idle'};resumeCargo(p,at);}const capacity=stats(c,derive(c),at).storage;for(const key of Object.keys(capacity) as (keyof City['res'])[])c.res[key]=Math.min(c.res[key],capacity[key]);for(const z of c.zombies!.actors){delete z.path;z.repath=at;} }
 function attackPerson(c:City,p:Person,z:Zombie,at:number){const v=p.vital??={hp:100,last:at};const spec=zombieStats(z.kind,z.era);v.hp=Math.max(0,v.hp-spec.civilianDamage);if(!v.infectedAt&&rng(c.seed^z.id^p.id^at)()<.1){v.infectedAt=at;c.zombies!.report.infected++;if(p.haul?.phase==='work'){p.haul.nextAt=at+Math.max(0,p.haul.nextAt-at)*2;if(p.haul.workRate)p.haul.workRate*=.5;}}if(v.hp<=0){v.downAt??=at;v.paused=true;Object.assign(v,position(c,p,at));}z.nextHit=Math.max(z.nextHit,at-spec.civilianAttackMs)+spec.civilianAttackMs;z.hitAt=at;}
@@ -151,7 +157,7 @@ function closest<T>(items:T[],origin:{x:number;y:number},locate:(item:T)=>{x:num
 function combat(c:City,at:number){const s=c.zombies!,deck=bridgeDeck(c);let dirty=false;
  // Reconcile actor IDs with surviving troops. Existing home orders/guard posts
  // remain the authoritative staging and are used as patrol anchors.
- const soldiers=UKEYS.some(u=>(c.army[u]??0)>0)?homeSoldiers(c,at,undefined,false):[];const old=new Map(s.guards.map(g=>[g.id,g]));s.guards=soldiers.filter(g=>UNITS[g.u].atk>0).map(g=>{const previous=old.get(g.id),order=c.homeOrders?.[g.id],orderAt=order?.at,anchor=order?.route.at(-1)??tileOf(g.x,g.y);if(previous&&previous.orderAt===orderAt&&previous.anchor===anchor)return previous;return {...g,hp:previous?.hp??magicGuardHp(c,g),nextHit:previous?.nextHit??at,anchor,orderAt};});
+ const soldiers=UKEYS.some(u=>(c.army[u]??0)>0)?homeSoldiers(c,at,undefined,false):[];const old=new Map(s.guards.map(g=>[g.id,g]));s.guards=soldiers.filter(g=>UNITS[g.u].atk>0).map(g=>{const previous=old.get(g.id),order=c.homeOrders?.[g.id],orderAt=order?.at,anchor=order?.route.at(-1)??tileOf(g.x,g.y);if(previous&&previous.orderAt===orderAt&&previous.anchor===anchor)return previous;return {...g,hp:previous?.hp??magicGuardHp(c,g),nextHit:previous?.nextHit??at,anchor,...(orderAt===undefined?{}:{orderAt})};});
  const towers=buildings(c).filter(([,b])=>b.k==='watchtower'&&active(b)).map(([tile,b])=>({tile,lvl:b.lvl}));const enabled=selectTowerTiles(towers,c.era,c.camp);
  for(const tower of towers)if(enabled.has(tower.tile)){const weapon=towerStats(tower.lvl);if(Math.floor((at-SECOND)/weapon.attackMs)===Math.floor(at/weapon.attackMs))continue;const target=s.actors.find(z=>z.hp>0&&(z.emergesAt??0)<=at&&distance(z,point(tower.tile))<=weapon.range);if(target){target.hp-=weapon.damage;target.hitAt=at;}}
  magicStructureDefense(c,at,s.actors,s.guards);

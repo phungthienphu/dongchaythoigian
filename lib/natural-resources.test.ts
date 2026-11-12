@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {newCity,G,R,F,COAL,RES,idx,seedOpenLand,disasterResource,repairCost,levelCost,CRYSTAL_ORE,RUNE_ORE,ESSENCE_ORE,CELESTIAL_ORE,isMagicDeposit,mineralResource,depositCapacity,applyAction,settle,HOUR,type City} from './engine';
+import {newCity,G,R,F,COAL,RES,idx,seedOpenLand,renewWilderness,disasterResource,repairCost,levelCost,CRYSTAL_ORE,RUNE_ORE,ESSENCE_ORE,CELESTIAL_ORE,isMagicDeposit,mineralResource,depositCapacity,applyAction,settle,HOUR,type City} from './engine';
 function city():City{const c=newCity(0,123);c.t.fill(G);c.seen.fill(1);c.b={};c.people=[];c.herds=[];c.camps=[];c.army={};c.camp=idx(10,10);c.zombies!.nextAt=10*HOUR;c.wildernessAt=10*HOUR;c.disaster={kind:'earthquake',at:10*HOUR,level:0,center:c.camp};return c;}
 test('four-cell clearings inside building buffers spawn; three cells and pinned routes do not',()=>{
  const c=city();c.t.fill(R);const four=[idx(40,40),idx(41,40),idx(40,41),idx(41,41)],three=[idx(60,60),idx(61,60),idx(60,61)];
@@ -15,8 +15,8 @@ test('rare deposits require era, chance, available ground, and respect the globa
  for(const tile of [idx(80,80),idx(81,80),idx(82,80)])c.t[tile]=CRYSTAL_ORE;
  assert.equal(seedOpenLand(c,2000,()=>0).rare,0);assert.equal(c.t.filter(isMagicDeposit).length,4);
 });
-test('disaster loss thresholds are exactly 20% and 10%; cargo survives and queues disappear',()=>{
- for(const [kind,threshold]of [['earthquake',.2],['flood',.1]] as const){
+test('disaster loss thresholds are exactly 5% and 2%; cargo survives and queues disappear',()=>{
+ for(const [kind,threshold]of [['earthquake',.05],['flood',.02]] as const){
   for(const [roll,lost]of [[threshold,false],[threshold-.000001,true]] as const){
    const c=city(),tile=idx(40,40);c.b[tile]={k:'house',lvl:3,doneAt:null};c.queue=[{u:'club',doneAt:100000,source:tile}];
    c.people=[{id:1,name:'Thợ',pos:tile,task:{t:'work',at:tile},haul:{phase:'return',at:0,nextAt:2000,tile,route:[tile],routeStart:0,resource:'wood',carried:7,capacity:10,taskKey:'work',source:{kind:'building',key:tile}}}];
@@ -64,5 +64,14 @@ test('disaster replacement includes coal only from era five',()=>{
   let draws=0;const random=()=>draws++===0?0:.72;
   assert.equal(disasterResource(c,tile,kind,1000,random),true);
   assert.equal(c.t[tile],era>=5?COAL:2);assert.equal(c.dep[tile],undefined);
+ }
+});
+
+test('walls and gates never become resources in disasters or wilderness renewal, including damaged segments',()=>{
+ for(const kind of ['earthquake','flood'] as const)for(const key of ['wall','gate'] as const){
+  const c=city(),tile=idx(40,40);c.b[tile]={k:key,lvl:3,doneAt:null,burned:true,damageCause:'earthquake'};
+  const before=structuredClone(c.b[tile]);assert.equal(disasterResource(c,tile,kind,1000,()=>0),false);
+  seedOpenLand(c,1000,()=>.4);renewWilderness(c,30*60000);
+  assert.deepEqual(c.b[tile],before);assert.equal(c.t[tile],G);assert.equal(c.seen[tile],1);
  }
 });
