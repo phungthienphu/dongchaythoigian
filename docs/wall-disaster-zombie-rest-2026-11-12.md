@@ -1,4 +1,4 @@
-# Wall persistence and quieter zombie cadence — release preparation
+# Wall persistence and quieter zombie cadence — released 2026-11-12
 
 Read-only production evidence from Bến Vân Đồng on 2026-11-12:
 - Tiles 2566 and 2568 remain walls damaged by an earthquake; tile 2567 is empty.
@@ -26,7 +26,7 @@ No change to the ongoing medical/HP/wave-size work in the shared checkout.
 Regression coverage includes damaged wall/gate preservation through both
 resource replacement and renewal; a real earthquake against a complete wall
 line that must remain impassable to zombies; variable bounded deterministic
-rests; spawn scheduling and save/reload replay. Focused tests: 46 passed.
+rests; spawn scheduling and save/reload replay. Focused tests: 47 passed.
 
 Permanent-loss rates are additionally reduced from 20% to 5% for earthquakes
 and from 10% to 2% for floods. These apply only after the disaster selects a
@@ -41,8 +41,20 @@ the user was asked to choose level-one walls or provide gate/level details.
 No production restoration has been applied pending that clarification.
 
 Final local verification after rate changes: 601 tests across 96 files passed;
-TypeScript, render checks and diff whitespace checks passed. Cloudflare build
-passed before the final constant reduction and optional-field normalization.
+TypeScript, render checks and diff whitespace checks passed. The final committed Cloudflare build also passed before deployment.
 Longer quiet windows exposed explicit `orderAt: undefined` in guard snapshots;
 guards now omit absent timestamps so in-memory and JSON-reloaded state match.
 A dedicated guard serialization regression and both magic replay suites pass.
+
+
+Production release: source `8901e34`, release `wall-rest-20261112`, Cloudflare
+version `455fa911-75ae-494e-a6ba-7fdea6bf8344`. Web/API deployed successfully;
+the existing hospital Combat Worker deployment was retained. Public checks
+confirmed health HTTP 200, `gameReady: true`, the exact release ID, all eight
+homepage JS/CSS assets matching local SHA-256 hashes and correct MIME types,
+and HTTP 404 for `/dev/zombies` and `/dev/magic-ui`.
+
+Authorized Nam Quốc Sơn Hà smoke passed (92 requests, 19 assets): city returned
+200 after offline recovery; account, battle session, world, diplomacy and
+leaderboard checks passed. The first smoke session expired after 60 seconds
+during recovery; the diagnostic rerun used a ten-minute test-only signature.
