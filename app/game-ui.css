@@ -293,3 +293,5 @@
 .crowd-scope { display:flex; flex-wrap:wrap; gap:8px; }
 .crowd-scope p { flex-basis:100%; }
 .crowd-scope button { flex:1 1 140px; min-width:0; max-width:100%; height:auto; white-space:normal; overflow-wrap:anywhere; }
+
+.medical-hospital{border-top:1px solid var(--ui-line);padding:10px 0}.medical-missions{list-style:none;padding:0;display:grid;gap:10px}.medical-missions li{border-bottom:1px solid var(--ui-line);padding-bottom:8px}.medical-panel button{height:auto;max-width:100%;white-space:normal;overflow-wrap:anywhere}.medical-panel p{overflow-wrap:anywhere}

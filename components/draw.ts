@@ -1,3 +1,5 @@
+import {medicalMissions} from '@/lib/medical';
+import {drawAmbulance} from './ambulance-art';
 import {zombieDrawPosition} from '@/lib/zombie-view';
 import {MAGIC_EXPANSION,type ExpansionBuilding} from '@/lib/building-expansion';
 import {drawZombieArt} from './zombie-art';
@@ -2347,6 +2349,7 @@ export function pickVillageTarget(v:View,city:City,list:Villager[],anim:number,s
 
 export type DrawOpts = {
   focusedPerson?:number|null;
+  focusedAmbulance?:number|null;
   crowdScene?:{current:CrowdScene|null};
   focusedZombie?:number|null;
   bridgePreview?:{from:number;to:number|null};
@@ -2757,6 +2760,16 @@ export function drawCity(c: Ctx, city: City, D: Derived, o: DrawOpts) {
   if (o.hover && o.tool && !city.b[idx(o.hover.x, o.hover.y)]) {
     const { x, y } = o.hover, tool = o.tool;
     items.push({ d: viewDepth(v,x+.5,y+.5)+.01, f: () => { c.globalAlpha = ghostOk ? 0.75 : 0.4; drawBuilding(r, tool, x, y, 1, idx(x, y)); c.globalAlpha = 1; } });
+  }
+  if(!staticOnly)for(const mission of medicalMissions(city)){
+    if(mission.phase==='treating')continue;
+    const [sx,sy]=P(v,mission.x,mission.y,deckHeight(r,mission.x,mission.y));
+    if(sx< -40||sx>v.width+40||sy< -40||sy>v.height+40)continue;
+    items.push({d:viewDepth(v,mission.x,mission.y)+.01,f:()=>{
+      const next=mission.route[Math.min(mission.edge+1,mission.route.length-1)],q=next===undefined?[sx+1,sy]:P(v,next%W+.5,Math.floor(next/W)+.5);
+      if(o.focusedAmbulance===mission.id){c.save();c.strokeStyle='#9deaff';c.lineWidth=2;c.beginPath();c.moveTo(sx,sy);for(const i of mission.route.slice(mission.edge+1)){const [x,y]=P(v,i%W+.5,Math.floor(i/W)+.5);c.lineTo(x,y);}c.stroke();c.beginPath();c.ellipse(sx,sy,22*Math.max(v.s,.5),12*Math.max(v.s,.5),0,0,Math.PI*2);c.stroke();c.restore();}
+      drawAmbulance(c,sx,sy,Math.max(v.s,.5),Math.atan2(q[1]-sy,q[0]-sx),mission.phase==='aid');
+    }});
   }
   if (cachedItems) paintLayer(c, v, o.items!, o.dpr ?? 1, itemsSignature(city), r.season, 5000,
     (gc, cv) => drawCity(gc, city, D, { ...o, v: cv, anim: 0, hover: null, tool: null, layer: "static", ground: undefined, items: undefined }));

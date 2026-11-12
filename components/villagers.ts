@@ -408,6 +408,7 @@ export class Crowd {
       }
       if(v.fleeing){delete v.fleeing;v.run=false;if(person && !person.haul)this.start(v,city,false);}
       if(v.id===null && (city.battleId || city.raid || city.raidEncounter)){v.visible=false;continue;}
+      if(person?.vital?.ambulance!==undefined){v.visible=false;v.moving=false;v.swing=0;v.fx=person.vital.x??v.fx;v.fy=person.vital.y??v.fy;continue;}
       if(person?.vital?.paused){const vital=person.vital;const dx=(vital.x??v.fx)-v.fx,dy=(vital.y??v.fy)-v.fy;v.fx=vital.x??v.fx;v.fy=vital.y??v.fy;v.moving=Math.hypot(dx,dy)>.001;v.run=v.moving;v.state='rest';v.swing=0;v.visible=vital.shelter===undefined&&!(vital.care&&now>=vital.care.arrive);if(Math.abs(dx-dy)>.001)v.face=dx-dy>=0?1:-1;continue;}
       if (person?.haul) { this.haulVisual(v, city, person, dt, now, tnow); continue; }
       if(person?.task.t==='idle'&&person.task.at===undefined){

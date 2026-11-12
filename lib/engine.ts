@@ -1,3 +1,4 @@
+import {medicalMissions,type MedicalState} from './medical';
 import {ZOMBIE_BUILDINGS} from './zombie-buildings';
 import {MAGIC_ERA7_BUILDINGS,MAGIC_ERA7_UNITS,MAGIC_ERA8_BUILDINGS,MAGIC_ERA8_UNITS,MAGIC_ERA9_BUILDINGS,MAGIC_ERA9_UNITS} from './magic-buildings';
 import {MAGIC_ERA_REQUIREMENTS,MAGIC_HALL_UPGRADES,isMagicResource,magicResourceEra,type Contract,type Research} from './magic-data';
@@ -268,6 +269,7 @@ export type SettlementBudget = { maxTicks: number; maxMs: number };
 export const RECOVERY_THRESHOLD_MS = 30 * 60_000;
 
 export type City = {
+  medical?:MedicalState;
   zombies?:ZombieState;
   magic?:MagicState;
   /** Durable continuation. Only budgeted settlement may advance this timeline. */
@@ -761,7 +763,7 @@ export function demolitionQuote(c: City, tile: number, now: number) {
       const span=b.bridge??Object.values(c.b).find(x=>x.k==='ironbridge'&&x.bridge?.to===tile)?.bridge;
       if(span){
         const deck=new Set(span.tiles),onDeck=(x:number,y:number)=>deck.has(idx(Math.floor(x),Math.floor(y)));
-        if(c.people.some(p=>deck.has(p.pos??-1)||p.haul?.route.some(i=>deck.has(i))||p.refuge?.route.some(i=>deck.has(i)))||homeSoldiers(c,now).some(p=>onDeck(p.x,p.y))||[...c.exps,...(c.trips??[]).filter(t=>t.back>now).map(t=>({route:t.villageRoute})),...(c.merchantJourneys??[]).filter(t=>t.back>now).map(t=>({route:t.villageRoute}))].some(e=>e.route?.some(i=>deck.has(i))))error='Dân hoặc đoàn quân đang dùng cầu. Đưa họ về bờ và chờ hành trình kết thúc trước khi phá.';
+        if(medicalMissions(c).some(m=>m.route.some(i=>deck.has(i)))||c.people.some(p=>deck.has(p.pos??-1)||p.haul?.route.some(i=>deck.has(i))||p.refuge?.route.some(i=>deck.has(i)))||homeSoldiers(c,now).some(p=>onDeck(p.x,p.y))||[...c.exps,...(c.trips??[]).filter(t=>t.back>now).map(t=>({route:t.villageRoute})),...(c.merchantJourneys??[]).filter(t=>t.back>now).map(t=>({route:t.villageRoute}))].some(e=>e.route?.some(i=>deck.has(i))))error='Dân hoặc đoàn quân đang dùng cầu. Đưa họ về bờ và chờ hành trình kết thúc trước khi phá.';
       }
     }
     if ((b.k === 'dam' || b.k === 'green') && c.modern?.completedAt) error = "Kỳ quan cuối đã khánh thành; có thể sửa chữa nhưng không phá hoặc đổi nhánh.";
@@ -1197,6 +1199,7 @@ function taskError(c: City, tk: TaskInput, adding: number): string | null {
 }
 
 function setTask(c: City, p: Person, tk: TaskInput, now: number, context?:HaulContext) {
+  if(p.vital?.ambulance!==undefined)return;
   delete p.gatherRetryAt;
   const exploring = p.task.t === "explore" ? explorerPos(p.task, now) : null;
   const point = haulPosition(p, now) ?? (exploring ? { x: exploring[0], y: exploring[1] } : null);
@@ -1505,9 +1508,9 @@ export function buildingRelocationPlan(c:City,from:number,to:number,rules:Engine
  }
  if(b){const base=levelCost(b.k,b.lvl,c.era),fraction=.15+Math.min(distance,96)*.01;for(const r of RES)if(base[r])cost[r]=Math.ceil(base[r]!*fraction);cost.gold=(cost.gold??0)+Math.ceil((40+distance*8)*b.lvl);}
  let error:string|null=!b||b.lvl<1?'Chọn công trình đã xây xong.':!relocationAllowed(b)?'Công trình này gắn với địa hình hoặc chức năng cố định, không thể di dời.':!hasRelocationOffice(c)?'Cần xây Ty Dời dựng và giữ hoạt động.':b.doneAt?'Công trình đang xây, nâng cấp hoặc di dời.':b.burned||b.flooded?'Sửa công trình trước khi di dời.':c.battleId||c.zombies?.actors.length||civiliansInDanger(c,c.last)?'Không di dời khi làng đang giao chiến.':from===to?'Chọn vị trí khác.':c.queue.some(q=>q.source===from)?'Chờ hàng tuyển hoàn tất trước khi di dời.':null;
- if(!error&&b&&c.people.some(p=>p.vital?.care?.tile===from||p.vital?.shelter===from))error='Công trình đang có người trú hoặc điều trị; chờ họ rời đi.';
+ if(!error&&b&&(medicalMissions(c).some(m=>m.hospital===from)||c.people.some(p=>p.vital?.care?.tile===from||p.vital?.shelter===from)))error='Công trình đang có người trú hoặc điều trị; chờ họ rời đi.';
  if(!error&&b){error=demolitionQuote(c,from,c.last).error;
-  if(!error&&c.people.some(p=>p.pos===to||p.haul?.route.includes(to)||p.refuge?.route.includes(to)))error='Dân hoặc tuyến vận chuyển đang dùng ô đích. Chọn ô khác.';
+  if(!error&&(medicalMissions(c).some(m=>m.route.includes(to))||c.people.some(p=>p.pos===to||p.haul?.route.includes(to)||p.refuge?.route.includes(to))))error='Dân hoặc tuyến vận chuyển đang dùng ô đích. Chọn ô khác.';
   if(!error)error=canPlace(c,derive(c),b.k,to%W,Math.floor(to/W),rules,true,from)??missing(c,cost);
  }
  return {distance,cost,duration,error};
@@ -2016,6 +2019,7 @@ export function wildernessKeep(c:City,at:number,openLand=false){
     if(p.haul){around(p.haul.tile);route(p.haul.route);if(p.haul.source?.kind==='tile')around(p.haul.source.key);if(p.haul.drop!==undefined)around(p.haul.drop);}
     if(p.refuge)route(p.refuge.route);
   }
+  for(const m of medicalMissions(c)){around(idx(Math.floor(m.x),Math.floor(m.y)));route(m.route);}
   for(const s of homeSoldiers(c,at)){around(idx(Math.floor(s.x),Math.floor(s.y)));if(s.moving)route(c.homeOrders?.[s.id]?.route);}
   if(c.raidEncounter && c.raidEncounter.end>at)route(c.raidEncounter.route);
   for(const e of c.exps)route(e.route);
@@ -2939,6 +2943,7 @@ export type Action =
   | { type: "toggleBuilding"; x:number;y:number }
   | { type:"activateZombies" }
   | { type:"zombiePatrol"; on:boolean }
+  | {type:"ambulanceAuto";x:number;y:number;on:boolean}
   | { type:"zombieSurvivors" }
   | { type: "advance" }
   | { type: "assign"; ids: number[]; task: TaskInput; pos?: Record<string, number> }
@@ -2957,6 +2962,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
   if (!isActionInput(a)) return "Yêu cầu không hợp lệ.";
   settle(c, now);
   if(a.type==='activateZombies'){activateZombies(c,now);return null;}
+  if(a.type==='ambulanceAuto'){const tile=idx(a.x,a.y);if(c.b[tile]?.k!=='hospital')return 'Chọn bệnh viện.';const medical=c.medical??={version:1,nextId:1,missions:[],disabled:[]};medical.disabled=medical.disabled.filter(i=>i!==tile);if(!a.on)medical.disabled.push(tile);return null;}
   if(a.type==='zombiePatrol'){if(!c.zombies)return 'Hãy đọc và bật luật zombie trước.';c.zombies.patrol=a.on;return null;}
   if(a.type==='zombieSurvivors'){if(!c.zombies||c.people.length||c.zombies.survivorsAt)return 'Chỉ đón dân khi không còn ai và chưa có yêu cầu.';c.zombies.survivorsAt=now+30*MIN;return null;}
   if(a.type==='releaseTroops'){
@@ -3153,6 +3159,7 @@ export function applyAction(c: City, a: Action, now: number, rules:EngineRules=R
       if (!people.length) return quickAssignBlockedReason(c);
     }
     if (!people.length) return "Chưa chọn người.";
+    if(people.some(p=>p.vital?.ambulance!==undefined))return "Đội xe hoặc bệnh nhân đang được cứu; chờ chuyến hoàn tất.";
     if(people.some(p=>p.refuge))return "Dân đang tránh địch hoặc quay lại chỗ làm. Chờ an toàn để giao việc mới.";
     const moving = tk.t === "work" ? people.filter((p) => !(p.task.t === "work" && p.task.at === tk.at)).length : 0;
     const err = taskError(c, tk, moving);

@@ -1,4 +1,6 @@
 "use client";
+import MedicalPanel from './MedicalPanel';
+import {medicalMissions,ambulancePosition} from '@/lib/medical';
 import {zombiePresence,locateNextZombie,zombieName} from '@/lib/zombie-view';
 import ZombiePanel from './ZombiePanel';
 import DeferredDetails from './DeferredDetails';
@@ -133,6 +135,7 @@ function taskFor(c: City, i: number): { task: TaskInput; label: string } | null 
 }
 
 function taskLabel(c: City, p: Person) {
+  if(p.vital?.ambulance!==undefined){const m=medicalMissions(c).find(m=>m.id===p.vital!.ambulance);return m?.phase==='treating'?'Đang điều trị':m?.driver===p.id?'Lái xe cứu thương':'Trên xe cứu thương';}
   const tk = p.task;
   switch (tk.t) {
     case "work": return `Làm ở ${buildingName(c,c.b[tk.at]?.k ?? "hut")}`;
@@ -424,6 +427,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   const [send, setSend] = useState<Troops>({});
   const [panel, setPanel] = useState<Panel | null>(null);
   const [crowdScope,setCrowdScope]=useState<{key:string;ids:Set<number>}|null>(null);
+  const [focusedAmbulance,setFocusedAmbulance]=useState<number|null>(null);
   const [focusedPerson,setFocusedPerson]=useState<number|null>(null);
   const crowdSceneRef=useRef<CrowdScene|null>(null);
   const [shopEra, setShopEra] = useState(0);
@@ -491,8 +495,8 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
   renderPausedRef.current=worldOpen || !!battleOpen || helpOpen;
   const bridgePreview=bridgeFrom!==null?{from:bridgeFrom,to:bridgeTarget?idx(bridgeTarget.x,bridgeTarget.y):null}:undefined;
   const [focusedZombie,setFocusedZombie]=useState<number|null>(null);
-  const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation, focusedZombie,focusedPerson });
-  viewRef.current = { hover: hoverRef.current, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation, focusedZombie,focusedPerson };
+  const viewRef = useRef({ hover, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation, focusedZombie,focusedPerson,focusedAmbulance });
+  viewRef.current = { hover: hoverRef.current, selected, tool, picked, pickedSoldier, pickedSoldiers, bridgePreview, defenseOrientation, focusedZombie,focusedPerson,focusedAmbulance };
   useEffect(()=>{if(panel!=='people')setCrowdScope(null);},[panel]);
   const setHover = (cell: Cell | null, lazy = false) => {
     hoverRef.current = cell; viewRef.current.hover = cell;
@@ -1012,12 +1016,14 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     const c = cityRef.current, f = fitRef.current;
     if (c) focusOn(f, camRef.current, (c.camp % W) + 0.5, Math.floor(c.camp / W) + 0.5, Math.min(MAX_ZOOM, 60 / f.TW));
   };
+  const locateAmbulance=(id:number)=>{const c=cityRef.current;if(!c)return;const p=ambulancePosition(c,id);if(!p)return;setFocusedAmbulance(id);setPanel(null);setSelected(null);focusOn(fitRef.current,camRef.current,p.x,p.y,Math.min(MAX_ZOOM,60/fitRef.current.TW));};
   const focusPerson = (p:Person) => {
     setFocusedPerson(p.id);
     setRegionMode(null);setPickedSoldiers(new Set());setPickedSoldier(null);
+    const medical=p.vital?.ambulance!==undefined?ambulancePosition(cityRef.current!,p.vital.ambulance):null;
     const actor=crowdRef.current.list.find(v=>v.id===p.id),tile=p.pos??cityRef.current?.camp??0;
     setPicked(new Set([p.id]));
-    focusOn(fitRef.current,camRef.current,actor?.fx??tile%W+.5,actor?.fy??Math.floor(tile/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));
+    focusOn(fitRef.current,camRef.current,medical?.x??actor?.fx??tile%W+.5,medical?.y??actor?.fy??Math.floor(tile/W)+.5,Math.min(MAX_ZOOM,60/fitRef.current.TW));
   };
 
   const togglePick = (id: number, add: boolean) =>
@@ -1057,6 +1063,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
     if (!c) return;
     const p = local(e);
     if(!tool&&!planting&&!guardEditing&&bridgeFrom===null&&dockMove===null&&!pickedSoldier&&(!regionMode||regionMode==='people'&&!picked.size)){
+      if(!regionMode&&!picked.size){const v=view();const car=medicalMissions(c).filter(m=>m.phase!=='treating').reverse().find(m=>{const [x,y]=projectWorld(v,m.x,m.y);return Math.hypot(x-p.x,y-p.y)<Math.max(16,22*v.s);});if(car){setFocusedAmbulance(car.id);setSelected({x:car.hospital%W,y:Math.floor(car.hospital/W)});setPanel(null);return;}}
       const group=pickCrowdGroup(crowdSceneRef.current,view(),crowdRef.current.list,p.x,p.y);
       if(group){openCrowdGroup(group);return;}
     }
@@ -1407,7 +1414,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
                 {c.era<4 && farmRemaining(sel)<=0 && <p className="err small">Ruộng bạc màu. Người đã giao đang nghỉ, cần cải tạo để tiếp tục thu hoạch.</p>}
               </>}
               {["farm","estate"].includes(sel.k) && <FarmWorkers city={c} tile={selI} storage={st.storage}/>}
-              <EraCivicBuilding city={c} building={sel} tile={selI} now={t}/><MagicBuildingCard city={c} tile={selI} now={t} busy={busy} act={act} onLocate={locateTile} onOpenMagic={tab=>{setMagicTab(tab);setPanel('magic');}}/>{B[sel.k].jobs && !["farm","estate"].includes(sel.k) ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{buildingJobs(sel)}</b>. {workersAt(c,selI) ? !B[sel.k].prod ? "Nhân viên vận hành dịch vụ tại đây; không mang hàng về kho." : "Gom đủ một chuyến rồi mang về nộp; chỉ khi nộp xong kho mới tăng." : "Chưa có người làm nên chưa tạo tài nguyên. Bấm Giao người rảnh bên dưới."}</p> : null}
+              {sel.k==='hospital'&&<MedicalPanel city={c} now={t} tile={selI} busy={busy} act={act} onLocate={locateAmbulance}/>}<EraCivicBuilding city={c} building={sel} tile={selI} now={t}/><MagicBuildingCard city={c} tile={selI} now={t} busy={busy} act={act} onLocate={locateTile} onOpenMagic={tab=>{setMagicTab(tab);setPanel('magic');}}/>{B[sel.k].jobs && !["farm","estate"].includes(sel.k) ? <p className="small">Người làm: <b>{workersAt(c, selI)}/{buildingJobs(sel)}</b>. {workersAt(c,selI) ? !B[sel.k].prod ? "Nhân viên vận hành dịch vụ tại đây; không mang hàng về kho." : "Gom đủ một chuyến rồi mang về nộp; chỉ khi nộp xong kho mới tăng." : "Chưa có người làm nên chưa tạo tài nguyên. Bấm Giao người rảnh bên dưới."}</p> : null}
             </>
           ) : (
             <>
@@ -1567,7 +1574,7 @@ export default function Game({rules=RELEASE_RULES}:{rules?:EngineRules}={}) {
       {panel && (
         <GamePanel feedback={msg?.err?msg.text:undefined} onDismissFeedback={()=>setMsg(null)} title={PANEL_LABELS[panel]} onClose={()=>setPanel(null)} onBack={panelGroup(panel)!==panel?()=>setPanel(panelGroup(panel) as Panel):undefined}>
             {panel==='magic'&&<MagicPanel key={magicTab} city={c} now={t} busy={busy} act={act} maxEra={Math.min(rules.maxEra,9)} initialTab={magicTab} onLocate={locateTile}/>}
-            {panel==='zombies'&&<ZombiePanel city={c} now={t} busy={busy} act={act} onLocate={locateTile} onLocateZombie={locateZombie}/>}
+            {panel==='zombies'&&<><ZombiePanel city={c} now={t} busy={busy} act={act} onLocate={locateTile} onLocateZombie={locateZombie}/><MedicalPanel city={c} now={t} busy={busy} act={act} onLocate={locateAmbulance}/></>}
             {panel==='manage'&&<>
               <p className="panel-intro">{name}<span>{ERA_NAMES[c.era]} · {populationStatus}</span></p>
               <div className="menu-links"><button onClick={()=>setPanel('zombies')}><Icon k="army"/><span>Zombie & cứu hộ<small>{c.zombies?`${c.zombies.actors.length} zombie · bảo vệ, bệnh và thiệt hại`:'Đọc luật mới · 5 phút chuẩn bị sau khi bật'}</small></span><b>›</b></button>

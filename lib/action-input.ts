@@ -70,6 +70,7 @@ export function isActionInput(value: unknown): value is Action {
   switch (value.type) {
     case 'setPowerPriority': return Array.isArray(value.priority)&&value.priority.length===3&&new Set(value.priority).size===3&&value.priority.every(p=>['essential','housing','production'].includes(p));
     case 'activateZombies': case 'zombieSurvivors': case 'advance': case 'alarm': return true;
+    case 'ambulanceAuto': return point(value)&&typeof value.on==='boolean';
     case 'zombiePatrol': return typeof value.on==='boolean';
     case 'build': return known(BUILDINGS, value.k) && point(value) && (!own(value,'confirmFinal')||typeof value.confirmFinal==='boolean') && (!own(value,'orientation')||(value.k==='wall'||value.k==='gate')&&orientation(value.orientation));
     case 'orientDefense': return point(value)&&orientation(value.orientation);

@@ -473,4 +473,10 @@ for(const rotation of [0,1,2,3]){
 }
 console.log('PASS: expansion art has distinct roles, upgrades differ, and all four rotations have finite coordinates and balanced state.');
 
+const {drawAmbulance}=await import(pathToFileURL(path.join(temp,'ambulance-art.js')).href);
+for(const heading of [0,Math.PI/2,Math.PI,3*Math.PI/2])for(const aid of [false,true]){
+ let depth=0,ops=0;const ctx=new Proxy({}, {set(){return true;},get(_,key){if(key==='save')return ()=>depth++;if(key==='restore')return ()=>{assert.ok(depth>0);depth--;};return (...args)=>{ops++;assert.ok(args.every(v=>typeof v!=='number'||Number.isFinite(v)));};}});
+ drawAmbulance(ctx,100,80,.7,heading,aid);assert.equal(depth,0);assert.ok(ops>20);
+}
+console.log('PASS: ambulances render finite coordinates in four headings and both aid states with balanced Canvas state.');
 } finally { fs.rmSync(temp, { recursive: true, force: true }); }

@@ -1,3 +1,4 @@
+import {stepMedical,medicalPause,medicalProtected,medicalMissions} from './medical';
 import {B,W,H,R,N4,UNITS,UKEYS,buildings,isBuildingActive,haulPosition,explorerPos,homeSoldiers,stats,derive,rng,type City,type Person,type Building,type UKey} from './engine';
 import {bridgeDeck} from './bridges';
 import {towerStats,selectTowerTiles} from './tower-balance';
@@ -6,7 +7,7 @@ import {magicWallAt,hitMagicWall} from './magic-elements';
 import {beastStrike,careCapacity,eyeActive,guardDamageScale,patrolReach,EYE_WARNING} from './magic-myth';
 const SECOND=1000,MINUTE=60*SECOND,HOUR=60*MINUTE;
 export type ZombieKind='normal'|'super'|'breaker';
-export type Vital={hp:number;infectedAt?:number;downAt?:number;care?:{tile:number;end:number;pickupAt:number;arrive:number;doctor:number;route:number[];start:number};x?:number;y?:number;paused?:boolean;rescuing?:number;shelter?:number;last:number};
+export type Vital={ambulance?:number;medicalTransportUntil?:number;medicalRetry?:string;medicalWait?:string;hp:number;infectedAt?:number;downAt?:number;care?:{tile:number;end:number;pickupAt:number;arrive:number;doctor:number;route:number[];start:number};x?:number;y?:number;paused?:boolean;rescuing?:number;shelter?:number;last:number};
 export type Zombie={id:number;kind:ZombieKind;hp:number;maxHp:number;x:number;y:number;era:number;until:number;emergesAt?:number;nextHit:number;path?:number[];repath:number;target?:string;walking?:boolean;headingX?:number;headingY?:number;fromX?:number;fromY?:number;targetUntil?:number;pathGoal?:number;hitAt?:number;known?:{tile:number;until:number;dps:number;range:number}[];slows?:Record<string,{amount:number;until:number}>};
 export type ZombieGuard={id:string;u:UKey;x:number;y:number;hp:number;nextHit:number;anchor:number;orderAt?:number;path?:number[];walking?:boolean;castAt?:number};
 export type ZombieState={activatedAt:number;last:number;nextAt:number;index:number;warning?:number;actors:Zombie[];guards:ZombieGuard[];peaks:{at:number;pop:number}[];population:number;patrol:boolean;healthAt:number;idleUntil?:number;idlePopulation?:number;resumeAt?:number;survivorsAt?:number;report:{waves:number;killed:number;lost:number;infected:number;destroyed:number};};
@@ -113,11 +114,10 @@ function spawn(c:City,at:number){const s=c.zombies!,w=zombieWave(zombiePressure(
 function destroy(c:City,tile:number,at:number){const b=c.b[tile];if(!b)return;notice(c,at,`${B[b.k].n} bị zombie phá hủy vĩnh viễn. Phải xây mới, không thể sửa.`);delete c.b[tile];c.queue=c.queue.filter(q=>q.source!==tile);c.zombies!.report.destroyed++;for(const p of c.people)if(p.task.t==='work'&&p.task.at===tile){p.task={t:'idle'};resumeCargo(p,at);}const capacity=stats(c,derive(c),at).storage;for(const key of Object.keys(capacity) as (keyof City['res'])[])c.res[key]=Math.min(c.res[key],capacity[key]);for(const z of c.zombies!.actors){delete z.path;z.repath=at;} }
 function attackPerson(c:City,p:Person,z:Zombie,at:number){const v=p.vital??={hp:100,last:at};const spec=zombieStats(z.kind,z.era);v.hp=Math.max(0,v.hp-spec.civilianDamage);if(!v.infectedAt&&rng(c.seed^z.id^p.id^at)()<.1){v.infectedAt=at;c.zombies!.report.infected++;if(p.haul?.phase==='work'){p.haul.nextAt=at+Math.max(0,p.haul.nextAt-at)*2;if(p.haul.workRate)p.haul.workRate*=.5;}}if(v.hp<=0){v.downAt??=at;v.paused=true;Object.assign(v,position(c,p,at));}z.nextHit=Math.max(z.nextHit,at-spec.civilianAttackMs)+spec.civilianAttackMs;z.hitAt=at;}
 function resumeCargo(p:Person,at:number){if(p.vital?.x!==undefined)p.pos=tileOf(p.vital.x,p.vital.y!);if(p.task.t==='explore'){p.task={t:'idle'};p.assignment='scout';}if(p.haul?.carried){p.haul.tile=p.pos??p.haul.tile;p.haul.route=[p.haul.tile];p.haul.at=at;p.haul.phase='unload';p.haul.nextAt=at+SECOND;delete p.haul.drop;}else delete p.haul;}
-function health(c:City,at:number){let changed=false;const s=c.zombies!;const facilities=buildings(c).filter(([,b])=>active(b)&&(b.k==='healer'||b.k==='hospital'));
- const patients=new Map<number,number>();for(const p of c.people)if(p.vital?.care)patients.set(p.vital.care.tile,(patients.get(p.vital.care.tile)??0)+1);
+function health(c:City,at:number){let changed=false;const s=c.zombies!;
  const nearbyActors=spatial(s.actors.filter(z=>(z.emergesAt??0)<=at),z=>z);
  const removed=new Set<number>();
- for(const p of c.people){const v=p.vital;if(!v)continue;const elapsed=Math.max(0,at-v.last);v.last=at;
+ for(const p of c.people){const v=p.vital;if(!v||medicalProtected(p))continue;const elapsed=Math.max(0,at-v.last);v.last=at;
   if(v.care){
    const ca=v.care,b=c.b[ca.tile],doctor=c.people.find(d=>d.id===ca.doctor);
    const validDoctor=doctor&&!doctor.vital?.downAt&&doctor.task.t==='work'&&doctor.task.at===ca.tile;
@@ -135,9 +135,7 @@ function health(c:City,at:number){let changed=false;const s=c.zombies!;const fac
     else{const route=ca.route.slice().reverse(),travel=Math.max(1,ca.pickupAt-ca.start-30*SECOND),i=Math.min(route.length-1,Math.floor(Math.max(0,at-ca.start)/travel*route.length));if(doctor.vital)Object.assign(doctor.vital,point(route[i]));}
    }
   }
-  if(!v.care&&(v.infectedAt||v.downAt)){const pos=position(c,p,at);const heldDoctors=new Set(c.people.flatMap(q=>q.vital?.care?[q.vital.care.doctor]:[]));
-   for(const [tile,b]of facilities){if(b.k==='hospital'&&!((c.modern?.allocation[tile]??0)>0))continue;if(distance(pos,point(tile))>6||(patients.get(tile)??0)>=careCapacity(c,b.k==='healer'?[0,2,3,4][b.lvl]:12))continue;const doctor=c.people.find(worker=>!worker.vital?.paused&&!heldDoctors.has(worker.id)&&worker.task.t==='work'&&worker.task.at===tile);if(!doctor)continue;const route=zombiePath(c,tile,tileOf(pos.x,pos.y),[],100,true);if(!route)continue;const travel=Math.max(1,route.length-1)*1000/1.2,pickupAt=at+travel+30*SECOND;if(v.downAt&&pickupAt>=v.downAt+10*MINUTE)continue;
-    const food=b.k==='healer'?40:80,gold=b.k==='hospital'?10:0;if(c.res.food<food||c.res.gold<gold)continue;c.res.food-=food;c.res.gold-=gold;v.care={tile,end:pickupAt+travel+(c.magic?.boosted.includes(tile)?20:30)*MINUTE,pickupAt,arrive:pickupAt+travel,doctor:doctor.id,route:route.slice().reverse(),start:at};v.paused=true;const dv=doctor.vital??={hp:100,last:at};dv.paused=true;dv.rescuing=p.id;Object.assign(dv,point(tile));patients.set(tile,(patients.get(tile)??0)+1);changed=true;break;}}
+
 
   if(!v.care){if(v.downAt&&at>=v.downAt+10*MINUTE){removed.add(p.id);s.report.lost++;changed=true;continue;}if(v.infectedAt&&at-v.infectedAt>=2*HOUR){v.paused=true;v.hp=Math.max(0,v.hp-10*elapsed/HOUR);if(v.hp<=0){v.downAt??=at;v.paused=true;}}else if(!v.infectedAt&&!nearbyActors(position(c,p,at),6).some(z=>distance(z,position(c,p,at))<6))v.hp=Math.min(100,v.hp+20*elapsed/HOUR);}
  }
@@ -162,7 +160,7 @@ function combat(c:City,at:number){const s=c.zombies!,deck=bridgeDeck(c);let dirt
   guardEngaged=true;
   if(distance(g,target)<=range){if(g.nextHit<=at){if(!mageAction(c,g,target,at,s.actors,s.guards)){target.hp-=spec.atk*(spec.attackMs??1000)/1000;target.hitAt=at;beastStrike(g,target,at,s.actors);}g.nextHit=Math.max(g.nextHit,at-(spec.attackMs??1000))+(spec.attackMs??1000);}}
   else if(s.patrol){if(!g.path?.length||at%2000===0)g.path=zombiePath(c,tileOf(g.x,g.y),tileOf(target.x,target.y),[],100,true,deck)??undefined;move(g,(spec.speed??1)*1.9*reach.speed);}}
- const people=c.people.map(p=>({p,...position(c,p,at)}));const bells=buildings(c).filter(([,b])=>b.k==='warningbell'&&active(b)).map(([tile])=>point(tile));const structures=buildings(c),localPeople=spatial(people,p=>p),localStructures=spatial(structures,p=>point(p[0]));const pursuits=new Map<string,number>(),contacts=new Map<number,number>(),melee=new Map<string,number>(),occupancy=new Map<number,number>();for(const z of s.actors)if((z.emergesAt??0)<=at){const tile=tileOf(z.x,z.y);occupancy.set(tile,(occupancy.get(tile)??0)+1);}
+ const people=c.people.filter(p=>!medicalProtected(p)).map(p=>({p,...position(c,p,at)}));const bells=buildings(c).filter(([,b])=>b.k==='warningbell'&&active(b)).map(([tile])=>point(tile));const structures=buildings(c),localPeople=spatial(people,p=>p),localStructures=spatial(structures,p=>point(p[0]));const pursuits=new Map<string,number>(),contacts=new Map<number,number>(),melee=new Map<string,number>(),occupancy=new Map<number,number>();for(const z of s.actors)if((z.emergesAt??0)<=at){const tile=tileOf(z.x,z.y);occupancy.set(tile,(occupancy.get(tile)??0)+1);}
  for(const z of s.actors){if(z.hp<=0||(z.emergesAt??0)>at)continue;z.fromX=z.x;z.fromY=z.y;const spec=zombieStats(z.kind,z.era);let target:{id:string;x:number;y:number;p?:Person;g?:ZombieGuard;tile?:number}|undefined;
   const guard=s.guards.filter(g=>g.hp>0&&zombieCanEngage(UNITS[g.u],distance(g,z))&&(pursuits.get('g:'+g.id)??0)<4).sort((a,b)=>(distance(a,z)+.6*(pursuits.get('g:'+a.id)??0))-(distance(b,z)+.6*(pursuits.get('g:'+b.id)??0))||a.id.localeCompare(b.id))[0];
   if(guard&&z.kind!=='breaker')target={...guard,id:'g:'+guard.id,g:guard};
@@ -211,11 +209,12 @@ function combat(c:City,at:number){const s=c.zombies!,deck=bridgeDeck(c);let dirt
 }
 export function stepZombies(c:City,at:number){const s=c.zombies;if(!s||at<=s.last)return false;let dirty=false;const elapsed=at-s.last;s.last=at;
  if(c.people.length!==s.population){s.peaks.push({at,pop:s.population},{at,pop:c.people.length});s.population=c.people.length;}if(at%MINUTE===0)s.peaks=s.peaks.filter(p=>p.at>at-6*HOUR);
- if(c.battleId){s.nextAt+=elapsed;s.healthAt+=elapsed;
+ if(c.battleId){medicalPause(c,elapsed);s.nextAt+=elapsed;s.healthAt+=elapsed;
   for(const z of s.actors){z.until+=elapsed;if(z.emergesAt!==undefined)z.emergesAt+=elapsed;z.nextHit+=elapsed;z.repath+=elapsed;for(const k of z.known??[])k.until+=elapsed;for(const slow of Object.values(z.slows??{}))slow.until+=elapsed;}
   for(const g of s.guards){g.nextHit+=elapsed;if(g.castAt!==undefined)g.castAt+=elapsed;}
   for(const p of c.people){const v=p.vital;if(!v)continue;v.last+=elapsed;if(v.infectedAt!==undefined)v.infectedAt+=elapsed;if(v.downAt!==undefined)v.downAt+=elapsed;if(v.care){v.care.end+=elapsed;v.care.pickupAt+=elapsed;v.care.arrive+=elapsed;v.care.start+=elapsed;}}
   return false;}
+ dirty=stepMedical(c,at,{position,resume:resumeCargo,clinicRoute:(from,to)=>zombiePath(c,from,to,[],100,true)})||dirty;
  // Thiên nhãn (era 9 observatory) reports the spawn point 180 s ahead instead of 60 s.
  if(s.warning===undefined&&at>=s.nextAt-EYE_WARNING){const eye=at<s.nextAt-MINUTE?c.era>=9&&eyeActive(c):false;if(eye||at>=s.nextAt-MINUTE){const choices=spawnChoices(c,at);if(choices.length){s.warning=choices[Math.floor(rng(c.seed^s.index^0x61ba)()*choices.length)];notice(c,at,eye?`Thiên nhãn: zombie sẽ trồi trong ${Math.ceil((s.nextAt-at)/SECOND)} giây tại điểm đã đánh dấu.`:'Đất nứt! Zombie sẽ trồi trong 60 giây; lính hãy bảo vệ dân.');}}}
  if(at>=s.nextAt){spawn(c,at);dirty=true;}
@@ -224,7 +223,7 @@ export function stepZombies(c:City,at:number){const s=c.zombies;if(!s||at<=s.las
   if(idle)s.actors=s.actors.filter(z=>z.until>at);else dirty=combat(c,at)||dirty;
  }
  // Recovery also runs after the final actor expires or a save resumes without actors.
- if(!s.actors.length)for(const p of c.people){const v=p.vital;if(v?.paused&&!v.downAt&&!v.care&&v.rescuing===undefined&&!(v.infectedAt!==undefined&&at-v.infectedAt>=2*HOUR)){v.paused=false;delete v.shelter;resumeCargo(p,at);dirty=true;}}
+ if(!s.actors.length)for(const p of c.people){const v=p.vital;if(v?.paused&&!medicalProtected(p)&&!v.downAt&&!v.care&&v.rescuing===undefined&&!(v.infectedAt!==undefined&&at-v.infectedAt>=2*HOUR)){v.paused=false;delete v.shelter;resumeCargo(p,at);dirty=true;}}
  if(at-s.healthAt>=SECOND&&(c.people.some(p=>p.vital&&(p.vital.infectedAt||p.vital.downAt||p.vital.care)))||at-s.healthAt>=MINUTE){s.healthAt=at;dirty=health(c,at)||dirty;}
  if(s.survivorsAt&&at>=s.survivorsAt&&c.people.length===0){for(let n=0;n<3;n++)c.people.push({id:c.nextId++,name:'Người sống sót',task:{t:'idle'}});c.pop=c.people.length;delete s.survivorsAt;dirty=true;}
  return dirty;

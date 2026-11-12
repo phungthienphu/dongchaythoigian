@@ -1,12 +1,14 @@
 'use client';
 /** Local-only era 7–9 UI fixture: the real Game with mocked APIs and maxEra 9. No account, no server data. */
 import {useEffect,useRef,useState} from 'react';
+import {medicalFixture} from '../medical-ui/fixture';
 import Game from '@/components/Game';
 import {eraPreview} from '@/lib/era-preview';
 import {applyAction,G,RES,W,settle,type Action,type BKey,type City} from '@/lib/engine';
 import {initializeMagic,magicSiteId,stepMagic} from '@/lib/magic';
 const RULES={maxEra:9};
 function fixture(era:number){
+ if(new URLSearchParams(location.search).get('medical')==='1')return medicalFixture(Date.now());
  const now=Date.now(),c=eraPreview(6,now);c.era=era;
  for(const b of Object.values(c.b))if(b.k==='hall')b.lvl=era;
  initializeMagic(c,now);const m=c.magic!;
@@ -30,13 +32,14 @@ function fixture(era:number){
  settle(c,now);return c;
 }
 export default function MagicUIHarness(){
+ const offset=useRef(0);
  const city=useRef<City|null>(null);const [ready,setReady]=useState(false),[era,setEra]=useState(9),[epoch,setEpoch]=useState(0);
  useEffect(()=>{
   const original=window.fetch;city.current=fixture(9);
   window.fetch=(async(input:RequestInfo|URL,init?:RequestInit)=>{
    const path=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url,location.origin).pathname;
    if(!path.startsWith('/api/'))return original(input,init);
-   const c=city.current!,now=Date.now();
+   const c=city.current!,now=Date.now()+offset.current;
    if(path==='/api/city'){settle(c,now);return Response.json({name:'Làng ma pháp thử',state:structuredClone(c),serverNow:now});}
    if(path==='/api/city/action'){const error=applyAction(c,JSON.parse(String(init?.body)) as Action,now,RULES);return Response.json({state:structuredClone(c),serverNow:now,...(error?{error}:{})},{status:error?400:200});}
    if(path==='/api/me')return Response.json({user:{id:'magic-local',name:'Người chơi thử',email:'',friendCode:'LOCAL2',hasCity:true},friends:[]});
@@ -50,6 +53,6 @@ export default function MagicUIHarness(){
   setReady(true);return()=>{window.fetch=original;};
  },[]);
  return <>{ready&&<Game key={epoch} rules={RULES}/>}
-  <details className="ui-preview-tools"><summary>Thử ma pháp</summary><p>Local · không dùng tài khoản hoặc dữ liệu thật.</p><button onClick={()=>{const c=city.current!,at=Date.now();c.army={};c.zombies!.nextAt=at+3600000;c.zombies!.actors=[];for(let i=0;i<c.t.length&&c.zombies!.actors.length<3;i++){if(c.t[i]!==G||c.b[i]||!c.seen[i]||Math.abs(i%W-c.camp%W)>12||Math.abs(Math.floor(i/W)-Math.floor(c.camp/W))>12)continue;const id=c.zombies!.actors.length+1;c.zombies!.actors.push({id,kind:'normal',hp:90,maxHp:90,x:i%W+.5,y:Math.floor(i/W)+.5,era:6,until:at+3600000,emergesAt:id===3?at+120000:at,nextHit:at,repath:0});}setEpoch(n=>n+1);}}>Thử định vị zombie</button><label>Thời đại<select value={era} onChange={e=>{city.current=fixture(+e.target.value);setEra(+e.target.value);setEpoch(n=>n+1);}}>{[7,8,9].map(e=><option key={e} value={e}>Thời {e}</option>)}</select></label></details>
+  <details className="ui-preview-tools"><summary>Thử ma pháp</summary><p>Local · không dùng tài khoản hoặc dữ liệu thật.</p>{ready&&new URLSearchParams(location.search).get('medical')==='1'&&<><button onClick={()=>{offset.current+=10000;settle(city.current!,Date.now()+offset.current);setEpoch(n=>n+1);}}>Cứu thương +10 giây</button><button onClick={()=>{offset.current+=60000;settle(city.current!,Date.now()+offset.current);setEpoch(n=>n+1);}}>Cứu thương +1 phút</button></>}<button onClick={()=>{const c=city.current!,at=Date.now();c.army={};c.zombies!.nextAt=at+3600000;c.zombies!.actors=[];for(let i=0;i<c.t.length&&c.zombies!.actors.length<3;i++){if(c.t[i]!==G||c.b[i]||!c.seen[i]||Math.abs(i%W-c.camp%W)>12||Math.abs(Math.floor(i/W)-Math.floor(c.camp/W))>12)continue;const id=c.zombies!.actors.length+1;c.zombies!.actors.push({id,kind:'normal',hp:90,maxHp:90,x:i%W+.5,y:Math.floor(i/W)+.5,era:6,until:at+3600000,emergesAt:id===3?at+120000:at,nextHit:at,repath:0});}setEpoch(n=>n+1);}}>Thử định vị zombie</button><label>Thời đại<select value={era} onChange={e=>{city.current=fixture(+e.target.value);setEra(+e.target.value);setEpoch(n=>n+1);}}>{[7,8,9].map(e=><option key={e} value={e}>Thời {e}</option>)}</select></label></details>
  </>;
 }

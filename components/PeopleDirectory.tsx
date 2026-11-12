@@ -2,6 +2,7 @@
 import {useState} from 'react';
 import {availableForQuickAssign,isScout,type City,type Person} from '@/lib/engine';
 import {searchText} from '@/lib/game-ui';
+import {MedicalStatus} from './MedicalPanel';
 import {HungryVillager} from './HungerStatus';
 import {useViewPreference} from './useViewPreference';
 type Filter='all'|'idle'|'carrying'|'scouts'|'sheltering';
@@ -15,7 +16,7 @@ export default function PeopleDirectory({city,picked,label,detail,onPick,onLocat
   return <section className="people-directory"><label className="search-field">Tìm người hoặc công việc<input type="search" value={query} onChange={e=>{setQuery(e.target.value);setPage(0);}} placeholder="Tên, chặt cây, làm ruộng…"/></label>
     <div className="filter-chips" role="group" aria-label="Lọc dân làng">{([['all','Tất cả'],['idle','Nhận việc được'],['carrying','Mang hàng'],['scouts','Khám phá'],['sheltering','Trú ẩn']] as const).map(([key,title])=><button key={key} aria-pressed={filter===key} onClick={()=>{setFilter(key);setPage(0);}}>{title}</button>)}</div>
     <p className="small muted">{rows.length} người · {picked.size} đang chọn</p>
-    <ul className="people">{rows.slice(current*30,current*30+30).map(p=><li key={p.id}><button className={`person${availableForQuickAssign(p)?' idle':''}`} aria-pressed={picked.has(p.id)} onClick={e=>onPick(p.id,e.shiftKey||e.ctrlKey||e.metaKey)}><span className="nm">{p.name}</span><span className="tk">{label(p)}</span></button><button className="link" onClick={()=>onLocate(p)}>Tìm</button><details className="person-detail"><summary>Trạng thái</summary><HungryVillager city={city} person={p}/><p>{detail(p)}</p></details></li>)}</ul>
+    <ul className="people">{rows.slice(current*30,current*30+30).map(p=><li key={p.id}><button className={`person${availableForQuickAssign(p)?' idle':''}`} aria-pressed={picked.has(p.id)} onClick={e=>onPick(p.id,e.shiftKey||e.ctrlKey||e.metaKey)}><span className="nm">{p.name}</span><span className="tk">{label(p)}</span></button><button className="link" onClick={()=>onLocate(p)}>Tìm</button><details className="person-detail"><summary>Trạng thái</summary><HungryVillager city={city} person={p}/><MedicalStatus city={city} personId={p.id} now={city.last}/><p>{detail(p)}</p></details></li>)}</ul>
     {!rows.length&&<p>Không có người phù hợp bộ lọc.</p>}
     {pages>1&&<div className="directory-pages"><button disabled={current===0} onClick={()=>setPage(current-1)}>← Trước</button><span>{current+1}/{pages}</span><button disabled={current===pages-1} onClick={()=>setPage(current+1)}>Sau →</button></div>}
     <p className="small muted">Chọn người rồi bấm bản đồ để giao việc. Shift để chọn thêm; trên cảm ứng dùng Chọn vùng.</p>
