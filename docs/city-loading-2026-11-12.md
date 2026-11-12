@@ -31,7 +31,16 @@ Browser fixture covers reconnect then successful completion, and the screen
 was checked at 390px. A stale existing dev server had mismatched old SSR text;
 validation was repeated on an isolated SYNC_QA dev server at port 3457.
 
-Deployment: not deployed. Production remains the separately released
-building-maintenance-20261112 version. Further work should measure large-village
+Deployment: released as `city-loading-20261112`, source `9065a70`, Web/API
+version `4e9f1e1d-61b9-4728-a7e1-8e5a618eeae4`. The final Cloudflare build
+passed. Production health returned the exact release ID and `gameReady: true`;
+eight homepage JS/CSS assets matched the local SHA-256 hashes and MIME types.
+Dev zombie/magic routes returned 404. Existing Combat Worker deployment is
+retained. Further work should measure large-village
 CPU hotspots and consider a read-only map preview during lengthy recovery,
 without enabling commands or treating an unprocessed snapshot as current state.
+
+Post-release authorized Nam Quốc Sơn Hà smoke passed: 30 requests, 19 assets;
+city HTTP 200, account, battle session, world, diplomacy and leaderboard checks
+passed. This run required no HTTP 202 responses; it is not a controlled speed
+comparison against the earlier long-absence recovery.
