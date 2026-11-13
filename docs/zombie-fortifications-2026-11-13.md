@@ -12,3 +12,12 @@ Release dự kiến `zombie-fortifications-20261113`, theo yêu cầu triển kh
 Kiểm tra mới: toàn bộ thời đại/dải dân số, tổng và số loại nguyên không âm, hệ số giảm đúng trên wall/gate và giữ nguyên trên house/hospital/watchtower; combat thật ở cả hai khoảng tiếp cận và save/reload cho thường/phá hoại.
 
 Checkout phát hành riêng từ `eb696ce`: 611/611 test logic, 9/9 API, 18/18 Combat Worker; TypeScript, renderer, diff-check và Cloudflare production build đều qua. Phiên bản production được bổ sung sau khi deploy và public smoke hoàn tất. Logs local `/tmp/zombie-fortifications-{tests,types,api,render,worker,build,web-deploy,battle-deploy,smoke}.log`.
+
+## Đã phát hành production
+
+- Source commit `6ee3933`, đã push `origin/main`.
+- Release `zombie-fortifications-20261113`.
+- Web/API version `534d90e9-1052-49ca-8050-266ff214a91e`.
+- Combat Worker version `1be76f70-3f75-47db-9102-8d5507f20ef9`.
+- Public smoke sau deploy: health khớp release, `gameReady: true`; trang chủ 200 và 8 JS/CSS SHA-256 khớp checkout build; dev routes 404; city API và Battle Worker từ chối anonymous 401.
+- Không kiểm thử tấn công/sửa tường trên tài khoản production; các kiểm tra combat/save/reload được chạy trên fixture synthetic. Không gọi reconcile hoặc ghi bù dữ liệu người chơi.
