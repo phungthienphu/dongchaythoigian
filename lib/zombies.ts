@@ -26,8 +26,9 @@ export const WEEK=7*24*HOUR;
 /** Whole weeks since activation, on server timestamps: identical online and offline. */
 export const zombieWeeks=(s:Pick<ZombieState,'activatedAt'>,at:number)=>Math.max(0,Math.floor((at-s.activatedAt)/WEEK));
 /** Modern-era waves scale from 1.75× to 2.35× the early population curve.
- * Keep the existing warning, first-wave grace and interval floor. */
-export function zombieWave(pop:number,era:number,index:number,weeks=0){const scale=era>=6?1.75+.2*Math.min(3,era-6):1,total=Math.max(era>=6?8:1,Math.ceil(pop/40*scale)),superCount=era<4?0:total===1?(index%3===0?1:0):Math.max(1,Math.floor(total/6)),breaker=era>=5?Math.floor(total/5):0;return {total,normal:total-superCount-breaker,super:superCount,breaker,interval:Math.max(30,90-5*Math.floor(pop/100)-5*Math.max(0,Math.floor(weeks)))*MINUTE};}
+ * New waves have 30% fewer bodies; halve the former breaker count separately.
+ * Keep warning, first-wave grace, unit stats and rest cadence unchanged. */
+export function zombieWave(pop:number,era:number,index:number,weeks=0){const scale=era>=6?1.75+.2*Math.min(3,era-6):1,previousTotal=Math.max(era>=6?8:1,Math.ceil(pop/40*scale)),total=Math.max(1,Math.round(previousTotal*.7)),superCount=era<4?0:total===1?(index%3===0?1:0):Math.max(1,Math.floor(total/6)),breaker=era>=5?Math.floor(Math.floor(previousTotal/5)/2):0;return {total,normal:total-superCount-breaker,super:superCount,breaker,interval:Math.max(30,90-5*Math.floor(pop/100)-5*Math.max(0,Math.floor(weeks)))*MINUTE};}
 /** A seeded 1–2× rest period; saved nextAt remains authoritative on reload.
  * Separate from emergence RNG so adding spawn visuals cannot change cadence. */
 export function zombieWaveDelay(seed:number,index:number,minimum:number){
@@ -49,6 +50,8 @@ const distance=(a:{x:number;y:number},b:{x:number;y:number})=>Math.hypot(a.x-b.x
 export const ZOMBIE_ENGAGE_RANGE=2,ZOMBIE_MELEE_RANGE=1.1;
 export const zombieCanEngage=(_unit:{flying?:boolean},range:number)=>range<=ZOMBIE_ENGAGE_RANGE;
 export function zombieBuildingHp(b:Building){return Math.max(60,Object.values(B[b.k].cost).reduce((n,v)=>n+(v??0),0)*2*Math.max(1,b.lvl));}
+/** Fortifications absorb twice as many zombie hits; other buildings retain their damage. */
+export const zombieStructureDamage=(spec:Pick<ReturnType<typeof zombieStats>,'damage'|'building'>,b:Pick<Building,'k'>)=>spec.damage*spec.building*(b.k==='wall'||b.k==='gate'?.5:1);
 export const buildingIntegrity=(b:Building)=>Math.max(0,zombieBuildingHp(b)-(b.zombieDamage??0));
 export function zombieBusy(c:City,at=c.last){return !!c.zombies&&(c.zombies.actors.length>0||c.zombies.nextAt-at<=MINUTE);}
 export const zombiePersonPosition=(c:City,p:Person,at:number)=>position(c,p,at);
@@ -187,7 +190,7 @@ function combat(c:City,at:number){const s=c.zombies!,deck=bridgeDeck(c);let dirt
   const targetChanged=z.target!==target.id;if(targetChanged)z.targetUntil=at+5000;z.target=target.id;
   pursuits.set(target.id,(pursuits.get(target.id)??0)+1);z.headingX=target.x-z.x;z.headingY=target.y-z.y;
   if(z.era>=5){const known=(z.known??[]).filter(k=>k.until>at);for(const t of towers)if(enabled.has(t.tile)&&distance(z,point(t.tile))<=12){const w=towerStats(t.lvl),k=known.find(k=>k.tile===t.tile);if(k){k.until=at+10*SECOND;k.dps=w.damage/(w.attackMs/1000);}else known.push({tile:t.tile,until:at+10*SECOND,dps:w.damage/(w.attackMs/1000),range:w.range});}for(const g of s.guards)if(distance(z,g)<=6){const tile=tileOf(g.x,g.y),k=known.find(k=>k.tile===tile),unit=UNITS[g.u];if(k)k.until=at+10*SECOND;else known.push({tile,until:at+10*SECOND,dps:unit.atk,range:unit.range??1.1});}z.known=known;}
-  if(distance(z,target)<=1.1){z.walking=false;if((melee.get(target.id)??0)>=4)continue;melee.set(target.id,(melee.get(target.id)??0)+1);if(z.nextHit>at)continue;if(target.p)attackPerson(c,target.p,z,at);else if(target.g){target.g.hp-=spec.damage*guardDamageScale(c,s.guards,target.g,at);z.nextHit=Math.max(z.nextHit,at-spec.attackMs)+spec.attackMs;}else if(target.tile!==undefined){const b=c.b[target.tile];if(b){b.zombieDamage=(b.zombieDamage??0)+spec.damage*spec.building;if(buildingIntegrity(b)<=0){destroy(c,target.tile,at);dirty=true;}}z.nextHit=Math.max(z.nextHit,at-spec.attackMs)+spec.attackMs;}z.hitAt=at;continue;}
+  if(distance(z,target)<=1.1){z.walking=false;if((melee.get(target.id)??0)>=4)continue;melee.set(target.id,(melee.get(target.id)??0)+1);if(z.nextHit>at)continue;if(target.p)attackPerson(c,target.p,z,at);else if(target.g){target.g.hp-=spec.damage*guardDamageScale(c,s.guards,target.g,at);z.nextHit=Math.max(z.nextHit,at-spec.attackMs)+spec.attackMs;}else if(target.tile!==undefined){const b=c.b[target.tile];if(b){b.zombieDamage=(b.zombieDamage??0)+zombieStructureDamage(spec,b);if(buildingIntegrity(b)<=0){destroy(c,target.tile,at);dirty=true;}}z.nextHit=Math.max(z.nextHit,at-spec.attackMs)+spec.attackMs;}z.hitAt=at;continue;}
   const goal=tileOf(target.x,target.y),waypoint=z.path?.[0],blocked=waypoint!==undefined&&(!passable(c,waypoint,deck)||(occupancy.get(waypoint)??0)>=4);
   if(targetChanged||at>=z.repath&&(!z.path?.length||goal!==z.pathGoal||blocked)){
    z.target=target.id;z.pathGoal=goal;
@@ -201,7 +204,7 @@ function combat(c:City,at:number){const s=c.zombies!,deck=bridgeDeck(c);let dirt
 
   if(!z.path&&c.magic?.walls?.length&&hitMagicWall(c,z,at,spec.damage*spec.building,spec.attackMs)){z.walking=false;continue;}
   // A blocking wall is a real combat target until it is breached.
-  if(z.target?.startsWith('b:')){const tile=Number(z.target.slice(2)),b=c.b[tile];if(b&&distance(z,point(tile))<=1.1&&z.nextHit<=at){b.zombieDamage=(b.zombieDamage??0)+spec.damage*spec.building;z.nextHit=Math.max(z.nextHit,at-spec.attackMs)+spec.attackMs;z.hitAt=at;if(buildingIntegrity(b)<=0){destroy(c,tile,at);dirty=true;}continue;}}
+  if(z.target?.startsWith('b:')){const tile=Number(z.target.slice(2)),b=c.b[tile];if(b&&distance(z,point(tile))<=1.1&&z.nextHit<=at){b.zombieDamage=(b.zombieDamage??0)+zombieStructureDamage(spec,b);z.nextHit=Math.max(z.nextHit,at-spec.attackMs)+spec.attackMs;z.hitAt=at;if(buildingIntegrity(b)<=0){destroy(c,tile,at);dirty=true;}continue;}}
   const from=tileOf(z.x,z.y),next=z.path?.find(tile=>tile!==from);if(next!==undefined&&(occupancy.get(next)??0)>=4){z.walking=false;continue;}occupancy.set(from,Math.max(0,(occupancy.get(from)??1)-1));const px=z.x,py=z.y;move(z,spec.speed*(.92+.16*variation(c.seed^z.id))*(1-zombieSlow(z,at)));if(z.walking){z.headingX=z.x-px;z.headingY=z.y-py;}const moved=tileOf(z.x,z.y);occupancy.set(moved,(occupancy.get(moved)??0)+1);
  }
  for(const u of UKEYS){const all=s.guards.filter(g=>g.u===u),alive=all.filter(g=>g.hp>0),lost=all.length-alive.length;if(!lost)continue;c.army[u]=Math.max(0,(c.army[u]??0)-lost);for(let i=0;i<alive.length;i++)alive[i].id=`${u}:${i}`;s.guards=s.guards.filter(g=>g.u!==u).concat(alive);for(const id of Object.keys(c.homeOrders??{}))if(id.startsWith(u+':')&&+id.split(':')[1]>=(c.army[u]??0))delete c.homeOrders![id];dirty=true;}

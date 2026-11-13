@@ -5,7 +5,7 @@ import {createBattle} from './battle';
 import {zombiePath,zombieWave,zombieWaveDelay,zombieWeeks,zombieStats,stepZombies,zombiePressure} from './zombies';
 function city(){const c=newCity(0,123);c.t.fill(0);c.seen.fill(1);c.b={};return c;}
 test('population scales waves and unlocks variants without increasing the total',()=>{
- assert.deepEqual(zombieWave(680,5,1),{total:17,normal:12,super:2,breaker:3,interval:60*60000});
+ assert.deepEqual(zombieWave(680,5,1),{total:12,normal:9,super:2,breaker:1,interval:60*60000});
  assert.equal(zombieWave(1,3,3).super,0);assert.equal(zombieWave(1,4,3).super,1);
  assert.equal(zombieWave(1100,6,1).interval,35*60000);
  assert.equal(zombieStats('super',4).civilianDamage,3);
@@ -99,10 +99,10 @@ test('legacy rollout starts in the present without retroactive waves and never r
  stepZombies(c,activation+5*60000);assert.equal((c as City).zombies!.report.waves,1);
 });
 
-test('modern waves create a denser threat while early-era population pressure stays unchanged',()=>{
- assert.equal(zombieWave(300,5,1).total,8);
- assert.equal(zombieWave(300,6,1).total,14);assert.equal(zombieWave(680,6,1).total,30);
- assert.equal(zombieWave(680,7,1).total,34);assert.equal(zombieWave(680,9,1).total,40);
+test('new waves reduce population pressure while modern scaling remains distinct',()=>{
+ assert.equal(zombieWave(300,5,1).total,6);
+ assert.equal(zombieWave(300,6,1).total,10);assert.equal(zombieWave(680,6,1).total,21);
+ assert.equal(zombieWave(680,7,1).total,24);assert.equal(zombieWave(680,9,1).total,28);
  for(const era of [6,7,8,9]){const wave=zombieWave(680,era,1);assert.equal(wave.normal+wave.super+wave.breaker,wave.total);assert.ok(wave.super>0&&wave.breaker>0);}
 });
 test('modern zombies survive tank shells, with distinct runner and breaker roles',()=>{
@@ -124,12 +124,12 @@ test('a modern normal zombie survives the first actual armor shot and dies to th
  stepZombies(c,3000);assert.equal(c.zombies!.actors.length,0);assert.equal(c.zombies!.report.killed,1);
 });
 
-test('modern pressure hotfix reduces wave HP moderately at Van Dong population with a thirty-minute minimum rest',()=>{
+test('large-village waves shrink while unit HP and the thirty-minute minimum rest are preserved',()=>{
  const wave=zombieWave(1717,7,1);
- assert.equal(wave.total,84);assert.equal(wave.interval,30*60000);
+ assert.equal(wave.total,59);assert.equal(wave.interval,30*60000);
  const hp=wave.normal*zombieStats('normal',7).hp+wave.super*zombieStats('super',7).hp+wave.breaker*zombieStats('breaker',7).hp;
  const previous=62*300+16*840+19*1280;
- assert.ok(hp/previous>.65&&hp/previous<.8);
+ assert.ok(hp/previous>.4&&hp/previous<.6);
 });
 
 test('wave rests vary deterministically within one to two times the minimum',()=>{
