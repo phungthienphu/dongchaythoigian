@@ -1,3 +1,4 @@
+import * as admin from '../../app/api/admin/route';
 import * as city from '../../app/api/city/route';
 import * as action from '../../app/api/city/action/route';
 import * as batch from '../../app/api/city/batch/route';
@@ -19,7 +20,7 @@ import * as reconcile from '../../app/api/battles/reconcile/route';
 type Handler = (request: Request, context: { params: Promise<{ id: string }> }) => Promise<Response>;
 type Route = { GET?: Handler; POST?: Handler; DELETE?: Handler };
 const routes: Record<string, Route> = {
-  '/api/city': city, '/api/city/action': action, '/api/city/batch': batch, '/api/city/checkpoint': checkpoint,
+  '/api/admin': admin, '/api/city': city, '/api/city/action': action, '/api/city/batch': batch, '/api/city/checkpoint': checkpoint,
   '/api/me': me, '/api/friends': friends, '/api/world': world, '/api/world/envoy': envoy,
   '/api/leaderboard': leaderboard, '/api/diplomacy': diplomacy, '/api/market': market,
   '/api/battles': battles, '/api/battles/result': result, '/api/battles/reconcile': reconcile,

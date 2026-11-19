@@ -16,6 +16,7 @@ export interface BridgeEnv extends AuthEnv {
   BATTLE_SERVER_SECRET: string;
   RELEASE_ID: string;
   GAME_ENABLED?: string;
+  ADMIN_USER_IDS?: string;
 }
 const response = (body: unknown, status = 200) => Response.json(body, { status, headers: { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
 const authPaths = new Set(['/api/auth/login', '/api/auth/callback/google', '/api/auth/logout']);

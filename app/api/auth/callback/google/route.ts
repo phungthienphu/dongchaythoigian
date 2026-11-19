@@ -60,8 +60,10 @@ export async function GET(req: NextRequest) {
   let session: string;
   try { session = await startSession(g.sub); }
   catch { return fail("session"); }
-  const res = NextResponse.redirect(`${appUrl()}/`);
+  const returnTo = req.cookies.get("oauth_return")?.value === "/admin" ? "/admin" : "/";
+  const res = NextResponse.redirect(`${appUrl()}${returnTo}`);
   res.cookies.delete("oauth_state");
+  res.cookies.delete("oauth_return");
   res.cookies.set(SESSION_COOKIE, session, cookieOpts(SESSION_MAX_AGE));
   if (cityId) res.cookies.set(PID_COOKIE, cityId, cookieOpts(SESSION_MAX_AGE));
   else res.cookies.delete(PID_COOKIE);

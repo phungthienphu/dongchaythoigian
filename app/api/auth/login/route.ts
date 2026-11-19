@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { appUrl, cookieOpts } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(request: Request) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) return NextResponse.json({ error: "Thiếu GOOGLE_CLIENT_ID trong .env.local" }, { status: 500 });
   const state = randomBytes(16).toString("base64url");
@@ -17,5 +17,6 @@ export async function GET() {
   }).toString();
   const res = NextResponse.redirect(url);
   res.cookies.set("oauth_state", state, cookieOpts(600));
+  res.cookies.set("oauth_return", new URL(request.url).searchParams.get("returnTo") === "/admin" ? "/admin" : "/", cookieOpts(600));
   return res;
 }

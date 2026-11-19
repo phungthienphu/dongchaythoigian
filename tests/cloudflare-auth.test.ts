@@ -62,6 +62,16 @@ describe('Native Cloudflare authentication', () => {
     assert.ok(!response.headers.get('location')!.includes(env.GOOGLE_CLIENT_SECRET));
   });
 
+  it('returns admin sign-ins to the fixed local admin page and rejects arbitrary redirects', async () => {
+    for (const returnTo of ['/admin', 'https://evil.example', '//evil.example']) {
+      const h = harness(), login = await h.call(req('/api/auth/login?returnTo=' + encodeURIComponent(returnTo)));
+      const state = new URL(login.headers.get('location')!).searchParams.get('state');
+      const cookie = login.headers.getSetCookie()[0].split(';')[0];
+      const response = await h.call(req(`/api/auth/callback/google?code=qa&state=${state}`, cookie));
+      assert.equal(response.headers.get('location'), env.APP_URL + (returnTo === '/admin' ? '/admin' : '/'));
+    }
+  });
+
   it('rejects absent or tampered OAuth state before Google or database access', async () => {
     const h = harness();
     for (const cookie of [undefined, 'oauth_state_cf=garbage', 'oauth_state_cf=a.b.c']) {

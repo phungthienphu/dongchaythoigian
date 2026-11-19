@@ -75,3 +75,14 @@ test('simultaneous requests isolate cookies, database client and after callbacks
   expect(seen.sort()).toEqual(['a:a', 'b:b']);
   expect(requestDatabase()).toBeUndefined();
 });
+
+
+test('admin uses the shared authenticated gateway and rejects cross-origin writes', async () => {
+  const before = calls.length;
+  expect((await bridge.fetch(req('/api/admin'), env)).status).toBe(401);
+  expect((await bridge.fetch(req('/api/admin', 'POST', { cookie: `sid=${sid}`, origin: 'https://attacker.example' }, '{}'), env)).status).toBe(403);
+  expect(calls.length).toBe(before);
+  expect((await bridge.fetch(req('/api/admin', 'GET', { cookie: `sid=${sid}` }), env)).status).toBe(200);
+  expect(shards.at(-1)).toBe('account:account-a');
+  expect(new URL(calls.at(-1)!.url).pathname).toBe('/api/admin');
+});

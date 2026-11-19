@@ -81,7 +81,7 @@ export async function authRoute(request: Request, env: AuthEnv, repo: AuthReposi
       response_type: 'code', scope: 'openid email profile', state, prompt: 'select_account',
       code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' }).toString();
     const response = redirect(target.toString());
-    setCookie(response, STATE_COOKIE, seal({ purpose: 'google-oauth', state, verifier, exp: Date.now() + STATE_AGE * 1000 }, env.AUTH_SECRET), STATE_AGE);
+    setCookie(response, STATE_COOKIE, seal({ purpose: 'google-oauth', state, verifier, returnTo: url.searchParams.get('returnTo') === '/admin' ? '/admin' : '/', exp: Date.now() + STATE_AGE * 1000 }, env.AUTH_SECRET), STATE_AGE);
     return response;
   }
 
@@ -125,7 +125,7 @@ export async function authRoute(request: Request, env: AuthEnv, repo: AuthReposi
       const user = await repo.upsertGoogle(profile);
       stage = 'session';
       const latest = await repo.startSession(user._id);
-      const response = redirect(`${origin}/`);
+      const response = redirect(`${origin}${saved.returnTo === '/admin' ? '/admin' : '/'}`);
       setCookie(response, STATE_COOKIE, '', 0);
       setCookie(response, COOKIE, createSession(latest, env.AUTH_SECRET), MAX_AGE);
       // The legacy guest PID is never adopted on a different origin.
