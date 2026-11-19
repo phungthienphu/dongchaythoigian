@@ -33,3 +33,15 @@ Chromium thật, frontend production Next, session ký thật, `currentUser`, ha
 - Đặt `ADMIN_USER_IDS` bằng Google user ID đã xác minh trên runtime Web/API trước khi dùng admin thật. Chưa cấu hình thì mọi tài khoản đều bị từ chối quyền admin.
 - Hướng dẫn và tiêu chí chi tiết nằm ở `docs/admin-spec.md`.
 - Thay đổi `.gitignore` đã có trước khi bắt đầu, được giữ nguyên và không thuộc phần admin.
+
+## Phát hành production sau khi người dùng xác nhận
+
+- Source commit: `33f0522985481c80b0055c49fbbc0e7abb4e9870`.
+- Release: `admin-console-33f0522`.
+- Cloudflare Web/API version: `1329cd99-127d-4f84-9c04-4763d4021b62`.
+- Build từ detached worktree riêng; deploy với `--keep-vars`, giữ biến dashboard. Combat Worker không thay đổi.
+- Chạy lại type-check và 28 test liên quan: pass.
+- Public smoke: `/admin` và homepage 200; health đúng release; 10 JS/CSS asset đúng MIME và SHA-256 so với build; `/dev/eras` 404; anonymous admin/city API 401.
+- Read-only smoke với tài khoản admin được người dùng chỉ định: cả 6 tab API 200 và no-store; xác nhận allowlist đã được giữ sau deploy.
+- Chromium trên production: dashboard và danh sách làng tải thành công; desktop/mobile 390 px không tràn ngang, không có pageerror.
+- Không chạy thao tác đổi tên, ghi chú, mô phỏng, sign-in/session increment hay sửa dữ liệu game trong production smoke.
