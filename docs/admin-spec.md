@@ -85,3 +85,14 @@ PLAYWRIGHT_MODULE=/path/to/playwright node tests/admin-browser.mjs
 `CHROME_BIN` có thể chỉ định Chromium; mặc định `/usr/bin/google-chrome`. Ảnh QA mặc định trong `/tmp/admin-browser`, đổi bằng `ADMIN_SCREENSHOTS`. Khởi động lại fixture server trước mỗi lần E2E để reset dữ liệu. Hai cổng chỉ dành cho máy local, không public test server.
 
 Giới hạn bằng chứng: kiểm thử transaction dựa trên Mongo contract trong RAM; chưa xác minh ghi Mongo thật, OAuth Google thật, cấu hình allowlist hay triển khai production. Cần smoke tài khoản admin thật sau khi phát hành.
+
+## Điều khiển zombie toàn game
+
+- Tổng quan có nút bật/tắt, hiển thị trạng thái hiện tại và yêu cầu lý do trước khi lưu.
+- Quy tắc lưu trong `game_settings`, `_id=zombies`, gồm `enabled`, `revision`, `changedAt`. Chưa có bản ghi thì mặc định bật, giữ hành vi hiện tại.
+- Chỉ admin được ghi qua `zombie-system`, target `global`, value `true`/`false`, expected revision. Kiểm tra revision, transaction với audit và idempotent request ID giống các lệnh quản trị khác.
+- Mỗi lần server lấy collection làng đều đọc quy tắc hiện tại, gắn vào snapshot; checkpoint cache hết hiệu lực khi revision quy tắc đổi. Không cần migration từng làng hoặc biến môi trường mới.
+- Khi làng đồng bộ: xóa zombie/guard/cảnh báo đang có, tiếp tục việc của người đang chạy trốn; dừng đợt tấn công và đóng băng clock bệnh/cứu chữa do zombie. Không hoàn lại dân/công trình đã mất hoặc tự sửa thiệt hại cũ.
+- Khi bật lại: không đánh bù khoảng đã tắt, ít nhất 5 phút chuẩn bị kể từ thời điểm đổi quy tắc. Làng chưa từng tải trong khoảng tắt vẫn nhận quy tắc mới và không phát lại các đợt cũ.
+- Áp dụng ở lần đồng bộ tiếp theo; không thêm polling. Yêu cầu đã chạy trước khi đổi quy tắc có thể hoàn tất với snapshot cũ.
+- Thay đổi engine cần phát hành Web/API và Combat Worker cùng nhau.

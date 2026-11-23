@@ -143,3 +143,27 @@ test("database errors return a fixed message without leaking credentials", async
   assert.equal(r.status, 503);
   assert.ok(!(await r.text()).includes("sensitive"));
 });
+
+test("zombie controls accept only explicit booleans, a global target and a rule revision", async () => {
+  const valid = {
+    ...command,
+    action: "zombie-system",
+    target: "global",
+    value: "false",
+    expected: "0",
+  };
+  assert.equal(adminCommand(valid).action, "zombie-system");
+  for (const patch of [
+    { target: "player" },
+    { value: "off" },
+    { value: "FALSE" },
+    { expected: undefined },
+    { expected: "-1" },
+  ])
+    assert.throws(() => adminCommand({ ...valid, ...patch }));
+  for (const actor of [null, { _id: "player" } as UserDoc]) {
+    const d = deps({ user: async () => actor });
+    assert.ok([401, 403].includes((await handleAdmin(req(valid), d.d)).status));
+    assert.equal(d.writes(), 0);
+  }
+});

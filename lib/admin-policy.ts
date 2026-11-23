@@ -36,7 +36,7 @@ export function adminCommand(input: unknown): AdminCommand {
     throw new AdminError("Nội dung không hợp lệ.");
   const c = input as Record<string, unknown>;
   if (
-    !["rename-city", "note"].includes(c.action as string) ||
+    !["rename-city", "note", "zombie-system"].includes(c.action as string) ||
     typeof c.target !== "string" ||
     !c.target.trim() ||
     c.target.length > 200 ||
@@ -49,6 +49,11 @@ export function adminCommand(input: unknown): AdminCommand {
     /[\u0000-\u001f\u007f]/.test(c.target + c.reason + c.value) ||
     typeof c.requestId !== "string" ||
     !/^[a-f0-9-]{36}$/.test(c.requestId) ||
+    (c.action === "zombie-system" &&
+      (c.target !== "global" ||
+        !["true", "false"].includes(c.value) ||
+        typeof c.expected !== "string" ||
+        !/^\d+$/.test(c.expected))) ||
     (c.action === "rename-city" &&
       (c.value.trim().length < 2 ||
         typeof c.expected !== "string" ||

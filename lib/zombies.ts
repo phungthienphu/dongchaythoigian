@@ -10,7 +10,7 @@ export type ZombieKind='normal'|'super'|'breaker';
 export type Vital={ambulance?:number;medicalTransportUntil?:number;medicalRetry?:string;medicalWait?:string;hp:number;infectedAt?:number;downAt?:number;care?:{tile:number;end:number;pickupAt:number;arrive:number;doctor:number;route:number[];start:number};x?:number;y?:number;paused?:boolean;rescuing?:number;shelter?:number;last:number};
 export type Zombie={id:number;kind:ZombieKind;hp:number;maxHp:number;x:number;y:number;era:number;until:number;emergesAt?:number;nextHit:number;path?:number[];repath:number;target?:string;walking?:boolean;headingX?:number;headingY?:number;fromX?:number;fromY?:number;targetUntil?:number;pathGoal?:number;hitAt?:number;known?:{tile:number;until:number;dps:number;range:number}[];slows?:Record<string,{amount:number;until:number}>};
 export type ZombieGuard={id:string;u:UKey;x:number;y:number;hp:number;nextHit:number;anchor:number;orderAt?:number;path?:number[];walking?:boolean;castAt?:number};
-export type ZombieState={activatedAt:number;last:number;nextAt:number;index:number;warning?:number;actors:Zombie[];guards:ZombieGuard[];peaks:{at:number;pop:number}[];population:number;patrol:boolean;healthAt:number;idleUntil?:number;idlePopulation?:number;resumeAt?:number;survivorsAt?:number;report:{waves:number;killed:number;lost:number;infected:number;destroyed:number};};
+export type ZombieState={activatedAt:number;last:number;nextAt:number;policyRevision?:number;pausedAt?:number;index:number;warning?:number;actors:Zombie[];guards:ZombieGuard[];peaks:{at:number;pop:number}[];population:number;patrol:boolean;healthAt:number;idleUntil?:number;idlePopulation?:number;resumeAt?:number;survivorsAt?:number;report:{waves:number;killed:number;lost:number;infected:number;destroyed:number};};
 export function zombieStats(kind:ZombieKind,era:number){
  if(era>=6){const growth=Math.max(0,Math.min(3,era-6));
   if(kind==='super')return {hp:600+90*growth,speed:1.05,damage:18+3*growth,civilianDamage:4,attackMs:1500,civilianAttackMs:2000,building:1};
@@ -53,7 +53,7 @@ export function zombieBuildingHp(b:Building){return Math.max(60,Object.values(B[
 /** Fortifications absorb twice as many zombie hits; other buildings retain their damage. */
 export const zombieStructureDamage=(spec:Pick<ReturnType<typeof zombieStats>,'damage'|'building'>,b:Pick<Building,'k'>)=>spec.damage*spec.building*(b.k==='wall'||b.k==='gate'?.5:1);
 export const buildingIntegrity=(b:Building)=>Math.max(0,zombieBuildingHp(b)-(b.zombieDamage??0));
-export function zombieBusy(c:City,at=c.last){return !!c.zombies&&(c.zombies.actors.length>0||c.zombies.nextAt-at<=MINUTE);}
+export function zombieBusy(c:City,at=c.last){return c.zombiePolicy?.enabled!==false&&!!c.zombies&&(c.zombies.actors.length>0||c.zombies.nextAt-at<=MINUTE);}
 export const zombiePersonPosition=(c:City,p:Person,at:number)=>position(c,p,at);
 function position(c:City,p:Person,at:number){if(p.vital?.paused&&p.vital.x!==undefined)return {x:p.vital.x,y:p.vital.y!};const h=haulPosition(p,at);if(h)return h;if(p.task.t==='explore'){const [x,y]=explorerPos(p.task,at);return {x,y};}return point(p.pos??c.camp);}
 function active(b:Building|undefined){return !!b&&isBuildingActive(b);}
@@ -216,7 +216,29 @@ function combat(c:City,at:number){const s=c.zombies!,deck=bridgeDeck(c);let dirt
  if(!guardEngaged&&s.actors.every(z=>!z.target)&&!s.guards.some(g=>g.walking)&&!c.people.some(p=>p.vital?.paused&&!p.vital.care&&!p.vital.downAt&&p.vital.rescuing===undefined)){s.idleUntil=Math.min(at+4*SECOND,...s.actors.filter(z=>(z.emergesAt??0)>at).map(z=>z.emergesAt!));s.idlePopulation=c.people.length;}else delete s.idleUntil;
  return dirty;
 }
-export function stepZombies(c:City,at:number){const s=c.zombies;if(!s||at<=s.last)return false;let dirty=false;const elapsed=at-s.last;s.last=at;
+/** Policy changes cancel active threats; historic building damage is preserved.
+ * The medical clock is frozen, not healed, while the system is suspended. */
+export function syncZombiePolicy(c:City) {
+ const s=c.zombies, policy=c.zombiePolicy;
+ if(!s||!policy||policy.revision===(s.policyRevision??0))return false;
+ s.policyRevision=policy.revision;s.pausedAt??=s.last;
+ s.actors=[];s.guards=[];delete s.warning;delete s.idleUntil;delete s.idlePopulation;
+ s.nextAt=Math.max(s.nextAt,policy.changedAt+5*MINUTE);
+ for(const p of c.people)if(p.vital?.paused&&!p.vital.downAt&&!p.vital.care&&p.vital.rescuing===undefined){p.vital.paused=false;delete p.vital.shelter;resumeCargo(p,c.haulAt??c.last);}
+ return true;
+}
+function resumeZombieClock(c:City,at:number){
+ const s=c.zombies!;if(s.pausedAt===undefined)return false;
+ const elapsed=Math.max(0,at-s.pausedAt);medicalPause(c,elapsed);
+ for(const p of c.people){const v=p.vital;if(!v)continue;v.last+=elapsed;
+  if(v.infectedAt!==undefined)v.infectedAt+=elapsed;if(v.downAt!==undefined)v.downAt+=elapsed;
+  if(v.care){v.care.end+=elapsed;v.care.pickupAt+=elapsed;v.care.arrive+=elapsed;v.care.start+=elapsed;}}
+ if(s.survivorsAt!==undefined)s.survivorsAt+=elapsed;
+ s.healthAt=at;s.nextAt=Math.max(s.nextAt,at+MINUTE);delete s.pausedAt;return true;
+}
+export function stepZombies(c:City,at:number){const s=c.zombies;if(!s||at<=s.last)return false;syncZombiePolicy(c);
+ if(c.zombiePolicy&&(!c.zombiePolicy.enabled||at<c.zombiePolicy.changedAt+5*MINUTE)){s.pausedAt??=s.last;resumeZombieClock(c,at);s.pausedAt=at;s.last=at;return false;}
+ let dirty=resumeZombieClock(c,at);const elapsed=at-s.last;s.last=at;
  if(c.people.length!==s.population){s.peaks.push({at,pop:s.population},{at,pop:c.people.length});s.population=c.people.length;}if(at%MINUTE===0)s.peaks=s.peaks.filter(p=>p.at>at-6*HOUR);
  if(c.battleId){medicalPause(c,elapsed);s.nextAt+=elapsed;s.healthAt+=elapsed;
   for(const z of s.actors){z.until+=elapsed;if(z.emergesAt!==undefined)z.emergesAt+=elapsed;z.nextHit+=elapsed;z.repath+=elapsed;for(const k of z.known??[])k.until+=elapsed;for(const slow of Object.values(z.slows??{}))slow.until+=elapsed;}

@@ -5,7 +5,9 @@ import {
   marketOrders,
   caravans,
   mongoClient,
+  gameSettings,
 } from "./db";
+import { defaultZombiePolicy } from "./game-policy";
 import { requestDatabase } from "./db-context";
 import { AdminError, literalSearch } from "./admin-policy";
 import type {
@@ -69,6 +71,9 @@ export async function readAdmin(
     mc = await marketOrders(),
     ac = await auditCollection();
   if (tab === "overview") {
+    data.zombiePolicy =
+      (await (await gameSettings()).findOne({ _id: "zombies" }))?.policy ??
+      defaultZombiePolicy();
     const day = new Date(Date.now() - 86400000);
     const values = await Promise.all([
       uc.countDocuments({}),
@@ -261,7 +266,7 @@ export async function writeAdmin(actor: string, command: AdminCommand) {
           prior.target !== command.target ||
           prior.after !== command.value ||
           prior.reason !== command.reason ||
-          (command.action === "rename-city" &&
+          (["rename-city", "zombie-system"].includes(command.action) &&
             prior.before !== command.expected)
         )
           throw new AdminError(
@@ -271,7 +276,40 @@ export async function writeAdmin(actor: string, command: AdminCommand) {
         return;
       }
       let before: string | null = null;
-      if (command.action === "rename-city") {
+      if (command.action === "zombie-system") {
+        const settings = await gameSettings();
+        const current = await settings.findOne({ _id: "zombies" }, { session });
+        const policy = current?.policy ?? defaultZombiePolicy();
+        if (String(policy.revision) !== command.expected)
+          throw new AdminError(
+            "Cấu hình đã thay đổi. Hãy tải lại trước khi sửa.",
+            409,
+          );
+        if (policy.enabled === (command.value === "true"))
+          throw new AdminError("Trạng thái zombie không thay đổi.");
+        before = String(policy.revision);
+        const next = {
+          enabled: command.value === "true",
+          revision: policy.revision + 1,
+          changedAt: Date.now(),
+        };
+        if (current) {
+          const saved = await settings.updateOne(
+            { _id: "zombies", "policy.revision": policy.revision },
+            { $set: { policy: next } },
+            { session },
+          );
+          if (saved.matchedCount !== 1)
+            throw new AdminError(
+              "Cấu hình đã thay đổi. Hãy tải lại trước khi sửa.",
+              409,
+            );
+        } else
+          await settings.insertOne(
+            { _id: "zombies", policy: next },
+            { session },
+          );
+      } else if (command.action === "rename-city") {
         const city = await cc.findOne(
           { _id: command.target },
           { projection: { name: 1 }, session },

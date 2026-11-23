@@ -2,6 +2,7 @@ import { MongoClient, type Collection } from "mongodb";
 import type { City } from "./engine";
 import type { OnlineCommandBucket } from "./command-metrics";
 import { requestDatabase } from './db-context';
+import { policyCities, defaultZombiePolicy, type GameSettings } from './game-policy';
 
 export type CityDoc = {
   _id: string; // player id from the `pid` cookie
@@ -77,7 +78,9 @@ export async function mongoClient() {
 async function db() { return (await mongoClient()).db(dbName()); }
 
 export async function cities(): Promise<Collection<CityDoc>> {
-  return (await db()).collection<CityDoc>("cities");
+  const database = await db();
+  const settings = await database.collection<GameSettings>("game_settings").findOne({ _id: "zombies" });
+  return policyCities(database.collection<CityDoc>("cities"), settings?.policy ?? defaultZombiePolicy());
 }
 
 export async function users(): Promise<Collection<UserDoc>> {
@@ -95,3 +98,5 @@ export async function envoyVisits() {
 export async function marketOrders(){return (await db()).collection<import('./market-types').MarketOrder>('market_orders');}
 export async function caravans(){return (await db()).collection<import('./market-types').Caravan>('caravans');}
 export async function onlineCommandStats(){return (await db()).collection<OnlineCommandBucket>('online_command_stats');}
+
+export async function gameSettings() { return (await db()).collection<GameSettings>("game_settings"); }

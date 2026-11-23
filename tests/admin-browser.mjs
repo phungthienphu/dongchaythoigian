@@ -27,6 +27,28 @@ try {
   await page.getByRole("heading", { name: "Đăng nhập để tiếp tục" }).waitFor();
   await page.goto(`${origin}/__test/session?as=admin`);
   await page.getByText("29", { exact: true }).first().waitFor();
+  for (const [action, enabled] of [
+    ["Tắt zombie", false],
+    ["Bật zombie", true],
+  ]) {
+    await page.getByRole("button", { name: action, exact: true }).click();
+    await page
+      .getByLabel("Lý do thay đổi zombie")
+      .fill("Kiểm tra điều khiển zombie toàn game");
+    await page
+      .getByRole("button", { name: "Xác nhận thay đổi zombie", exact: true })
+      .click();
+    await page
+      .getByRole("heading", {
+        name: `Zombie toàn game · ${enabled ? "Đang bật" : "Đang tắt"}`,
+      })
+      .waitFor();
+    const saved = await (
+      await context.request.get(`${origin}/__test/data`)
+    ).json();
+    assert.equal(saved.game_settings[0].policy.enabled, enabled);
+    assert.equal(saved.admin_audit.at(-1).action, "zombie-system");
+  }
   await page.screenshot({
     path: `${screenshots}/desktop-overview.png`,
     fullPage: true,
@@ -56,7 +78,7 @@ try {
     await context.request.get(`${origin}/__test/data`)
   ).json();
   assert.equal(table.cities[0].name, "Làng Bình Minh");
-  assert.equal(table.admin_audit.length, 1);
+  assert.equal(table.admin_audit.length, 3);
   assert.equal(table.cities[0].ver, 10);
   await page
     .getByRole("navigation")
@@ -154,7 +176,7 @@ try {
   await page.getByRole("button", { name: "Thử lại", exact: true }).waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS admin browser E2E: anonymous/player/stale session, overview, search, rename+audit, note+audit, battles, market, pagination, empty/error, mobile, modal keyboard.",
+    "PASS admin browser E2E: anonymous/player/stale session, overview, zombie off/on+audit, search, rename+audit, note+audit, battles, market, pagination, empty/error, mobile, modal keyboard.",
   );
 } finally {
   await browser.close();

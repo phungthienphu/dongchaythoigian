@@ -15,9 +15,9 @@ function village() {
   return c;
 }
 
-test('recovery commits a short slice even when the runtime clock is frozen throughout CPU work', async () => {
+test('recovery commits a short slice even when the runtime clock is frozen throughout CPU work', { timeout: 30_000 }, async () => {
   const state = village(), limit = recoveryTickLimit(state);
-  assert.ok(limit < 400);
+  assert.ok(limit < 1600);
   let writes = 0;
   const col = { updateOne: async (filter: unknown, update: any) => {
     writes++;
@@ -40,7 +40,7 @@ test('recovery commits a short slice even when the runtime clock is frozen throu
 
 test('the hard cap shrinks with village size and never depends on elapsed wall time', () => {
   const small = newCity(0, 181), big = village();
-  assert.equal(recoveryTickLimit(small), 3600);
+  assert.equal(recoveryTickLimit(small), 14400);
   assert.ok(recoveryTickLimit(big) < recoveryTickLimit(small));
   big.people = [];
   assert.ok(recoveryTickLimit(big) > recoveryTickLimit(village()));

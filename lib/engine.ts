@@ -4,7 +4,7 @@ import {MAGIC_ERA7_BUILDINGS,MAGIC_ERA7_UNITS,MAGIC_ERA8_BUILDINGS,MAGIC_ERA8_UN
 import {MAGIC_ERA_REQUIREMENTS,MAGIC_HALL_UPGRADES,isMagicResource,magicResourceEra,type Contract,type Research} from './magic-data';
 import {magicCargoLimit,chargeMagicCargo,magicGrowth} from './magic-elements';
 import {magicSupplyNeed,deliverMagicSupply,magicSpecialization,initializeMagic,stepMagic,skipMagicTo,magicBuildError,magicSupportError,magicTrainingError,payMagicTraining,magicArmySpace,magicAction,isMagicActionType,assignMagicUid,type MagicState,type MagicAction} from './magic';
-import {activateZombies,stepZombies,zombieBusy,buildingIntegrity,type ZombieState,type Vital} from './zombies';
+import {activateZombies,stepZombies,syncZombiePolicy,zombieBusy,buildingIntegrity,type ZombieState,type Vital} from './zombies';
 import {assignFormation,formationSlots} from './formation';
 import {isFortification,type DefenseOrientation} from './fortifications';
 import {stepHunger,type HungerState} from './hunger';
@@ -271,6 +271,7 @@ export const RECOVERY_THRESHOLD_MS = 30 * 60_000;
 export type City = {
   medical?:MedicalState;
   zombies?:ZombieState;
+  zombiePolicy?: import("./game-policy").ZombiePolicy;
   magic?:MagicState;
   /** Durable continuation. Only budgeted settlement may advance this timeline. */
   catchUp?: CityCatchUp;
@@ -1407,7 +1408,13 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredL
     // No valid arrival neighbour means no search can succeed (e.g. a sealed
     // mining tile). Do not flood the whole map with an empty goal set.
     if(!goals.length)return null;
-    const pass = ctx.pass ??= Uint8Array.from(c.t, (_,i) => (passable(i,-1,true) ? 1 : 0) | (passable(i,-1,false) ? 2 : 0));
+    // Land/water modes share all blockers except an unbridged river. Build
+    // both bits in one pass instead of two callbacks/lookups per map tile.
+    const pass = ctx.pass ??= (() => {
+      const bits = new Uint8Array(c.t.length);
+      for(let i=0;i<bits.length;i++)if(passable(i,-1,true))bits[i]=c.t[i]===R&&!ctx.bridges.has(i)?1:3;
+      return bits;
+    })();
     const mode = water ? 1 : 2;
     // A completed failed BFS proves the entire connected region. Reuse that
     // proof for other workers there instead of flooding the same map again.
@@ -1424,7 +1431,8 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredL
     const {prev,rank,queue} = tree;
     const choose = () => goals.reduce((best,tile)=>rank[tile] && (best<0 || rank[tile]<rank[best]) ? tile : best,-1);
     let goal = choose();
-    const targets = new Set(goals);
+    const singleGoal = goals.length === 1 ? goals[0] : -1;
+    const targets = singleGoal < 0 ? new Set(goals) : undefined;
     const neighbors = gridNeighbors();
     // Extend a shared BFS prefix only as far as this target requires. Queue
     // order and predecessor ties remain identical to a fresh search.
@@ -1437,7 +1445,7 @@ function haulPath(c: City, from: number, to: number, ctx: HaulContext, exploredL
         if (prev[next] !== -1 || !(pass[next] & mode)) continue;
         if (n >= N4.length && (!(pass[tile+N8[n][0]] & mode) || !(pass[tile+N8[n][1]*W] & mode))) continue;
         prev[next] = tile; rank[next] = tree.size+1; queue[tree.size++] = next;
-        if (goal < 0 && targets.has(next)) goal = next;
+        if (goal < 0 && (singleGoal >= 0 ? next === singleGoal : targets!.has(next))) goal = next;
       }
     }
     if (goal < 0) {
@@ -2648,6 +2656,7 @@ export function settle(c: City, now: number, budget?: SettlementBudget) {
   // and the fourteen-day cap. Time spent loading is caught up after completion.
   if (c.catchUp) now = c.catchUp.target;
   normalizeResources(c);
+  syncZombiePolicy(c);
   syncDockBanks(c,c.last);
   initializeMedieval(c,now);
   initializeIndustry(c,now);

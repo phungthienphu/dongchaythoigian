@@ -63,13 +63,14 @@ export function adminDatabase() {
     ],
     caravans: [{ _id: "caravan-1", status: "travelling" }],
     admin_audit: [],
+    game_settings: [],
   };
   let failAudit = false;
   const matches = (doc: Document, filter: Document): boolean =>
     Object.entries(filter).every(([key, condition]) => {
       if (key === "$or")
         return (condition as Document[]).some((f) => matches(doc, f));
-      const value = doc[key];
+      const value = key.split(".").reduce((value, key) => value?.[key], doc);
       if (
         condition &&
         typeof condition === "object" &&
@@ -137,7 +138,8 @@ export function adminDatabase() {
       return { matchedCount: 1 };
     },
     async insertOne(doc: Document) {
-      if (failAudit) throw new Error("simulated audit failure");
+      if (failAudit && name === "admin_audit")
+        throw new Error("simulated audit failure");
       if (tables[name].some((d) => d._id === doc._id))
         throw new Error("duplicate key");
       tables[name].push(structuredClone(doc));
@@ -168,6 +170,7 @@ export function adminDatabase() {
     },
     module: {
       mongoClient: async () => client,
+      gameSettings: async () => collection("game_settings"),
       users: async () => collection("users"),
       cities: async () => collection("cities"),
       battles: async () => collection("battles"),

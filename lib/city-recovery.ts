@@ -15,10 +15,12 @@ export const recoveryProgress = (from: number, target: number, processed: number
 /** Cloudflare freezes performance.now() during CPU-only work. The elapsed-time
  * budget is only an extra guard on Node, never the primary bound in production.
  * Scale the hard tick limit down for large villages; no simulation time is lost.
+ * Four times more work per persisted slice amortizes fresh Mongo connections
+ * and route-cache rebuilds; active zombie actors reduce the slice budget.
  * A tick can still contain a costly topology event, so keep a conservative cap. */
 export function recoveryTickLimit(c: City) {
-  const work = Math.max(1, c.people.length + 4 * Object.keys(c.b).length);
-  return Math.max(1, Math.min(3600, Math.floor(1_000_000 / work)));
+  const work = Math.max(1, c.people.length + 4 * Object.keys(c.b).length + 40 * (c.zombiePolicy?.enabled === false ? 0 : c.zombies?.actors.length ?? 0));
+  return Math.max(1, Math.min(14_400, Math.floor(4_000_000 / work)));
 }
 
 /** The caller has authenticated and checked ownership/version. CAS includes the
@@ -29,7 +31,7 @@ export async function recoverCity(col: Collection<CityDoc>, doc: CityDoc, now: n
   const from = c.catchUp?.from ?? Math.max(c.haulAt ?? c.last, target - 14 * 24 * 60 * 60_000);
   await resolveDiscoveries(doc._id, c, target);
   const arrivals = structuredClone(c.trips ?? []);
-  settle(c, target, { maxTicks: recoveryTickLimit(c), maxMs: 1200 });
+  settle(c, target, { maxTicks: recoveryTickLimit(c), maxMs: 4000 });
   const envoyOutbox = [...new Map([
     ...(doc.envoyOutbox ?? []),
     ...[...arrivals, ...(c.trips ?? [])].filter(t => t.target).map(({ id, depart, target, targetName, arrive }) => ({

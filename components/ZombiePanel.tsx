@@ -5,6 +5,7 @@ import {zombiePresence,zombieName} from '@/lib/zombie-view';
 import {magicDefenseView} from '@/lib/magic-view';
 export default function ZombiePanel({city,now,act,busy=false,onLocate,onLocateZombie}:{city:City;now:number;act:(a:Action)=>unknown;busy?:boolean;onLocate?:(tile:number)=>void;onLocateZombie?:(id:number)=>void}){
  const z=city.zombies;
+ if(city.zombiePolicy?.enabled===false)return <section className="zombie-panel"><h3>Zombie đang tạm tắt</h3><p>Quản trị viên đã tắt zombie toàn game. Không có đợt tấn công mới; bệnh do zombie tạm dừng. Thiệt hại đã lưu vẫn giữ nguyên.</p><p>Khi bật lại, làng có ít nhất 5 phút chuẩn bị và không bị đánh bù các đợt đã tắt.</p></section>;
  if(!z)return <section className="zombie-panel"><h3>Zombie từ thời Đồ đá</h3><p>Đợt đầu sau 5 phút kể từ khi bật. Zombie cắn lây bệnh và phá nhà vĩnh viễn, phải xây mới. Dân đông thì đợt đông và thường xuyên hơn.</p><p>Chuẩn bị lính, điểm bảo vệ và lều cứu thương. Cơ chế chạy cả khi offline.</p><button className="primary" disabled={busy} onClick={()=>act({type:'activateZombies'})}>Đã đọc · bắt đầu 5 phút chuẩn bị</button></section>;
  const {active,pending}=zombiePresence(city,now);
  const p=zombiePressure(city,now),wave=zombieWave(p,city.era,z.index+1),remaining=Math.max(0,Math.ceil((z.nextAt-now)/1000)),sick=city.people.filter(p=>p.vital?.infectedAt).length,down=city.people.filter(p=>p.vital?.downAt!==undefined&&p.vital.ambulance===undefined&&(!p.vital.care||now<p.vital.care.pickupAt)).length;

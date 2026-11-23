@@ -110,3 +110,44 @@ test("support notes require existing player and are searchable in audit", async 
     /Không tìm thấy/,
   );
 });
+
+test("global zombie toggle is audited, idempotent and protected by expected rule revision", async () => {
+  const disable = {
+    action: "zombie-system" as const,
+    target: "global",
+    value: "false",
+    expected: "0",
+    reason: "Giảm áp lực zombie toàn game",
+    requestId: crypto.randomUUID(),
+  };
+  await writeAdmin("admin-id", disable);
+  await writeAdmin("admin-id", disable);
+  assert.equal(fixture.tables().game_settings[0].policy.enabled, false);
+  assert.equal(fixture.tables().game_settings[0].policy.revision, 1);
+  assert.equal(
+    (await readAdmin("admin-id", "overview", "", 1)).zombiePolicy!.enabled,
+    false,
+  );
+  await assert.rejects(
+    () =>
+      writeAdmin("admin-id", {
+        ...disable,
+        value: "true",
+        requestId: crypto.randomUUID(),
+      }),
+    /đã thay đổi/,
+  );
+  const enable = {
+    ...disable,
+    value: "true",
+    expected: "1",
+    requestId: crypto.randomUUID(),
+  };
+  fixture.failAudit(true);
+  await assert.rejects(() => writeAdmin("admin-id", enable));
+  fixture.failAudit(false);
+  assert.equal(fixture.tables().game_settings[0].policy.enabled, false);
+  await writeAdmin("admin-id", enable);
+  assert.equal(fixture.tables().game_settings[0].policy.enabled, true);
+  assert.equal(fixture.tables().game_settings[0].policy.revision, 2);
+});

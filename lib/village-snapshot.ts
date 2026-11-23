@@ -3,7 +3,7 @@ import { MAX_SETTLE_MS, settle, type City } from './engine';
 import { villageView } from './world-discovery';
 
 type Source = { _id: string; ver: number; state: City };
-type Entry = { revision: number; sourceLast: number; engine: number; at: number; state: City; weight: number };
+type Entry = { revision: number; sourceLast: number; policy: number; engine: number; at: number; state: City; weight: number };
 /** Internal simulation checkpoints only. Callers must authorize each visit and
  * load the current database revision before using this process-local cache. */
 export class VillageSnapshots {
@@ -18,7 +18,7 @@ export class VillageSnapshots {
   checkpoint(doc: Source, now: number): City {
     const source = doc.state;
     const old = this.entries.get(doc._id);
-    const reusable = old && old.revision === doc.ver && old.sourceLast === source.last
+    const reusable = old && old.revision === doc.ver && old.sourceLast === source.last && old.policy === (source.zombiePolicy?.revision ?? 0)
       && old.engine === source.ver && now >= old.at && now - old.at < this.ttlMs;
     // Legacy activation timestamps and the moving offline cap depend on the
     // original request time; replay those snapshots directly to preserve policy.
@@ -27,7 +27,7 @@ export class VillageSnapshots {
     const state = reusable && cacheable ? structuredClone(old.state) : structuredClone(source);
     if (!state.battleId) this.advance(state, now);
     if (cacheable) this.entries.set(doc._id, {
-      revision: doc.ver, sourceLast: source.last, engine: source.ver,
+      revision: doc.ver, sourceLast: source.last, policy: source.zombiePolicy?.revision ?? 0, engine: source.ver,
       at: reusable ? old.at : now, state, weight: JSON.stringify(state).length * 2,
     });
     return structuredClone(state);

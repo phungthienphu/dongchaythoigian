@@ -90,6 +90,7 @@ const states: Record<string, string> = {
   sold: "Đã bán",
   "rename-city": "Đổi tên làng",
   note: "Ghi chú hỗ trợ",
+  "zombie-system": "Bật/tắt zombie toàn game",
 };
 function display(key: string, value: AdminRow[string]) {
   if (value === null || value === "") return "—";
@@ -124,6 +125,11 @@ export default function AdminConsole() {
     [saving, setSaving] = useState(false),
     [saveError, setSaveError] = useState(""),
     [notice, setNotice] = useState("");
+  const [policyTarget, setPolicyTarget] = useState<boolean | null>(null);
+  const [policyReason, setPolicyReason] = useState("");
+  const [policySaving, setPolicySaving] = useState(false);
+  const [policyError, setPolicyError] = useState("");
+  const policyRequestId = useRef("");
   const requestId = useRef(""),
     closeButton = useRef<HTMLButtonElement>(null),
     opener = useRef<HTMLElement | null>(null);
@@ -232,6 +238,33 @@ export default function AdminConsole() {
       setSaveError((e as Error).message);
     } finally {
       setSaving(false);
+    }
+  }
+  async function savePolicy(e: React.FormEvent) {
+    e.preventDefault();
+    if (!data?.zombiePolicy || policyTarget === null || policySaving) return;
+    setPolicySaving(true);
+    setPolicyError("");
+    try {
+      await api("/api/admin", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "zombie-system",
+          target: "global",
+          value: String(policyTarget),
+          expected: String(data.zombiePolicy.revision),
+          reason: policyReason,
+          requestId: policyRequestId.current,
+        }),
+      });
+      setPolicyTarget(null);
+      setNotice("Đã cập nhật zombie toàn game và lưu nhật ký quản trị.");
+      setRevision((n) => n + 1);
+    } catch (e) {
+      setPolicyError((e as Error).message);
+    } finally {
+      setPolicySaving(false);
     }
   }
   const columns = data?.rows[0]
@@ -364,6 +397,95 @@ export default function AdminConsole() {
                       </article>
                     ))}
                   </section>
+                  {data?.zombiePolicy && (
+                    <section
+                      className="admin-panel admin-zombie-control"
+                      aria-label="Điều khiển zombie"
+                    >
+                      <div className="admin-panel-header">
+                        <div>
+                          <h2>
+                            Zombie toàn game ·{" "}
+                            {data.zombiePolicy.enabled
+                              ? "Đang bật"
+                              : "Đang tắt"}
+                          </h2>
+                          <p>
+                            Tắt để chặn các đợt tấn công, tính bù và bệnh do
+                            zombie. Giữ nguyên thiệt hại đã lưu. Áp dụng khi
+                            làng đồng bộ với máy chủ.
+                          </p>
+                        </div>
+                        <button
+                          disabled={policySaving}
+                          onClick={() => {
+                            setPolicyTarget(!data.zombiePolicy!.enabled);
+                            setPolicyReason("");
+                            setPolicyError("");
+                            policyRequestId.current = crypto.randomUUID();
+                          }}
+                        >
+                          {data.zombiePolicy.enabled
+                            ? "Tắt zombie"
+                            : "Bật zombie"}
+                        </button>
+                      </div>
+                      {policyTarget !== null && (
+                        <form className="admin-edit" onSubmit={savePolicy}>
+                          <h3>
+                            {policyTarget
+                              ? "Bật lại zombie cho toàn game?"
+                              : "Tắt zombie cho toàn game?"}
+                          </h3>
+                          <p>
+                            {policyTarget
+                              ? "Không dồn đợt tấn công trong lúc tắt; có ít nhất 5 phút chuẩn bị sau khi bật lại."
+                              : "Zombie đang có sẽ ngừng tấn công khi làng đồng bộ. Không hoàn lại công trình hoặc dân đã mất."}
+                          </p>
+                          <label htmlFor="zombie-policy-reason">
+                            Lý do thay đổi zombie
+                          </label>
+                          <input
+                            id="zombie-policy-reason"
+                            minLength={5}
+                            maxLength={500}
+                            required
+                            disabled={policySaving}
+                            value={policyReason}
+                            onChange={(e) => {
+                              setPolicyReason(e.target.value);
+                              policyRequestId.current = crypto.randomUUID();
+                            }}
+                          />
+                          {policyError && (
+                            <p className="admin-error" role="alert">
+                              {policyError}
+                            </p>
+                          )}
+                          <div className="admin-edit-actions">
+                            <button
+                              type="button"
+                              disabled={policySaving}
+                              onClick={() => setPolicyTarget(null)}
+                            >
+                              Hủy
+                            </button>
+                            <button
+                              className="admin-primary"
+                              type="submit"
+                              disabled={
+                                policySaving || policyReason.trim().length < 5
+                              }
+                            >
+                              {policySaving
+                                ? "Đang lưu…"
+                                : "Xác nhận thay đổi zombie"}
+                            </button>
+                          </div>
+                        </form>
+                      )}
+                    </section>
+                  )}
                   <section className="admin-world-note">
                     <span aria-hidden="true">≋</span>
                     <div>

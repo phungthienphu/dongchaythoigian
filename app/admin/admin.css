@@ -750,3 +750,19 @@ body:has(.admin-shell) {
   top: 0;
   left: 0;
 }
+
+.admin-zombie-control {
+  margin-bottom: 24px;
+}
+.admin-zombie-control .admin-panel-header {
+  align-items: flex-start;
+}
+.admin-zombie-control .admin-panel-header p {
+  max-width: 700px;
+}
+.admin-zombie-control .admin-panel-header button {
+  flex-shrink: 0;
+}
+.admin-zombie-control .admin-edit {
+  padding: 22px;
+}

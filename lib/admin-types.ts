@@ -8,10 +8,11 @@ export type AdminData = {
   page: number;
   hasMore: boolean;
   rows: AdminRow[];
+  zombiePolicy?: import("./game-policy").ZombiePolicy;
   metrics?: { label: string; value: number }[];
 };
 export type AdminCommand = {
-  action: "rename-city" | "note";
+  action: "rename-city" | "note" | "zombie-system";
   target: string;
   reason: string;
   value: string;

@@ -3,7 +3,7 @@
 // Use routes-only when intentional economy changes invalidate city equality.
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync,readFileSync,writeFileSync,mkdirSync,rmSync} from 'node:fs';
+import {mkdtempSync,readdirSync,readFileSync,writeFileSync,mkdirSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -12,7 +12,7 @@ const probe='\nexport function auditPaths(c:City,from:number,targets:number[],se
 try{
  for(const side of ['old','next']){
   mkdirSync(join(dir,side));
-  for(const file of ['formation.ts','fortifications.ts','bridges.ts','hunger.ts','economy-balance.ts','resource-history.ts','engine.ts','era-preview.ts','action-input.ts','bounded-cache.ts','eras.ts','medieval.ts','industry.ts','modern.ts','era-military.ts','tower-balance.ts']){
+  for(const file of readdirSync(resolve('lib')).filter(file=>file.endsWith('.ts')&&!file.endsWith('.test.ts'))){
    let source;try{source=side==='old'?execFileSync('git',['show',`${ref}:lib/${file}`],{encoding:'utf8',stdio:['ignore','pipe','ignore']}):readFileSync(resolve('lib',file),'utf8');}catch{if(side==='old')continue;throw Error('Missing '+file);}
    writeFileSync(join(dir,side,file),source+(file==='engine.ts'?probe:''));
   }
