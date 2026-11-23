@@ -35,3 +35,15 @@ Không thay đổi database production, chưa bật/tắt zombie thật, chưa d
 - `bun run build`: pass; `bun run build:cloudflare -- https://dongchaythoigian.phungthienphu.workers.dev`: pass.
 - Chromium admin E2E: pass cả off/on + audit, anonymous/player/stale session, các chức năng cũ và mobile.
 - `git diff --check`: pass.
+
+## Production release 2026-11-23
+
+- Người dùng yêu cầu `release`; đã deploy từ detached worktree sạch tại source commit `22e68f4d13ea91fa83bdbe38f14b3549fca540df`, giữ nguyên `.gitignore` ngoài phạm vi.
+- Release ID: `zombie-control-recovery-20261123`.
+- Web/API version: `91aede03-bf26-4748-8d73-9fea57e4ff9f`.
+- Combat Worker version: `1caf2266-164f-49ab-9ff9-aef3ed9d3abb`.
+- Cả hai deploy dùng `--keep-vars`; không cập nhật setting zombie hoặc dữ liệu người chơi.
+- Trong worktree release: type-check, 15 admin tests, 18 Worker tests và build Cloudflare đều pass. Kết quả 617 lib tests và differential ở trên thuộc cùng source implementation trước commit.
+- Public smoke: health đúng release; homepage/admin 200; 10 JS/CSS asset đúng SHA-256 và MIME; `/dev/eras` 404; admin/city API và Combat Worker command đều từ chối ẩn danh 401.
+- Chromium production: admin hiển thị cổng đăng nhập, mobile 390 px không tràn ngang và không pageerror. Thao tác toggle đã kiểm thử trên fixture; không toggle production trong smoke.
+- Source commit đã push `origin/main`. Chưa benchmark recovery trên làng production thật trong lần phát hành này.
